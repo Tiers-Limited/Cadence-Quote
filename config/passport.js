@@ -31,7 +31,7 @@ module.exports = function(passport) {
             where: { googleId: profile.id },
             include: [{
               model: Tenant,
-              attributes: ['id', 'companyName', 'subdomain', 'subscriptionPlan']
+              attributes: ['id', 'companyName', 'subscriptionPlan']
             }]
           });
 
@@ -41,7 +41,7 @@ module.exports = function(passport) {
               where: { email },
               include: [{
                 model: Tenant,
-                attributes: ['id', 'companyName', 'subdomain', 'subscriptionPlan']
+                attributes: ['id', 'companyName', 'subscriptionPlan']
               }]
             });
 

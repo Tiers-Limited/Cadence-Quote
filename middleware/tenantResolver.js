@@ -15,35 +15,12 @@ const resolveTenant = async (req, res, next) => {
       return next();
     }
 
-    // Extract subdomain from host
-    const host = req.get('host') || '';
-    const subdomain = extractSubdomain(host);
+    // Tenant resolution by subdomain has been removed.
+    // Requests should include tenantId when necessary. Skip resolution for public routes.
+    // Optionally, you could implement tenant lookup by header or JWT in the future.
 
-    if (!subdomain) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid subdomain. Please access via your tenant subdomain (e.g., yourcompany.cadence.com)'
-      });
-    }
-
-    // Find tenant by subdomain
-    const tenant = await Tenant.findOne({
-      where: { 
-        subdomain,
-        isActive: true
-      }
-    });
-
-    if (!tenant) {
-      return res.status(404).json({
-        success: false,
-        message: 'Tenant not found or inactive'
-      });
-    }
-
-    // Attach tenant to request
-    req.tenant = tenant;
-    next();
+  // No tenant attached by default. Continue; caller should validate tenant where required.
+  return next();
   } catch (error) {
     console.error('Tenant resolution error:', error);
     return res.status(500).json({
@@ -101,7 +78,7 @@ const validateTenantOwnership = (req, res, next) => {
   // If request body or params contain tenantId, validate it matches
   const requestTenantId = req.body.tenantId || req.params.tenantId || req.query.tenantId;
   
-  if (requestTenantId && parseInt(requestTenantId) !== req.tenant.id) {
+  if (requestTenantId && req.tenant && Number.parseInt(requestTenantId) !== req.tenant.id) {
     return res.status(403).json({
       success: false,
       message: 'Access denied: Tenant mismatch'

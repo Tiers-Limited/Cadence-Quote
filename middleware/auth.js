@@ -31,7 +31,7 @@ const authenticateToken = async (req, res, next) => {
       },
       include: [{
         model: Tenant,
-        attributes: ['id', 'companyName', 'subdomain', 'subscriptionPlan']
+        attributes: ['id', 'companyName', 'subscriptionPlan']
       }]
     });
 

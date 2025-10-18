@@ -65,23 +65,9 @@ const register = async (req, res) => {
       });
     }
 
-    // Generate subdomain from company name
-    const subdomain = generateSubdomain(companyName);
-
-    // Check if subdomain already exists
-    const existingTenant = await Tenant.findOne({ where: { subdomain } });
-    if (existingTenant) {
-      return res.status(409).json({
-        success: false,
-        message: 'Company name already registered. Please use a different company name.',
-        suggestedSubdomain: subdomain
-      });
-    }
-
     // Create tenant
     const tenant = await Tenant.create({
       companyName,
-      subdomain,
       email,
       phoneNumber,
       businessAddress: businessAddress || null,
@@ -120,12 +106,11 @@ const register = async (req, res) => {
         tenant: {
           id: tenant.id,
           companyName: tenant.companyName,
-          subdomain: tenant.subdomain,
           tradeType: tenant.tradeType,
           subscriptionPlan: tenant.subscriptionPlan
         },
         token,
-        accessUrl: `https://${subdomain}.cadence.com` // For production
+        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${tenant.id}`
       }
     });
 
@@ -179,7 +164,7 @@ const login = async (req, res) => {
       include: [{
         model: Tenant,
         where: { isActive: true },
-        attributes: ['id', 'companyName', 'subdomain', 'tradeType', 'subscriptionPlan']
+        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan']
       }]
     });
    
@@ -228,13 +213,12 @@ const login = async (req, res) => {
         tenant: {
           id: user.Tenant.id,
           companyName: user.Tenant.companyName,
-          subdomain: user.Tenant.subdomain,
           tradeType: user.Tenant.tradeType,
           subscriptionPlan: user.Tenant.subscriptionPlan
         },
         token,
         refreshToken,
-        accessUrl: `https://${user.Tenant.subdomain}.cadence.com`
+        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`
       }
     });
 
@@ -259,7 +243,7 @@ const getProfile = async (req, res) => {
       attributes: { exclude: ['password'] },
       include: [{
         model: Tenant,
-        attributes: ['id', 'companyName', 'subdomain', 'tradeType', 'subscriptionPlan', 'phoneNumber', 'businessAddress']
+        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan', 'phoneNumber', 'businessAddress']
       }]
     });
 
@@ -358,23 +342,11 @@ const registerWithPayment = async (req, res) => {
       });
     }
 
-    // Generate subdomain from company name
-    const subdomain = generateSubdomain(companyName);
-
-    // Check if subdomain already exists
-    const existingTenant = await Tenant.findOne({ where: { subdomain } });
-    if (existingTenant) {
-      return res.status(409).json({
-        success: false,
-        message: 'Company name already registered. Please use a different company name.',
-        suggestedSubdomain: subdomain
-      });
-    }
+    // (No subdomain generation required)
 
     // Create tenant (initially inactive until payment is confirmed)
     const tenant = await Tenant.create({
       companyName,
-      subdomain,
       email,
       phoneNumber,
       businessAddress: businessAddress || null,
@@ -468,12 +440,11 @@ const registerWithPayment = async (req, res) => {
         stripeUrl: session.sessionUrl,
         sessionId: session.sessionId,
         tenant: {
-          id: tenant.id,
-          companyName: tenant.companyName,
-          subdomain: tenant.subdomain,
-          tradeType: tenant.tradeType,
-          subscriptionPlan: tenant.subscriptionPlan
-        },
+            id: tenant.id,
+            companyName: tenant.companyName,
+            tradeType: tenant.tradeType,
+            subscriptionPlan: tenant.subscriptionPlan
+          },
         user: {
           id: user.id,
           fullName: user.fullName,
@@ -507,20 +478,7 @@ const registerWithPayment = async (req, res) => {
   }
 };
 
-/**
- * Generate subdomain from company name
- * Example: "ABC Painting LLC" -> "abc-painting"
- */
-function generateSubdomain(companyName) {
-  return companyName
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9\s-]/g, '') // Remove special chars except spaces and hyphens
-    .trim()
-    .replaceAll(/\s+/g, '-') // Replace spaces with hyphens
-    .replaceAll(/-+/g, '-') // Replace multiple hyphens with single
-    .replaceAll(/(?:^-|-$)/g, '') // Remove leading/trailing hyphens
-    .substring(0, 50); // Limit length
-}
+// generateSubdomain helper removed - tenant subdomain option discontinued
 
 /**
  * Get Google OAuth URL
@@ -655,22 +613,9 @@ const completeGoogleSignup = async (req, res) => {
       });
     }
 
-    // Generate subdomain
-    const subdomain = generateSubdomain(companyName);
-
-    // Check if subdomain already exists
-    const existingTenant = await Tenant.findOne({ where: { subdomain } });
-    if (existingTenant) {
-      return res.status(409).json({
-        success: false,
-        message: 'Company name already registered. Please use a different company name.'
-      });
-    }
-
-    // Create tenant
+    // Create tenant (no subdomain)
     const tenant = await Tenant.create({
       companyName,
-      subdomain,
       email: googleInfo.email,
       phoneNumber,
       businessAddress: businessAddress || null,
@@ -747,8 +692,7 @@ const completeGoogleSignup = async (req, res) => {
         sessionId: session.sessionId,
         tenant: {
           id: tenant.id,
-          companyName: tenant.companyName,
-          subdomain: tenant.subdomain
+          companyName: tenant.companyName
         },
         user: {
           id: user.id,
@@ -786,7 +730,6 @@ const linkGoogleAccount = async (req, res) => {
 
     const payload = ticket.getPayload();
     const googleId = payload.sub;
-    const email = payload.email;
 
     // Check if Google account is already linked to another user
     const existingUser = await User.findOne({

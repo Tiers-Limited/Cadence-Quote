@@ -15,16 +15,6 @@ const Tenant = sequelize.define('Tenant', {
       notEmpty: true
     }
   },
-  subdomain: {
-    type: DataTypes.STRING,
-    unique: true,
-    allowNull: false,
-    validate: {
-      notEmpty: true,
-      isLowercase: true,
-      is: /^[a-z0-9-]+$/  // Only lowercase alphanumeric and hyphens
-    }
-  },
   email: {
     type: DataTypes.STRING,
     allowNull: false,
@@ -76,10 +66,6 @@ const Tenant = sequelize.define('Tenant', {
 }, {
   timestamps: true,
   indexes: [
-    {
-      unique: true,
-      fields: ['subdomain']
-    },
     {
       unique: true,
       fields: ['email']
