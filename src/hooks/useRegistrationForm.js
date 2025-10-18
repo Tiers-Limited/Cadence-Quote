@@ -11,7 +11,6 @@ const initialFormData = {
   password: "",
   confirmPassword: "",
   tradeType: "painter",
-  subdomain: "",
   businessAddress: "",
   agreeToTerms: false,
 }
@@ -58,9 +57,7 @@ export const useRegistrationForm = () => {
       newErrors.phone = "Phone number is required"
     }
 
-    if (!formData.subdomain.trim()) {
-      newErrors.subdomain = "Subdomain is required"
-    } 
+    // Subdomain removed from registration
 
     // Only validate password if not using Google auth
     if (!isGoogleAuth) {

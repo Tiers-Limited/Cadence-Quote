@@ -91,13 +91,6 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
       icon: FiPhone,
       placeholder: "+1 (555) 000-0000",
     },
-    {
-      name: "subdomain",
-      label: "Company Subdomain",
-      type: "text",
-      icon: FiMapPin,
-      placeholder: "my-company (lowercase, no spaces)",
-    },
   ]
 
   return (
@@ -164,10 +157,7 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
                 </div>
               )
             })}
-          </div>
-
-          {/* Trade Type Selection */}
-          <div>
+            <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Trade Type</label>
             <select
               name="tradeType"
@@ -182,6 +172,9 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
               ))}
             </select>
           </div>
+          </div>
+
+      
 
           {/* Business Address */}
           <div>
