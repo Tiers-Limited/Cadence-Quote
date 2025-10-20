@@ -20,7 +20,6 @@ export const useLogin = () => {
       if (response.success) {
         // Store token and refresh token in localStorage
         localStorage.setItem("authToken", response.data.token)
-        localStorage.setItem("user", JSON.stringify(response.data.user))
         localStorage.setItem("tenant", JSON.stringify(response.data.tenant))
         
         if (response.data.refreshToken) {

@@ -1,7 +1,7 @@
 
 
 import { useState, useEffect } from "react"
-import { useSearchParams } from "react-router-dom"
+import { useSearchParams, useNavigate } from "react-router-dom"
 import RegistrationForm from "../components/RegistrationForm"
 import SubscriptionPage from "../components/SubscriptionPage"
 import { message } from "antd"
@@ -11,6 +11,7 @@ function RegistrationPage() {
   const [formData, setFormData] = useState(null)
   const [googleData, setGoogleData] = useState(null)
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
 
   useEffect(() => {
     // Handle Google OAuth data
@@ -57,11 +58,16 @@ function RegistrationPage() {
     setCurrentStep("form")
   }
 
+  const handleNavigateToLogin = () => {
+    navigate('/login')
+  }
+
   return (
     <div className="min-h-screen py-12 px-4">
       {currentStep === "form" && (
         <RegistrationForm 
           onSubmit={handleFormSubmit} 
+          onNavigateToLogin={handleNavigateToLogin}
           googleData={googleData}
         />
       )}

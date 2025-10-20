@@ -72,7 +72,7 @@ function PaymentCancelPage() {
           </ul>
         </div>
 
-        <div className="space-y-3">
+          <div className=' flex items-center gap-3 '>
           <button
             onClick={handleRetry}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"

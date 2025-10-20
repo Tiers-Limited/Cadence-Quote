@@ -26,7 +26,7 @@ function LoginPage() {
 
     const result = await login(email, password)
     if (result.success) {
-      message.success("Login successful!")
+      // message.success("Login successful!") // Removed duplicate alert
       // Pass both user and token, plus refreshToken if available
       contextLogin(
         result.data.user, 

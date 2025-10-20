@@ -10,7 +10,7 @@ const initialFormData = {
   phone: "",
   password: "",
   confirmPassword: "",
-  tradeType: "painter",
+  tradeType: "Select Trade Type",
   businessAddress: "",
   agreeToTerms: false,
 }

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { FiCheckCircle, FiXCircle } from "react-icons/fi"
-import { Spin, message } from "antd"
+import { Spin } from "antd"
 
 function PaymentSuccessPage() {
   const [status, setStatus] = useState('loading') // 'loading', 'success', 'error'
@@ -37,7 +37,7 @@ function PaymentSuccessPage() {
         }
         setStatus('success')
         setPaymentData((prev) => prev || { plan })
-        message.info('Payment was already confirmed.')
+        // message.info('Payment was already confirmed.') // Removed alert
         return
       }
 
@@ -61,18 +61,18 @@ function PaymentSuccessPage() {
             localStorage.removeItem("pendingRegistration")
 
             setStatus('success')
-            message.success("Payment successful! Your account has been activated.")
+            // message.success("Payment successful! Your account has been activated.") // Removed alert
           } catch (parseError) {
             console.error('Failed to parse pending registration:', parseError)
             setStatus('success')
             setPaymentData({ plan })
-            message.success("Payment confirmed! Please login to continue.")
+            // message.success("Payment confirmed! Please login to continue.") // Removed alert
           }
         } else {
           // No pending registration found, but payment was successful
           setStatus('success')
           setPaymentData({ plan })
-          message.success("Payment confirmed! Please login to continue.")
+          // message.success("Payment confirmed! Please login to continue.") // Removed alert
         }
       } catch (err) {
         console.error('Payment confirmation error:', err)

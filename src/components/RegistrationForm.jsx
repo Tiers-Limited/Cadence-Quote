@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import { FiUser, FiMail, FiLock, FiEye, FiEyeOff, FiPhone, FiMapPin } from "react-icons/fi"
 import { useRegistrationForm } from "../hooks/useRegistrationForm"
-import { message } from "antd"
+import { message, Input, Select, Button, Checkbox } from "antd"
 import { BuildingIcon } from "lucide-react"
 import GoogleAuthButton from "./GoogleAuthButton"
 import PropTypes from 'prop-types'
@@ -13,6 +14,7 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const { formData, setFormData, errors, validateForm, TRADE_TYPES } = useRegistrationForm()
   const [isGoogleAuth, setIsGoogleAuth] = useState(false)
+  const navigate = useNavigate()
 
   // Auto-fill form with Google data when available
   useEffect(() => {
@@ -52,6 +54,14 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
       })
     } else {
       message.error("Please fix the errors in the form")
+    }
+  }
+
+    const handleNavigateToLogin = () => {
+    if (onNavigateToLogin) {
+      onNavigateToLogin()
+    } else {
+      navigate('/login')
     }
   }
 
@@ -159,18 +169,20 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
             })}
             <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Trade Type</label>
-            <select
+            <Select
               name="tradeType"
-              value={formData.tradeType}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+              value={formData.tradeType || "Select Trade Type"}
+              onChange={(value) => setFormData((prev) => ({ ...prev, tradeType: value }))}
+              className="w-full"
+              placeholder="Select Trade Type"
             >
+              <Select.Option value="Select Trade Type">Select Trade Type</Select.Option>
               {TRADE_TYPES.map((type) => (
-                <option key={type.value} value={type.value}>
+                <Select.Option key={type.value} value={type.value}>
                   {type.label}
-                </option>
+                </Select.Option>
               ))}
-            </select>
+            </Select>
           </div>
           </div>
 
@@ -288,7 +300,7 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
 
         <p className="text-center text-gray-600 mt-6">
           Already have an account?{" "}
-          <button onClick={onNavigateToLogin} className="text-blue-600 hover:text-blue-700 font-semibold">
+          <button onClick={handleNavigateToLogin} className="text-blue-600 hover:text-blue-700 font-semibold">
             Sign in here
           </button>
         </p>

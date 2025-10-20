@@ -1,0 +1,124 @@
+/* Small overrides to make AntD Segmented look like rounded pill segments in the screenshots */
+:root {
+  /* Segmented UI variables - tweak these to match screenshots */
+  --seg-bg: #f8fafc; /* light surface */
+  --seg-border: rgba(99,102,241,0.08);
+  --seg-text: #374151; /* default label color */
+  --seg-checked-text: #062e8a; /* active label color */
+  --seg-checked-start: #ffffff; /* top of gradient */
+  --seg-checked-end: #e8eefc; /* bottom of gradient */
+  --seg-shadow: 0 6px 20px rgba(14, 39, 100, 0.08);
+  --seg-hover-bg: rgba(59,130,246,0.06);
+  --seg-focus-ring: rgba(37,99,235,0.18);
+}
+
+.ant-segmented--rounded .ant-segmented {
+  border-radius: 9999px;
+  padding: 6px;
+  
+  background: var(--seg-bg);
+  border: 1px solid var(--seg-border);
+}
+
+.ant-segmented--rounded .ant-segmented-item {
+  border-radius: 9999px;
+  padding: 0px 18px;
+  color: var(--seg-text);
+  white-space: nowrap; /* keep label words together when possible */
+  transition: all 180ms cubic-bezier(.2,.9,.2,1);
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ant-segmented--rounded .ant-segmented-item:hover {
+  background: var(--seg-hover-bg);
+  color: var(--seg-checked-text);
+}
+
+.ant-segmented--rounded .ant-segmented-item:focus,
+.ant-segmented--rounded .ant-segmented-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 6px var(--seg-focus-ring);
+  border-radius: 9999px;
+}
+
+.ant-segmented--rounded .ant-segmented-item-checked {
+  background: linear-gradient(180deg, var(--seg-checked-start), var(--seg-checked-end));
+  color: var(--seg-checked-text);
+  box-shadow: var(--seg-shadow);
+  border-radius: 9999px;
+}
+
+/* Make segmented have the subtle border and spacing like the screenshot */
+.ant-segmented {
+  border-radius: 9999px;
+}
+
+/* Responsive improvements ---------- */
+/* Make the segmented control use a wrapping layout when there's not enough horizontal room */
+.ant-segmented--rounded .ant-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px; /* spacing between pill items when wrapping */
+  align-items: center;
+}
+
+/* When wrapped, adjust the item styles to be slightly smaller on small screens */
+@media (max-width: 768px) {
+  .ant-segmented--rounded .ant-segmented-item {
+    padding: 0px 12px;
+    font-size: 0.92rem;
+  }
+
+  /* On narrow screens, allow segmented to become multi-row without forcing each item to full width */
+  .ant-segmented--rounded .ant-segmented-item {
+    flex: 0 0 auto;
+  }
+}
+
+/* Very small screens: use a compact stacked layout (2 columns if many options) */
+@media (max-width: 420px) {
+  .ant-segmented--rounded .ant-segmented {
+    gap: 6px;
+  }
+
+  /* Make items flow into multiple columns using CSS grid fallback for very small widths */
+  .ant-segmented--rounded.compact-grid .ant-segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  /* Reduce padding and font-size for compact display */
+  .ant-segmented--rounded .ant-segmented-item {
+    padding: 0px 10px;
+    font-size: 0.85rem;
+  }
+}
+
+/* Accessibility: increase hit area slightly when items are small */
+.ant-segmented--rounded .ant-segmented-item {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Utility: small variant programmatic class to use a more compact look */
+.ant-segmented--rounded.ant-segmented--compact .ant-segmented-item {
+  padding: 0px 10px;
+  font-size: 0.9rem;
+}
+
+/* Disabled state */
+.ant-segmented--rounded .ant-segmented-item[aria-disabled="true"],
+.ant-segmented--rounded .ant-segmented-item-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
