@@ -50,7 +50,6 @@ const Payment = sequelize.define('Payment', {
   stripeSessionId: {
     type: DataTypes.STRING,
     allowNull: true,
-    unique: true,
     comment: 'Stripe Checkout Session ID'
   },
   stripePaymentIntentId: {
@@ -95,6 +94,7 @@ const Payment = sequelize.define('Payment', {
       fields: ['userId']
     },
     {
+      unique: true,
       fields: ['stripeSessionId']
     },
     {

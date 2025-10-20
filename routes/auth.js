@@ -10,9 +10,12 @@ const {
   handleGoogleCallback,
   completeGoogleSignup,
   linkGoogleAccount,
-  setPassword
+  setPassword,
+  sendVerificationEmail,
+  verifyEmail,
+  resendVerificationEmail
 } = require('../controllers/authController');
-const { authenticateToken, refreshAccessToken } = require('../middleware/auth');
+const { auth, refreshAccessToken } = require('../middleware/auth');
 
 // Initialize passport
 require('../config/passport')(passport);
@@ -43,7 +46,7 @@ router.post('/refresh', refreshAccessToken);
  * @desc    Get current user profile
  * @access  Private
  */
-router.get('/me', authenticateToken, getProfile);
+router.get('/me', auth, getProfile);
 
 /**
  * @route   GET /api/auth/google/url
@@ -91,13 +94,34 @@ router.post('/google/complete-signup', completeGoogleSignup);
  * @desc    Link Google account to existing user
  * @access  Private
  */
-router.post('/google/link', authenticateToken, linkGoogleAccount);
+router.post('/google/link', auth, linkGoogleAccount);
 
 /**
  * @route   POST /api/auth/set-password
  * @desc    Set password for Google-only accounts
  * @access  Private
  */
-router.post('/set-password', authenticateToken, setPassword);
+router.post('/set-password', auth, setPassword);
+
+/**
+ * @route   POST /api/auth/send-verification
+ * @desc    Send email verification link
+ * @access  Private
+ */
+router.post('/send-verification', auth, sendVerificationEmail);
+
+/**
+ * @route   GET /api/auth/verify-email
+ * @desc    Verify email with token
+ * @access  Public
+ */
+router.get('/verify-email', verifyEmail);
+
+/**
+ * @route   POST /api/auth/resend-verification
+ * @desc    Resend email verification link
+ * @access  Private
+ */
+router.post('/resend-verification', auth, resendVerificationEmail);
 
 module.exports = router;

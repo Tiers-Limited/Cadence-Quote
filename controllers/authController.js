@@ -2,8 +2,10 @@
 const User = require('../models/User');
 const Tenant = require('../models/Tenant');
 const Payment = require('../models/Payment');
-const { generateToken, generateRefreshToken } = require('../middleware/auth');
+const { generateToken, generateRefreshToken, refreshAccessToken } = require('../middleware/auth');
 const { createCheckoutSession, SUBSCRIPTION_PLANS } = require('../services/stripeService');
+const emailService = require('../services/emailService');
+const { generateVerificationToken, verifyVerificationToken } = require('../utils/verificationToken');
 const sequelize = require('../config/database');
 const { OAuth2Client } = require('google-auth-library');
 
@@ -83,7 +85,8 @@ const register = async (req, res) => {
       password, // Will be hashed by beforeCreate hook
       role: 'contractor_admin',
       tenantId: tenant.id,
-      isActive: true
+      isActive: true,
+      emailVerified: false // Will send verification email
     }, { transaction });
 
     // Commit transaction
@@ -92,16 +95,27 @@ const register = async (req, res) => {
     // Generate JWT token
     const token = generateToken(user.id, tenant.id);
 
+    // Send email verification for non-Google users
+    try {
+      const verificationToken = generateVerificationToken(user.id, user.email);
+      await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+      console.log('✓ Verification email sent to:', user.email);
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      // Don't fail registration if email fails, just log it
+    }
+
     // Return success response
     res.status(201).json({
       success: true,
-      message: 'Registration successful',
+      message: 'Registration successful! Please check your email to verify your account.',
       data: {
         user: {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
-          role: user.role
+          role: user.role,
+          emailVerified: user.emailVerified
         },
         tenant: {
           id: tenant.id,
@@ -155,16 +169,18 @@ const login = async (req, res) => {
       });
     }
 
-    // Find user with tenant information
+    // Find user with tenant information (optimized query)
     const user = await User.findOne({
       where: { 
         email,
         isActive: true
       },
+      attributes: ['id', 'fullName', 'email', 'role', 'tenantId', 'authProvider', 'password', 'emailVerified'],
       include: [{
         model: Tenant,
         where: { isActive: true },
-        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan']
+        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan'],
+        required: true // INNER JOIN for better performance
       }]
     });
    
@@ -208,7 +224,8 @@ const login = async (req, res) => {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
-          role: user.role
+          role: user.role,
+          emailVerified: user.emailVerified
         },
         tenant: {
           id: user.Tenant.id,
@@ -218,7 +235,8 @@ const login = async (req, res) => {
         },
         token,
         refreshToken,
-        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`
+        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`,
+        
       }
     });
 
@@ -237,13 +255,14 @@ const login = async (req, res) => {
  */
 const getProfile = async (req, res) => {
   try {
-    // User is already attached by authenticateToken middleware
+    // User is already attached by authenticateToken middleware (optimized query)
     const user = await User.findOne({
       where: { id: req.user.id },
-      attributes: { exclude: ['password'] },
+      attributes: ['id', 'fullName', 'email', 'role', 'isActive', 'emailVerified', 'createdAt'],
       include: [{
         model: Tenant,
-        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan', 'phoneNumber', 'businessAddress']
+        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan', 'phoneNumber', 'businessAddress'],
+        required: true // INNER JOIN for better performance
       }]
     });
 
@@ -256,6 +275,7 @@ const getProfile = async (req, res) => {
           email: user.email,
           role: user.role,
           isActive: user.isActive,
+          emailVerified: user.emailVerified,
           createdAt: user.createdAt
         },
         tenant: user.Tenant
@@ -280,26 +300,21 @@ const registerWithPayment = async (req, res) => {
 
   try {
     const {
-      // User fields
       fullName,
       email,
       password,
-      // Tenant fields
       companyName,
       phoneNumber,
       businessAddress,
       tradeType,
       subscriptionPlan,
-      // Google OAuth fields
       googleId,
       authProvider
     } = req.body;
 
-    // Check if this is a Google OAuth registration
-    const isGoogleAuth = authProvider === 'google' && googleId;
-
-    // Validation - password is only required for non-Google registrations
+    // Validation
     if (!fullName || !email || !companyName || !phoneNumber || !tradeType || !subscriptionPlan) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'Missing required fields',
@@ -307,159 +322,216 @@ const registerWithPayment = async (req, res) => {
       });
     }
 
-    // Password validation only for non-Google auth
-    if (!isGoogleAuth) {
-      if (!password) {
-        return res.status(400).json({
-          success: false,
-          message: 'Password is required for email registration'
-        });
-      }
-      
-      if (password.length < 8) {
-        return res.status(400).json({
-          success: false,
-          message: 'Password must be at least 8 characters long'
-        });
-      }
+    const isGoogleAuth = authProvider === 'google' && googleId;
+    if (!isGoogleAuth && (!password || password.length < 8)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: !password ? 'Password is required for email registration' : 'Password must be at least 8 characters long'
+      });
     }
 
-    // Validate subscription plan
     const validPlans = ['starter', 'pro'];
     if (!validPlans.includes(subscriptionPlan)) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'Invalid subscription plan. Must be "starter" or "pro"'
       });
     }
 
-    // Check if email already exists
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(409).json({
+    // Check for existing user
+    console.log('Checking for existing user:', email);
+    try {
+      const existingUser = await User.findOne({ 
+        where: { email },
+        transaction 
+      });
+      if (existingUser) {
+        await transaction.rollback();
+        return res.status(409).json({
+          success: false,
+          message: 'Email already registered'
+        });
+      }
+    } catch (error) {
+      console.error('Error checking existing user:', error);
+      await transaction.rollback();
+      return res.status(500).json({
         success: false,
-        message: 'Email already registered'
+        message: 'Failed to check existing user'
       });
     }
 
-    // (No subdomain generation required)
+    // Create tenant
+    console.log('Creating tenant with data:', { companyName, email, phoneNumber, tradeType, subscriptionPlan });
+    let tenant;
+    try {
+      tenant = await Tenant.create({
+        companyName,
+        email,
+        phoneNumber,
+        businessAddress: businessAddress || null,
+        tradeType,
+        subscriptionPlan,
+        isActive: false,
+        paymentStatus: 'pending'
+      }, { transaction });
+      console.log('Tenant created:', tenant.id);
+    } catch (error) {
+      console.error('Tenant creation failed:', error);
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create tenant'
+      });
+    }
 
-    // Create tenant (initially inactive until payment is confirmed)
-    const tenant = await Tenant.create({
-      companyName,
-      email,
-      phoneNumber,
-      businessAddress: businessAddress || null,
-      tradeType,
-      subscriptionPlan,
-      isActive: false, // Will be activated after payment
-      paymentStatus: 'pending'
-    }, { transaction });
-
-    // Create admin user for the tenant (initially inactive)
+    // Create user
     const userCreateData = {
       fullName,
       email,
       role: 'contractor_admin',
       tenantId: tenant.id,
-      isActive: false // Will be activated after payment
+      isActive: false
     };
-
-    // Add password or Google OAuth fields
     if (isGoogleAuth) {
       userCreateData.googleId = googleId;
       userCreateData.authProvider = 'google';
-      // No password needed for Google OAuth users
+      userCreateData.emailVerified = true;
     } else {
-      userCreateData.password = password; // Will be hashed by beforeCreate hook
+      userCreateData.password = password;
+      userCreateData.emailVerified = false;
     }
 
-    const user = await User.create(userCreateData, { transaction });
+    console.log('Creating user with data:', { fullName, email, role: 'contractor_admin' });
+    let user;
+    try {
+      user = await User.create(userCreateData, { transaction });
+      console.log('User created:', user.id);
+    } catch (error) {
+      console.error('User creation failed:', error);
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create user'
+      });
+    }
 
-    console.log('✓ User created successfully:', {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-      authProvider: user.authProvider,
-      googleId: user.googleId ? '***' : null,
-      hasPassword: !!user.password
-    });
-
-    // Get plan details
+    // Create payment
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
+    console.log('Creating payment for tenant:', tenant.id);
+    let payment;
+    try {
+      payment = await Payment.create({
+        tenantId: tenant.id,
+        userId: user.id,
+        subscriptionPlan,
+        amount: planDetails.price,
+        currency: 'usd',
+        status: 'pending',
+        description: `${planDetails.name} - ${tenant.companyName}`,
+        metadata: {
+          planFeatures: planDetails.features,
+          registrationFlow: true
+        }
+      }, { transaction });
+      console.log('Payment created:', payment.id);
+    } catch (error) {
+      console.error('Payment creation failed:', error);
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create payment'
+      });
+    }
 
-    // Create payment record
-    const payment = await Payment.create({
-      tenantId: tenant.id,
-      userId: user.id,
-      subscriptionPlan,
-      amount: planDetails.price,
-      currency: 'usd',
-      status: 'pending',
-      description: `${planDetails.name} - ${tenant.companyName}`,
-      metadata: {
-        planFeatures: planDetails.features,
-        registrationFlow: true // Mark this as part of registration flow
-      }
-    }, { transaction });
-
-    // Create Stripe Checkout Session
+    // Create Stripe checkout session
     const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
     const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-
-    const session = await createCheckoutSession({
-      userId: user.id,
-      tenantId: tenant.id,
-      subscriptionPlan,
-      email: user.email,
-      successUrl: `${BACKEND_URL}/api/v1/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
-      cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`
-    });
+    console.log('Creating Stripe checkout session');
+    let session;
+    try {
+      session = await createCheckoutSession({
+        userId: user.id,
+        tenantId: tenant.id,
+        subscriptionPlan,
+        email: user.email,
+        successUrl: `${BACKEND_URL}/api/v1/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
+        cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`
+      });
+      console.log('Stripe session created:', session.sessionId);
+    } catch (error) {
+      console.error('Stripe session creation failed:', error);
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create Stripe checkout session'
+      });
+    }
 
     // Update payment with session ID
-    await payment.update({
-      stripeSessionId: session.sessionId
-    }, { transaction });
+    try {
+      await payment.update({
+        stripeSessionId: session.sessionId
+      }, { transaction });
+      console.log('Payment updated with session ID:', session.sessionId);
+    } catch (error) {
+      console.error('Payment update failed:', error);
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to update payment'
+      });
+    }
 
     // Commit transaction
     await transaction.commit();
+    console.log('Transaction committed successfully');
 
-    console.log('Registration with payment initiated:', {
-      tenantId: tenant.id,
-      userId: user.id,
-      paymentId: payment.id,
-      stripeSessionId: session.sessionId,
-      stripeUrl: session.sessionUrl
-    });
+    // Send email verification for non-Google users
+    if (!isGoogleAuth) {
+      try {
+        const verificationToken = generateVerificationToken(user.id, user.email);
+        await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+        console.log('Verification email sent to:', user.email);
+      } catch (emailError) {
+        console.error('Failed to send verification email:', emailError);
+      }
+    }
 
-    // Return Stripe checkout URL
     res.status(200).json({
       success: true,
-      message: 'Registration initiated. Please complete payment.',
+      message: isGoogleAuth
+        ? 'Registration initiated. Please complete payment.'
+        : 'Registration initiated. Please complete payment and check your email to verify your account.',
       data: {
         stripeUrl: session.sessionUrl,
         sessionId: session.sessionId,
         tenant: {
-            id: tenant.id,
-            companyName: tenant.companyName,
-            tradeType: tenant.tradeType,
-            subscriptionPlan: tenant.subscriptionPlan
-          },
+          id: tenant.id,
+          companyName: tenant.companyName,
+          tradeType: tenant.tradeType,
+          subscriptionPlan: tenant.subscriptionPlan
+        },
         user: {
           id: user.id,
           fullName: user.fullName,
-          email: user.email
+          email: user.email,
+          emailVerified: user.emailVerified
         }
       }
     });
 
   } catch (error) {
-    // Rollback transaction on error
-    await transaction.rollback();
-
     console.error('Registration with payment error:', error);
+    try {
+      await transaction.rollback();
+      console.log('Transaction rolled back');
+    } catch (rollbackError) {
+      console.error('Rollback failed:', rollbackError);
+    }
 
-    // Handle Sequelize validation errors
     if (error.name === 'SequelizeValidationError') {
       return res.status(400).json({
         success: false,
@@ -477,7 +549,6 @@ const registerWithPayment = async (req, res) => {
     });
   }
 };
-
 // generateSubdomain helper removed - tenant subdomain option discontinued
 
 /**
@@ -634,7 +705,8 @@ const completeGoogleSignup = async (req, res) => {
       authProvider: 'google',
       role: 'contractor_admin',
       tenantId: tenant.id,
-      isActive: false // Will be activated after payment
+      isActive: false, // Will be activated after payment
+      emailVerified: true // Google emails are pre-verified
     }, { transaction });
 
     // Get plan details
@@ -831,6 +903,168 @@ const setPassword = async (req, res) => {
   }
 };
 
+/**
+ * Send email verification link
+ * POST /api/auth/send-verification
+ * @access Private (requires authentication)
+ */
+const sendVerificationEmail = async (req, res) => {
+  try {
+    const userId = req.user.userId; // From JWT token
+
+    // Find user
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if already verified
+    if (user.emailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is already verified'
+      });
+    }
+
+    // Generate verification token
+    const verificationToken = generateVerificationToken(user.id, user.email);
+
+    // Send verification email
+    await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+
+    res.json({
+      success: true,
+      message: 'Verification email sent successfully. Please check your email.'
+    });
+
+  } catch (error) {
+    console.error('Send verification email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send verification email'
+    });
+  }
+};
+
+/**
+ * Verify email with token
+ * GET /api/auth/verify-email
+ */
+const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verification token is required'
+      });
+    }
+
+    // Verify token
+    const tokenResult = verifyVerificationToken(token);
+
+    if (!tokenResult.valid) {
+      const errorMessage = tokenResult.expired
+        ? 'Verification link has expired. Please request a new one.'
+        : 'Invalid verification link.';
+
+      return res.status(400).json({
+        success: false,
+        message: errorMessage,
+        expired: tokenResult.expired || false
+      });
+    }
+
+    // Find and update user
+    const user = await User.findOne({
+      where: {
+        id: tokenResult.userId,
+        email: tokenResult.email
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.emailVerified) {
+      return res.status(200).json({
+        success: true,
+        message: 'Email is already verified',
+        alreadyVerified: true
+      });
+    }
+
+    // Mark email as verified
+    await user.update({ emailVerified: true });
+
+    res.json({
+      success: true,
+      message: 'Email verified successfully! You can now access all features.'
+    });
+
+  } catch (error) {
+    console.error('Verify email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify email'
+    });
+  }
+};
+
+/**
+ * Resend verification email
+ * POST /api/auth/resend-verification
+ * @access Private (requires authentication)
+ */
+const resendVerificationEmail = async (req, res) => {
+  try {
+    const userId = req.user.userId; // From JWT token
+
+    // Find user
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if already verified
+    if (user.emailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is already verified'
+      });
+    }
+
+    // Generate verification token
+    const verificationToken = generateVerificationToken(user.id, user.email);
+
+    // Send verification email
+    await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+
+    res.json({
+      success: true,
+      message: 'Verification email sent successfully. Please check your email.'
+    });
+
+  } catch (error) {
+    console.error('Resend verification email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to resend verification email'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -840,5 +1074,8 @@ module.exports = {
   handleGoogleCallback,
   completeGoogleSignup,
   linkGoogleAccount,
-  setPassword
+  setPassword,
+  sendVerificationEmail,
+  verifyEmail,
+  resendVerificationEmail
 };

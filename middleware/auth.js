@@ -1,13 +1,8 @@
-// middleware/auth.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Tenant = require('../models/Tenant');
 
-/**
- * Middleware to verify JWT token and attach user to request
- * Also validates that user belongs to the resolved tenant
- */
-const authenticateToken = async (req, res, next) => {
+const auth = async (req, res, next) => {
   try {
     // Get token from Authorization header
     const authHeader = req.headers['authorization'];
@@ -78,7 +73,7 @@ const authenticateToken = async (req, res, next) => {
     console.error('Authentication error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Authentication failed'
+      message: 'Authentication error'
     });
   }
 };
@@ -213,7 +208,7 @@ const refreshAccessToken = async (req, res) => {
 };
 
 module.exports = {
-  authenticateToken,
+  auth,
   authorize,
   generateToken,
   generateRefreshToken,

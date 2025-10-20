@@ -134,6 +134,7 @@ const confirmStripePayment = async (req, res) => {
 
     // Retrieve session from Stripe
     const session = await retrieveSession(sessionId);
+    console.log("Session",session)
 
     // Check payment status
     if (session.payment_status !== 'paid') {

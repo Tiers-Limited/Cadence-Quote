@@ -1,26 +1,38 @@
-// middleware/tenantResolver.js
 const Tenant = require('../models/Tenant');
 
-/**
- * Middleware to resolve tenant from subdomain
- * Extracts subdomain from request host and attaches tenant to req.tenant
- * 
- * Example: acme.cadence.com -> subdomain: "acme"
- */
 const resolveTenant = async (req, res, next) => {
   try {
     // Skip tenant resolution for public routes
-    const publicRoutes = ['/api/auth/register', '/api/auth/login', '/health'];
-    if (publicRoutes.includes(req.path)) {
+    const publicRoutes = ['/auth/register', '/auth/login', '/public'];
+    if (publicRoutes.some(route => req.path.startsWith(route))) {
       return next();
     }
 
-    // Tenant resolution by subdomain has been removed.
-    // Requests should include tenantId when necessary. Skip resolution for public routes.
-    // Optionally, you could implement tenant lookup by header or JWT in the future.
+    // Get tenant from authenticated user
+    if (!req.user || !req.user.tenantId) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tenant context found'
+      });
+    }
 
-  // No tenant attached by default. Continue; caller should validate tenant where required.
-  return next();
+    const tenant = await Tenant.findOne({
+      where: {
+        id: req.user.tenantId,
+        isActive: true
+      }
+    });
+
+    if (!tenant) {
+      return res.status(403).json({
+        success: false,
+        message: 'Tenant not found or inactive'
+      });
+    }
+
+    // Attach tenant to request
+    req.tenant = tenant;
+    next();
   } catch (error) {
     console.error('Tenant resolution error:', error);
     return res.status(500).json({
@@ -88,6 +100,7 @@ const validateTenantOwnership = (req, res, next) => {
   next();
 };
 
+// Export all middleware functions
 module.exports = {
   resolveTenant,
   validateTenantOwnership,

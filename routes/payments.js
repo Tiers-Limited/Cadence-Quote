@@ -8,7 +8,7 @@ const {
   getPaymentHistory,
   getPaymentDetails
 } = require('../controllers/paymentController');
-const { authenticateToken, authorize } = require('../middleware/auth');
+const { auth, authorize } = require('../middleware/auth');
 
 /**
  * @route   GET /api/payments/plans
@@ -22,7 +22,7 @@ router.get('/plans', getSubscriptionPlans);
  * @desc    Create Stripe checkout session for payment
  * @access  Private (Authenticated users only)
  */
-router.post('/create-checkout-session', authenticateToken, createPaymentSession);
+router.post('/create-checkout-session', auth, createPaymentSession);
 
 /**
  * @route   GET /api/payments/confirm
@@ -37,13 +37,13 @@ router.get('/confirm', confirmStripePayment);
  * @desc    Get payment history for current tenant
  * @access  Private (Authenticated users only)
  */
-router.get('/history', authenticateToken, getPaymentHistory);
+router.get('/history', auth, getPaymentHistory);
 
 /**
  * @route   GET /api/payments/:paymentId
  * @desc    Get single payment details
  * @access  Private (Authenticated users only)
  */
-router.get('/:paymentId', authenticateToken, getPaymentDetails);
+router.get('/:paymentId', auth, getPaymentDetails);
 
 module.exports = router;

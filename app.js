@@ -15,11 +15,10 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 // Import routes
-var indexRouter = require('./routes/index');
-var usersRouter = require('./routes/users');
-var authRouter = require('./routes/auth');
+const indexRouter = require('./routes/index');
+const authRouter = require('./routes/auth');
+const apiRouter = require('./routes/api');
 var paymentsRouter = require('./routes/payments');
-
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 const User = require('./models/User');
@@ -64,9 +63,9 @@ app.get('/health', (req, res) => {
 
 // Mount routes
 app.use('/', indexRouter);
-app.use('/users', usersRouter);
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/payments', paymentsRouter);
+app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
@@ -88,7 +87,12 @@ app.use(function(err, req, res, next) {
 // Wrapped in async to handle errors gracefully
 (async () => {
   try {
-    await sequelize.sync({ force: process.env.NODE_ENV === 'development' });
+    // In development, alter existing tables instead of dropping them
+    const syncOptions = process.env.NODE_ENV === 'development' 
+      ? { alter: false } // Don't alter - we use migrations now
+      : { force: false }; // In production, don't sync at all
+    
+    await sequelize.sync(syncOptions);
     console.log('✓ Database models synchronized');
     
     // Check for existing users (this runs at startup, not after registration)
@@ -106,6 +110,8 @@ app.use(function(err, req, res, next) {
     }
   } catch (error) {
     console.error('✗ Database sync failed:', error.message);
+    console.error('💡 Try running the migration manually:');
+    console.error('   psql -U postgres -d postgres -f migrations/003-create-milestone2-tables.sql');
     console.error('Server is running, but database operations will fail until connection is established.');
   }
 })();
