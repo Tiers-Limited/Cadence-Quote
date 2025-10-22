@@ -7,6 +7,7 @@ import { useRegistrationForm } from "../hooks/useRegistrationForm"
 import { message, Input, Select, Button, Checkbox } from "antd"
 import { BuildingIcon } from "lucide-react"
 import GoogleAuthButton from "./GoogleAuthButton"
+import Logo from "./Logo"
 import PropTypes from 'prop-types'
 
 function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
@@ -106,8 +107,8 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg mb-4">
-          <span className="text-white font-bold text-xl">C</span>
+        <div className="flex justify-center mb-4">
+          <Logo width={48} />
         </div>
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Your Account</h1>
         <p className="text-gray-600">Join our contractor network today</p>

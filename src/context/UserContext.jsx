@@ -25,10 +25,11 @@ export const UserProvider = ({ children }) => {
   useEffect(() => {
     const fetchUser = async () => {
       const token = localStorage.getItem('authToken')
-     
+      
       if (token) {
         try {
-          const data = await apiService.get('/auth/me')
+          const {data} = await apiService.get('/auth/me')
+          console.log('Fetched user data:', data)
           if (data.success) {
             setUser(data.user)
             setIsAuthenticated(true)
@@ -41,9 +42,15 @@ export const UserProvider = ({ children }) => {
           localStorage.removeItem('authToken')
           localStorage.removeItem('refreshToken')
         }
+        finally {
+          setLoading(false)
+        }
+      }
+      else {
+        setLoading(false) 
       }
       
-      setLoading(false)
+     
     }
 
     fetchUser()

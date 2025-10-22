@@ -5,6 +5,7 @@ import { message, Layout, Menu, Button, theme } from 'antd'
 import { useAuth } from '../hooks/useAuth'
 import { useState } from 'react'
 import '../styles/sidebar.css'
+import Logo from './Logo'
 
 function MainLayout({ children }) {
   const navigate = useNavigate()
@@ -102,7 +103,7 @@ function MainLayout({ children }) {
           left: 0,
           top: 0,
           bottom: 0,
-          zIndex: 1001,
+          zIndex: 999,
           display: 'flex',
           flexDirection: 'column',
         }}
@@ -117,9 +118,9 @@ function MainLayout({ children }) {
         }}
         className={`transition-all  duration-200 ease-in-out ${collapsed ? 'shadow-lg' : ''}`}
       >
-        <div style={{ background: '#eff0f4' }} className="flex items-center h-16 px-6 border-b flex-shrink-0">
+        <div style={{ background: '#eff0f4' }} className="flex items-center h-32 p-6 border-b flex-shrink-0">
           <span className="text-[#4a8bff] font-bold text-lg truncate">
-            {collapsed ? 'C' : 'Contractor Hub'}
+            {collapsed ? 'C' : <Logo />}
           </span>
         </div>
         <div className="flex-1  overflow-y-auto overflow-x-hidden">

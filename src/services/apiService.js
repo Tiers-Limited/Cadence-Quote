@@ -86,6 +86,27 @@ class ApiService {
     }
   }
 
+  // Upload FormData (files) without forcing Content-Type so browser sets boundary
+  async postFile(endpoint, formData, options = {}) {
+    try {
+      const token = this.getAuthToken();
+      const headers = {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      };
+
+      const response = await fetch(`${this.baseURL}${endpoint}`, {
+        method: 'POST',
+        headers,
+        body: formData,
+        ...options,
+      });
+
+      return this.handleResponse(response);
+    } catch (error) {
+      throw new Error(`POST file request failed: ${error.message}`);
+    }
+  }
+
   async put(endpoint, data = {}, options = {}) {
     try {
       const response = await fetch(`${this.baseURL}${endpoint}`, {
@@ -136,8 +157,8 @@ class ApiService {
           
           return this.handleResponse(retryResponse, 1)
         } catch (refreshError) {
-          this.isRefreshing = false
-          this.logout()
+          // this.isRefreshing = false
+          // this.logout()
           throw new Error("Session expired. Please login again.")
         }
       } else {

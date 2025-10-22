@@ -50,7 +50,7 @@ function GoogleAuthSuccessPage() {
         login(userData.data.user, token, refreshToken);
 
 
-        message.success('Login successful!');
+        // message.success('Login successful!');
         navigate('/dashboard');
       } catch (error) {
         console.error('Auth success page error:', error);
