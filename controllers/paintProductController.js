@@ -1,4 +1,4 @@
-const { PaintProduct } = require('../models/PaintProduct');
+const  PaintProduct  = require('../models/PaintProduct');
 
 const paintProductController = {
   // Get all products

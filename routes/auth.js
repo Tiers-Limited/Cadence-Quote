@@ -13,7 +13,11 @@ const {
   setPassword,
   sendVerificationEmail,
   verifyEmail,
-  resendVerificationEmail
+  resendVerificationEmail,
+  verifyTwoFactorCode,
+  enableTwoFactor,
+  disableTwoFactor,
+  get2FAStatus
 } = require('../controllers/authController');
 const { auth, refreshAccessToken } = require('../middleware/auth');
 
@@ -29,10 +33,40 @@ router.post('/register', registerWithPayment);
 
 /**
  * @route   POST /api/auth/login
- * @desc    Login user and get JWT token
+ * @desc    Login user and get JWT token or 2FA prompt
  * @access  Public
  */
 router.post('/login', login);
+
+/**
+ * @route   POST /api/auth/verify-2fa
+ * @desc    Verify 2FA code
+ * @access  Public
+ */
+router.post('/verify-2fa', verifyTwoFactorCode);
+
+/**
+ * @route   POST /api/auth/enable-2fa
+ * @desc    Enable 2FA for user
+ * @access  Private
+ */
+router.post('/enable-2fa', auth, enableTwoFactor);
+
+/**
+ * @route   POST /api/auth/disable-2fa
+ * @desc    Disable 2FA for user
+ * @access  Private
+ */
+router.post('/disable-2fa', auth, disableTwoFactor);
+
+
+/**
+ * @route   GET /api/auth/2fa-status
+ * @desc    Get 2FA status for the authenticated user
+ * @access  Private
+ */
+router.get('/2fa-status', auth, get2FAStatus);
+
 
 /**
  * @route   POST /api/auth/refresh
@@ -71,7 +105,7 @@ router.get('/google', passport.authenticate('google', {
 
 /**
  * @route   GET /api/auth/google/callback
- * @desc    Google OAuth callback - sends postMessage to opener window
+ * @desc    Google OAuth callback
  * @access  Public
  */
 router.get('/google/callback',

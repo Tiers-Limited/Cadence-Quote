@@ -1,11 +1,11 @@
 // Load environment variables FIRST
 require('dotenv').config();
 
-var createError = require('http-errors');
-var express = require('express');
-var path = require('path');
-var cookieParser = require('cookie-parser');
-var logger = require('morgan');
+const createError = require('http-errors');
+const express = require('express');
+const path = require('path');
+const cookieParser = require('cookie-parser');
+const logger = require('morgan');
 const sequelize = require('./config/database');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -18,12 +18,12 @@ dotenv.config();
 const indexRouter = require('./routes/index');
 const authRouter = require('./routes/auth');
 const apiRouter = require('./routes/api');
-var paymentsRouter = require('./routes/payments');
+const paymentsRouter = require('./routes/payments');
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 const User = require('./models/User');
 
-var app = express();
+const app = express();
 
 // Initialize Passport
 require('./config/passport')(passport);
@@ -32,8 +32,11 @@ app.use(passport.initialize());
 // Middleware
 app.use(helmet());  // Security headers
 app.use(cors());  // Enable CORS for frontend
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Increase allowed request body size to handle larger imports/uploads.
+// Make this configurable via the BODY_PARSER_LIMIT environment variable (e.g. '10mb', '50mb').
+const bodyParserLimit = process.env.BODY_PARSER_LIMIT || '10mb';
+app.use(express.json({ limit: bodyParserLimit }));
+app.use(express.urlencoded({ limit: bodyParserLimit, extended: true }));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -48,8 +51,7 @@ app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
 
 app.use(logger('dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Note: express.json/urlencoded already configured above with increased limits.
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -88,6 +90,7 @@ app.use(function(err, req, res, next) {
 (async () => {
   try {
     // In development, alter existing tables instead of dropping them
+    
     const syncOptions = process.env.NODE_ENV === 'development' 
       ? { alter: false } // Don't alter - we use migrations now
       : { force: false }; // In production, don't sync at all

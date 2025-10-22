@@ -2,14 +2,14 @@
 const User = require('../models/User');
 const Tenant = require('../models/Tenant');
 const Payment = require('../models/Payment');
+const TwoFactorCode = require('../models/TwoFactorCode');
 const { generateToken, generateRefreshToken, refreshAccessToken } = require('../middleware/auth');
 const { createCheckoutSession, SUBSCRIPTION_PLANS } = require('../services/stripeService');
 const emailService = require('../services/emailService');
 const { generateVerificationToken, verifyVerificationToken } = require('../utils/verificationToken');
 const sequelize = require('../config/database');
 const { OAuth2Client } = require('google-auth-library');
-
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const speakeasy = require('speakeasy');
 
 /**
  * Register new tenant (contractor company) and admin user
@@ -157,6 +157,98 @@ const register = async (req, res) => {
  * Login user
  * POST /api/auth/login
  */
+// const login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     // Validation
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Email and password are required'
+//       });
+//     }
+
+//     // Find user with tenant information (optimized query)
+//     const user = await User.findOne({
+//       where: { 
+//         email,
+//         isActive: true
+//       },
+//       attributes: ['id', 'fullName', 'email', 'role', 'tenantId', 'authProvider', 'password', 'emailVerified'],
+//       include: [{
+//         model: Tenant,
+//         where: { isActive: true },
+//         attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan'],
+//         required: true // INNER JOIN for better performance
+//       }]
+//     });
+   
+
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: 'Invalid email or password'
+//       });
+//     }
+
+//     // Check if user registered with Google OAuth
+//     if (user.authProvider === 'google' && !user.password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'This account was created using Google Sign-In. Please use "Continue with Google" to login.',
+//         authProvider: 'google',
+//         requiresGoogleAuth: true
+//       });
+//     }
+
+//     // Verify password
+//     const isPasswordValid = await user.comparePassword(password);
+//     if (!isPasswordValid) {
+//       return res.status(401).json({
+//         success: false,
+//         message: 'Invalid email or password'
+//       });
+//     }
+
+//     // Generate JWT token
+//     const token = generateToken(user.id, user.tenantId);
+//     const refreshToken = generateRefreshToken(user.id, user.tenantId);
+
+//     // Return success response
+//     res.json({
+//       success: true,
+//       message: 'Login successful',
+//       data: {
+//         user: {
+//           id: user.id,
+//           fullName: user.fullName,
+//           email: user.email,
+//           role: user.role,
+//           emailVerified: user.emailVerified
+//         },
+//         tenant: {
+//           id: user.Tenant.id,
+//           companyName: user.Tenant.companyName,
+//           tradeType: user.Tenant.tradeType,
+//           subscriptionPlan: user.Tenant.subscriptionPlan
+//         },
+//         token,
+//         refreshToken,
+//         accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`,
+        
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Login error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Login failed. Please try again.'
+//     });
+//   }
+// };
+
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -169,21 +261,20 @@ const login = async (req, res) => {
       });
     }
 
-    // Find user with tenant information (optimized query)
+    // Find user with tenant information
     const user = await User.findOne({
       where: { 
         email,
         isActive: true
       },
-      attributes: ['id', 'fullName', 'email', 'role', 'tenantId', 'authProvider', 'password', 'emailVerified'],
+      attributes: ['id', 'fullName', 'email', 'role', 'tenantId', 'authProvider', 'password', 'emailVerified', 'twoFactorEnabled', 'twoFactorSecret'],
       include: [{
         model: Tenant,
         where: { isActive: true },
         attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan'],
-        required: true // INNER JOIN for better performance
+        required: true
       }]
     });
-   
 
     if (!user) {
       return res.status(401).json({
@@ -211,11 +302,40 @@ const login = async (req, res) => {
       });
     }
 
-    // Generate JWT token
+    // Check if 2FA is enabled and not a Google OAuth login
+    if (user.twoFactorEnabled && user.authProvider !== 'google') {
+      // Generate 2FA code (6-digit TOTP)
+      const code = speakeasy.totp({
+        secret: user.twoFactorSecret,
+        encoding: 'base32'
+      });
+
+      // Store code with 5-minute expiry
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+      await TwoFactorCode.create({
+        userId: user.id,
+        code,
+        expiresAt
+      });
+
+      // Send 2FA code via email
+      await emailService.sendTwoFactorCodeEmail(user.email, code, user.fullName);
+
+      return res.json({
+        success: true,
+        requiresTwoFactor: true,
+        message: 'Two-factor authentication code sent to your email',
+        data: {
+          userId: user.id,
+          email: user.email
+        }
+      });
+    }
+
+    // Generate JWT token if no 2FA or Google OAuth
     const token = generateToken(user.id, user.tenantId);
     const refreshToken = generateRefreshToken(user.id, user.tenantId);
 
-    // Return success response
     res.json({
       success: true,
       message: 'Login successful',
@@ -235,8 +355,7 @@ const login = async (req, res) => {
         },
         token,
         refreshToken,
-        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`,
-        
+        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`
       }
     });
 
@@ -249,6 +368,199 @@ const login = async (req, res) => {
   }
 };
 
+/**
+ * Verify 2FA code
+ * POST /api/auth/verify-2fa
+ */
+const verifyTwoFactorCode = async (req, res) => {
+  try {
+    const { userId, code } = req.body;
+
+    if (!userId || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID and 2FA code are required'
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({
+      where: { id: userId, isActive: true },
+      attributes: ['id', 'fullName', 'email', 'role', 'tenantId', 'twoFactorSecret'],
+      include: [{
+        model: Tenant,
+        where: { isActive: true },
+        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan'],
+        required: true
+      }]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Verify TOTP code
+    const isValidCode = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: code,
+      window: 1 // Allow 30-second window
+    });
+
+    if (!isValidCode) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired 2FA code'
+      });
+    }
+
+    // Clean up used code
+    await TwoFactorCode.destroy({
+      where: { userId, code }
+    });
+
+    // Generate JWT token
+    const token = generateToken(user.id, user.tenantId);
+    const refreshToken = generateRefreshToken(user.id, user.tenantId);
+
+    res.json({
+      success: true,
+      message: 'Two-factor authentication successful',
+      data: {
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role,
+          emailVerified: user.emailVerified
+        },
+        tenant: {
+          id: user.Tenant.id,
+          companyName: user.Tenant.companyName,
+          tradeType: user.Tenant.tradeType,
+          subscriptionPlan: user.Tenant.subscriptionPlan
+        },
+        token,
+        refreshToken,
+        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`
+      }
+    });
+
+  } catch (error) {
+    console.error('2FA verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify 2FA code'
+    });
+  }
+};
+
+/**
+ * Enable 2FA for user
+ * POST /api/auth/enable-2fa
+ * @access Private
+ */
+const enableTwoFactor = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.twoFactorEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: 'Two-factor authentication is already enabled'
+      });
+    }
+
+    // Generate TOTP secret
+    const secret = speakeasy.generateSecret({
+      name: `Contractor Hub (${user.email})`
+    });
+
+    await user.update({
+      twoFactorSecret: secret.base32,
+      twoFactorEnabled: true
+    });
+
+    // Generate QR code for authenticator app
+    const qrcode = require('qrcode');
+    const qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+
+    res.json({
+      success: true,
+      message: 'Two-factor authentication enabled',
+      data: {
+        qrCodeUrl,
+        secret: secret.base32
+      }
+    });
+
+  } catch (error) {
+    console.error('Enable 2FA error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to enable 2FA'
+    });
+  }
+};
+
+/**
+ * Disable 2FA for user
+ * POST /api/auth/disable-2fa
+ * @access Private
+ */
+const disableTwoFactor = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (!user.twoFactorEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: 'Two-factor authentication is not enabled'
+      });
+    }
+
+    await user.update({
+      twoFactorEnabled: false,
+      twoFactorSecret: null
+    });
+
+    // Clean up any existing 2FA codes
+    await TwoFactorCode.destroy({
+      where: { userId }
+    });
+
+    res.json({
+      success: true,
+      message: 'Two-factor authentication disabled'
+    });
+
+  } catch (error) {
+    console.error('Disable 2FA error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to disable 2FA'
+    });
+  }
+};
 /**
  * Get current user profile
  * GET /api/auth/me
@@ -1065,6 +1377,38 @@ const resendVerificationEmail = async (req, res) => {
   }
 };
 
+
+const get2FAStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'twoFactorEnabled', 'twoFactorSecret']
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        twoFactorEnabled: user.twoFactorEnabled,
+        hasTwoFactorSecret: !!user.twoFactorSecret
+      }
+    });
+  } catch (error) {
+    console.error('Get 2FA status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve 2FA status'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -1077,5 +1421,9 @@ module.exports = {
   setPassword,
   sendVerificationEmail,
   verifyEmail,
-  resendVerificationEmail
+  resendVerificationEmail,
+  verifyTwoFactorCode,
+  enableTwoFactor,
+  disableTwoFactor,
+  get2FAStatus
 };

@@ -29,9 +29,31 @@ const ColorLibrary = sequelize.define('ColorLibrary', {
     allowNull: false,
     comment: 'Manufacturer color code'
   },
+  locator: {
+    type: DataTypes.STRING(100),
+    allowNull: true,
+    field: 'locator',
+    comment: 'Optional locator or SKU for the color (from supplier sheet)'
+  },
+  // RGB channels (optional) - useful when incoming data provides separate channels
+  red: {
+    type: DataTypes.SMALLINT,
+    allowNull: true,
+    comment: 'Red channel (0-255)'
+  },
+  green: {
+    type: DataTypes.SMALLINT,
+    allowNull: true,
+    comment: 'Green channel (0-255)'
+  },
+  blue: {
+    type: DataTypes.SMALLINT,
+    allowNull: true,
+    comment: 'Blue channel (0-255)'
+  },
   brand: {
     type: DataTypes.STRING(100),
-    allowNull: false,
+    allowNull: true,
     comment: 'Paint brand for this color'
   },
   colorFamily: {
@@ -73,6 +95,13 @@ const ColorLibrary = sequelize.define('ColorLibrary', {
     },
     {
       fields: ['color_family']
+    }
+    ,
+    {
+      fields: ['code']
+    },
+    {
+      fields: ['hex_value']
     }
   ]
 });

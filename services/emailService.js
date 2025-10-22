@@ -1,8 +1,8 @@
 // services/emailService.js
-const nodemailer = require('nodemailer');
+const nodemailer = require('nodemailer')
 
 class EmailService {
-  constructor() {
+  constructor () {
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: process.env.SMTP_PORT || 587,
@@ -11,11 +11,13 @@ class EmailService {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS
       }
-    });
+    })
   }
 
-  async sendVerificationEmail(email, verificationToken, userName) {
-    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
+  async sendVerificationEmail (email, verificationToken, userName) {
+    const verificationUrl = `${
+      process.env.FRONTEND_URL || 'http://localhost:5173'
+    }/verify-email?token=${verificationToken}`
 
     const mailOptions = {
       from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
@@ -84,20 +86,22 @@ class EmailService {
         Best regards,
         The Cadence Team
       `
-    };
+    }
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Verification email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
+      const info = await this.transporter.sendMail(mailOptions)
+      console.log('Verification email sent:', info.messageId)
+      return { success: true, messageId: info.messageId }
     } catch (error) {
-      console.error('Error sending verification email:', error);
-      throw new Error('Failed to send verification email');
+      console.error('Error sending verification email:', error)
+      throw new Error('Failed to send verification email')
     }
   }
 
-  async sendVerificationReminder(email, userName) {
-    const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`;
+  async sendVerificationReminder (email, userName) {
+    const loginUrl = `${
+      process.env.FRONTEND_URL || 'http://localhost:5173'
+    }/login`
 
     const mailOptions = {
       from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
@@ -155,17 +159,33 @@ class EmailService {
         Best regards,
         The Cadence Team
       `
-    };
+    }
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Verification reminder email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
+      const info = await this.transporter.sendMail(mailOptions)
+      console.log('Verification reminder email sent:', info.messageId)
+      return { success: true, messageId: info.messageId }
     } catch (error) {
-      console.error('Error sending verification reminder email:', error);
-      throw new Error('Failed to send verification reminder email');
+      console.error('Error sending verification reminder email:', error)
+      throw new Error('Failed to send verification reminder email')
     }
+  }
+
+  async sendTwoFactorCodeEmail (to, code, fullName) {
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to,
+      subject: 'Your Two-Factor Authentication Code - Contractor Hub',
+      html: `
+      <h2>Hello ${fullName},</h2>
+      <p>Your two-factor authentication code is:</p>
+      <h3 style="font-size: 24px; font-weight: bold;">${code}</h3>
+      <p>This code will expire in 5 minutes.</p>
+      <p>If you didn't attempt to log in, please secure your account immediately.</p>
+    `
+    }
+    await this.transporter.sendMail(mailOptions)
   }
 }
 
-module.exports = new EmailService();
+module.exports = new EmailService()

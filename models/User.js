@@ -30,7 +30,6 @@ const User = sequelize.define('User', {
     allowNull: true, // Allow null for OAuth users
     validate: {
       isValidPassword(value) {
-        // Only validate length if password is provided
         if (value && value.length < 8) {
           throw new Error('Password must be at least 8 characters');
         }
@@ -61,7 +60,7 @@ const User = sequelize.define('User', {
       model: Tenant,
       key: 'id'
     },
-    onDelete: 'CASCADE'  // Users tied to tenant
+    onDelete: 'CASCADE'
   },
   isActive: {
     type: DataTypes.BOOLEAN,
@@ -71,17 +70,23 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     field: 'email_verified'
+  },
+  twoFactorEnabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'two_factor_enabled'
+  },
+  twoFactorSecret: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'two_factor_secret'
   }
 }, {
   timestamps: true,
   indexes: [
-    {
-      fields: ['tenantId']
-    },
-    {
-      unique: true,
-      fields: ['email']
-    }
+    { fields: ['tenantId'] },
+    { unique: true, fields: ['email'] },
+    { fields: ['google_id'] }
   ]
 });
 
@@ -99,9 +104,9 @@ User.beforeUpdate(async (user) => {
 });
 
 // Method to verify password
-User.prototype.comparePassword = async function(candidatePassword) {
+User.prototype.comparePassword = async function (candidatePassword) {
   if (!this.password) {
-    return false; // OAuth users without password
+    return false;
   }
   return await bcrypt.compare(candidatePassword, this.password);
 };
