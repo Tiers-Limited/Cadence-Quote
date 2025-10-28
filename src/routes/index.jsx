@@ -8,6 +8,7 @@ import RegistrationPage from '../pages/RegistrationPage';
 import PaymentSuccessPage from '../pages/PaymentSuccessPage';
 import PaymentCancelPage from '../pages/PaymentCancelPage';
 import GoogleAuthSuccessPage from '../pages/GoogleAuthSuccessPage';
+import AppleAuthSuccessPage from '../pages/AppleAuthSuccessPage';
 import ProductCatalog from '../features/products/ProductCatalog';
 import ColorLibrary from '../features/products/ColorLibrary';
 import PricingSchemes from '../features/pricing/PricingSchemes';
@@ -35,6 +36,7 @@ const AppRoutes = () => {
       } />
       <Route path='/register' element={<RegistrationPage />} />
       <Route path='/auth/google/success' element={<GoogleAuthSuccessPage />} />
+      <Route path='/auth/apple/success' element={<AppleAuthSuccessPage />} />
       <Route path="/verify-email" element={<EmailVerificationPage />} />
       <Route path='/verify-2fa' element={<TwoFactorVerificationPage />} />
       <Route path='/registration-success' element={<PaymentSuccessPage />} />

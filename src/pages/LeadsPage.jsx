@@ -12,6 +12,8 @@ const STATUS_COLORS = {
   contacted: 'cyan',
   qualified: 'green',
   quoted: 'orange',
+  quote_sent: 'gold',
+  proposal_signed: 'purple',
   won: 'success',
   lost: 'default',
 }
@@ -103,7 +105,15 @@ function LeadsPage() {
     {
       title: 'Name',
       key: 'name',
-      render: (_, record) => record.formData?.fullName || 'N/A',
+      render: (_, record) => record.firstName && record.lastName 
+        ? `${record.firstName} ${record.lastName}`
+        : record.formData?.fullName || 'N/A',
+    },
+    {
+      title: 'Zip Code',
+      dataIndex: 'zipCode',
+      key: 'zipCode',
+      render: (zip) => zip || '-',
     },
     {
       title: 'Contact',
@@ -134,7 +144,25 @@ function LeadsPage() {
     {
       title: 'Project Type',
       key: 'projectType',
-      render: (_, record) => record.formData?.projectType || '-',
+      render: (_, record) => record.projectType || record.formData?.projectType || '-',
+    },
+    {
+      title: 'Home Size',
+      dataIndex: 'homeSize',
+      key: 'homeSize',
+      render: (size) => size ? `${size.toLocaleString()} sq ft` : '-',
+    },
+    {
+      title: 'Timeline',
+      dataIndex: 'timeline',
+      key: 'timeline',
+      render: (timeline) => timeline ? timeline.replace('_', ' ').toUpperCase() : '-',
+    },
+    {
+      title: 'Ballpark Quote',
+      dataIndex: 'ballparkQuote',
+      key: 'ballparkQuote',
+      render: (quote) => quote ? `$${parseFloat(quote).toLocaleString()}` : '-',
     },
     {
       title: 'Status',
@@ -150,6 +178,8 @@ function LeadsPage() {
         { text: 'Contacted', value: 'contacted' },
         { text: 'Qualified', value: 'qualified' },
         { text: 'Quoted', value: 'quoted' },
+        { text: 'Quote Sent', value: 'quote_sent' },
+        { text: 'Proposal Signed', value: 'proposal_signed' },
         { text: 'Won', value: 'won' },
         { text: 'Lost', value: 'lost' },
       ],
@@ -219,6 +249,8 @@ function LeadsPage() {
                 <Option value="contacted">Contacted</Option>
                 <Option value="qualified">Qualified</Option>
                 <Option value="quoted">Quoted</Option>
+                <Option value="quote_sent">Quote Sent</Option>
+                <Option value="proposal_signed">Proposal Signed</Option>
                 <Option value="won">Won</Option>
                 <Option value="lost">Lost</Option>
               </Select>
@@ -256,7 +288,11 @@ function LeadsPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-600">Name</label>
-                    <div className="text-lg font-semibold">{selectedLead.formData?.fullName}</div>
+                    <div className="text-lg font-semibold">
+                      {selectedLead.firstName && selectedLead.lastName 
+                        ? `${selectedLead.firstName} ${selectedLead.lastName}`
+                        : selectedLead.formData?.fullName || 'N/A'}
+                    </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-600">Source</label>
@@ -266,16 +302,54 @@ function LeadsPage() {
                     <label className="text-sm font-medium text-gray-600">Email</label>
                     <div className="flex items-center gap-2">
                       <FiMail className="text-gray-400" />
-                      {selectedLead.formData?.email}
+                      {selectedLead.email || selectedLead.formData?.email}
                     </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-600">Phone</label>
                     <div className="flex items-center gap-2">
                       <FiPhone className="text-gray-400" />
-                      {selectedLead.formData?.phone || 'N/A'}
+                      {selectedLead.phone || selectedLead.formData?.phone || 'N/A'}
                     </div>
                   </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Zip Code</label>
+                    <div>{selectedLead.zipCode || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Home Size</label>
+                    <div>{selectedLead.homeSize ? `${selectedLead.homeSize.toLocaleString()} sq ft` : 'N/A'}</div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Room Count</label>
+                    <div>{selectedLead.roomCount || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Timeline</label>
+                    <div>{selectedLead.timeline ? selectedLead.timeline.replace('_', ' ').toUpperCase() : 'N/A'}</div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Preferred Contact</label>
+                    <div>{selectedLead.preferredContactMethod || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Best Time</label>
+                    <div>{selectedLead.bestTimeToContact || 'N/A'}</div>
+                  </div>
+                  {selectedLead.ballparkQuote && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-600">Ballpark Quote</label>
+                      <div className="text-lg font-semibold text-green-600">
+                        ${parseFloat(selectedLead.ballparkQuote).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                  {selectedLead.referralSource && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-600">Referral Source</label>
+                      <div>{selectedLead.referralSource}</div>
+                    </div>
+                  )}
                   <div>
                     <label className="text-sm font-medium text-gray-600">Submitted</label>
                     <div className="flex items-center gap-2">
@@ -283,7 +357,40 @@ function LeadsPage() {
                       {new Date(selectedLead.createdAt).toLocaleString()}
                     </div>
                   </div>
+                  {selectedLead.contactedAt && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-600">Contacted At</label>
+                      <div className="flex items-center gap-2">
+                        <FiCalendar className="text-gray-400" />
+                        {new Date(selectedLead.contactedAt).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {/* Project Details */}
+                {selectedLead.projectDetails && (
+                  <div className="mt-4 pt-4 border-t">
+                    <label className="text-sm font-medium text-gray-600 block mb-2">
+                      Project Details
+                    </label>
+                    <div className="text-sm">{selectedLead.projectDetails}</div>
+                  </div>
+                )}
+
+                {/* UTM Tracking */}
+                {(selectedLead.utmSource || selectedLead.utmMedium || selectedLead.utmCampaign) && (
+                  <div className="mt-4 pt-4 border-t">
+                    <label className="text-sm font-medium text-gray-600 block mb-2">
+                      Marketing Attribution
+                    </label>
+                    <div className="space-y-1 text-sm">
+                      {selectedLead.utmSource && <div><strong>Source:</strong> {selectedLead.utmSource}</div>}
+                      {selectedLead.utmMedium && <div><strong>Medium:</strong> {selectedLead.utmMedium}</div>}
+                      {selectedLead.utmCampaign && <div><strong>Campaign:</strong> {selectedLead.utmCampaign}</div>}
+                    </div>
+                  </div>
+                )}
 
                 {/* All Form Data */}
                 <div className="mt-4 pt-4 border-t">
@@ -296,7 +403,7 @@ function LeadsPage() {
                       return (
                         <div key={key} className="flex gap-2">
                           <span className="text-sm text-gray-600 capitalize">
-                            {key.replace(/([A-Z])/g, ' $1').trim()}:
+                            {key.replaceAll(/([A-Z])/g, ' $1').trim()}:
                           </span>
                           <span className="text-sm font-medium">{value}</span>
                         </div>
@@ -322,6 +429,8 @@ function LeadsPage() {
                     <Option value="contacted">Contacted</Option>
                     <Option value="qualified">Qualified</Option>
                     <Option value="quoted">Quoted</Option>
+                    <Option value="quote_sent">Quote Sent</Option>
+                    <Option value="proposal_signed">Proposal Signed</Option>
                     <Option value="won">Won</Option>
                     <Option value="lost">Lost</Option>
                   </Select>

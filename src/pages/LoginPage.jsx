@@ -5,6 +5,7 @@ import { useLogin } from '../hooks/useLogin'
 import { useAuth } from '../hooks/useAuth'
 import { Spin, message } from 'antd'
 import GoogleAuthButton from '../components/GoogleAuthButton'
+import AppleAuthButton from '../components/AppleAuthButton'
 import Logo from '../components/Logo'
 
 function LoginPage () {
@@ -24,6 +25,7 @@ function LoginPage () {
     }
 
     const result = await login(email, password)
+   
     if (result.success) {
       if (result.requiresTwoFactor) {
         navigate('/verify-2fa', {
@@ -38,7 +40,7 @@ function LoginPage () {
         navigate('/dashboard')
       }
     } else {
-      if (result.requiresGoogleAuth) {
+      if (result.requiresGoogleAuth || result.requiresOAuth) {
         message.warning({
           content: result.error,
           duration: 5,
@@ -166,8 +168,11 @@ function LoginPage () {
             <div className='flex-1 border-t border-gray-300'></div>
           </div>
 
-          {/* Google Sign In */}
-          <GoogleAuthButton mode='login' />
+          {/* OAuth Sign In Options */}
+          <div className='space-y-3'>
+            <GoogleAuthButton mode='login' />
+            <AppleAuthButton mode='login' />
+          </div>
 
           {/* Sign Up Link */}
           <p className='mt-6 text-center text-gray-600'>

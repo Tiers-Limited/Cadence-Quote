@@ -28,10 +28,10 @@ export const UserProvider = ({ children }) => {
       
       if (token) {
         try {
-          const {data} = await apiService.get('/auth/me')
-          console.log('Fetched user data:', data)
+          const data = await apiService.get('/auth/me')
+         
           if (data.success) {
-            setUser(data.user)
+            setUser(data.data.user)
             setIsAuthenticated(true)
           } else {
             localStorage.removeItem('authToken')

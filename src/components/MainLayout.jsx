@@ -48,41 +48,15 @@ function MainLayout({ children }) {
         }
       ]
     },
-    {
-      key: 'pricing',
-      icon: <Calculator size={20} />,
-      label: 'Pricing',
-      onClick: () => navigate('/pricing/schemes')
-    },
+   
     {
       key: 'leads',
       icon: <FiUsers size={20} />,
       label: 'Leads',
-      children: [
-        {
-          key: 'lead-forms',
-          label: 'Lead Forms',
-          onClick: () => navigate('/leads/forms')
-        },
-        {
-          key: 'lead-management',
-          label: 'Lead Management',
-          onClick: () => navigate('/leads/management')
-        }
-      ]
+      onClick: () => navigate('/leads/forms'),
+     
     },
-    {
-      key: 'team',
-      icon: <FiUsers size={20} />,
-      label: 'Team Members',
-      onClick: () => message.info('Team members - Coming soon'),
-    },
-    {
-      key: 'reports',
-      icon: <BarChart2Icon size={20} />,
-      label: 'Reports',
-      onClick: () => message.info('Reports - Coming soon'),
-    },
+    
     {
       key: 'settings',
       icon: <FiSettings size={20} />,
@@ -98,7 +72,7 @@ function MainLayout({ children }) {
           background: '#fafafa',
           borderRight: '1px solid #e5e7eb',
           overflow: 'hidden',
-          height: '100vh',
+          height: '100dvh',
           position: 'fixed',
           left: 0,
           top: 0,
@@ -123,7 +97,7 @@ function MainLayout({ children }) {
             {collapsed ? 'C' : <Logo />}
           </span>
         </div>
-        <div className="flex-1  overflow-y-auto overflow-x-hidden">
+        <div className=" overflow-y-auto flex-1 h-[calc(100dvh-12rem)] overflow-x-hidden">
           <Menu
             mode="inline"
             selectedKeys={[location.pathname.slice(1) || 'dashboard']}

@@ -1,6 +1,5 @@
-
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Segmented,
   Card,
@@ -15,8 +14,8 @@ import {
   Popconfirm,
   Switch,
   Tabs
-} from 'antd';
-import '../styles/cards.css';
+} from 'antd'
+import '../styles/cards.css'
 import {
   FiSave,
   FiSettings,
@@ -24,232 +23,328 @@ import {
   FiFileText,
   FiPackage,
   FiLock
-} from 'react-icons/fi';
-import { apiService } from '../services/apiService';
+} from 'react-icons/fi'
+import { apiService } from '../services/apiService'
 
-const { TextArea } = Input;
-const { TabPane } = Tabs;
-const { Option } = Select;
+const { TextArea } = Input
+const { TabPane } = Tabs
+const { Option } = Select
 
-function SettingsPage() {
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('company');
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState(null);
+function SettingsPage () {
+  const navigate = useNavigate()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState('company')
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
+  const [qrCodeUrl, setQrCodeUrl] = useState(null)
 
   // Form instances
-  const [companyForm] = Form.useForm();
-  const [settingsForm] = Form.useForm();
-  const [pricingSchemeForm] = Form.useForm();
+  const [companyForm] = Form.useForm()
+  const [settingsForm] = Form.useForm()
+  const [pricingSchemeForm] = Form.useForm()
 
   // Data states
-  const [pricingSchemes, setPricingSchemes] = useState([]);
-  const [pricingSchemeModalVisible, setPricingSchemeModalVisible] = useState(false);
-  const [editingPricingScheme, setEditingPricingScheme] = useState(null);
+  const [pricingSchemes, setPricingSchemes] = useState([])
+  const [pricingSchemeModalVisible, setPricingSchemeModalVisible] =
+    useState(false)
+  const [editingPricingScheme, setEditingPricingScheme] = useState(null)
+  const [selectedPricingType, setSelectedPricingType] = useState(null)
 
   useEffect(() => {
-    fetchAllSettings();
-  }, []);
+    fetchAllSettings()
+  }, [])
 
   const fetchAllSettings = async () => {
-    setLoading(true);
+    setLoading(true)
     try {
       // Fetch contractor settings and company info
+      const settingsData = await apiService.get('/settings')
+      if (settingsData.success) {
+        const { data } = settingsData
 
-       const twoFactorData = await apiService.get('/auth/2fa-status');
-      if (twoFactorData.success) {
-        setTwoFactorEnabled(twoFactorData.data.twoFactorEnabled || false);
+        // Populate settings form (quote settings)
+        settingsForm.setFieldsValue({
+          defaultMarkupPercent: data.defaultMarkupPercentage,
+          defaultTaxPercent: data.taxRatePercentage,
+          defaultDepositPercent: data.depositPercentage,
+          paymentTerms: data.paymentTerms,
+          warrantyTerms: data.warrantyTerms,
+          generalTerms: data.generalTerms,
+          businessHours: data.businessHours,
+          quoteValidityDays: data.quoteValidityDays
+        })
+
+        // Populate company form
+        if (data.Tenant) {
+          companyForm.setFieldsValue({
+            companyName: data.Tenant.companyName,
+            email: data.Tenant.email,
+            phone: data.Tenant.phoneNumber,
+            businessAddress: data.Tenant.businessAddress,
+            tradeType: data.Tenant.tradeType
+          })
+        }
       }
-      // const settingsData = await apiService.get('/settings');
-      // if (settingsData.success) {
-      //   settingsForm.setFieldsValue(settingsData.data.settings);
-      //   companyForm.setFieldsValue(settingsData.data.companyInfo);
-      // }
 
-      // // Fetch pricing schemes
-      // const schemesData = await apiService.get('/pricing-schemes');
-      // if (schemesData.success) {
-      //   setPricingSchemes(schemesData.data);
-      // }
+      // Fetch pricing schemes
+      const schemesData = await apiService.get('/pricing-schemes')
+      if (schemesData.success) {
+        setPricingSchemes(schemesData.data)
+      }
 
       // Fetch 2FA status
-     
+      const twoFactorData = await apiService.get('/auth/2fa-status')
+      if (twoFactorData.success) {
+        setTwoFactorEnabled(twoFactorData.data.twoFactorEnabled || false)
+      }
     } catch (error) {
-      message.error('Failed to load settings: ' + error.message);
+      message.error('Failed to load settings: ' + error.message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleSaveCompanyInfo = async values => {
-    setSaving(true);
+    setSaving(true)
     try {
-      const response = await apiService.put('/settings/company', values);
+      const payload = {
+        companyName: values.companyName,
+        email: values.email,
+        phoneNumber: values.phone,
+        businessAddress: values.businessAddress,
+        tradeType: values.tradeType
+      }
+
+      const response = await apiService.put('/settings/company', payload)
       if (response.success) {
-        message.success('Company information updated successfully');
+        message.success('Company information updated successfully')
       }
     } catch (error) {
-      message.error('Failed to update company info: ' + error.message);
+      message.error('Failed to update company info: ' + error.message)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
   const handleSaveSettings = async values => {
-    setSaving(true);
+    setSaving(true)
     try {
-      const response = await apiService.put('/settings', values);
+      const payload = {
+        defaultMarkupPercentage: values.defaultMarkupPercent,
+        taxRatePercentage: values.defaultTaxPercent,
+        depositPercentage: values.defaultDepositPercent,
+        paymentTerms: values.paymentTerms,
+        warrantyTerms: values.warrantyTerms,
+        generalTerms: values.generalTerms,
+        businessHours: values.businessHours,
+        quoteValidityDays: values.quoteValidityDays
+      }
+
+      const response = await apiService.put('/settings', payload)
       if (response.success) {
-        message.success('Settings updated successfully');
+        message.success('Settings updated successfully')
       }
     } catch (error) {
-      message.error('Failed to update settings: ' + error.message);
+      message.error('Failed to update settings: ' + error.message)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
   const handleSetDefaultScheme = async schemeId => {
     try {
-      const response = await apiService.put(`/pricing-schemes/${schemeId}/set-default`);
+      const response = await apiService.put(
+        `/pricing-schemes/${schemeId}/set-default`
+      )
       if (response.success) {
-        message.success('Default pricing scheme updated');
-        const schemesData = await apiService.get('/pricing-schemes');
+        message.success('Default pricing scheme updated')
+        const schemesData = await apiService.get('/pricing-schemes')
         if (schemesData.success) {
-          setPricingSchemes(schemesData.data);
+          setPricingSchemes(schemesData.data)
         }
       }
     } catch (error) {
-      message.error('Failed to set default scheme: ' + error.message);
+      message.error('Failed to set default scheme: ' + error.message)
     }
-  };
+  }
 
   const handleCreatePricingScheme = () => {
-    setEditingPricingScheme(null);
-    pricingSchemeForm.resetFields();
+    setEditingPricingScheme(null)
+    setSelectedPricingType(null)
+    pricingSchemeForm.resetFields()
     pricingSchemeForm.setFieldsValue({
-      type: 'sqft_turnkey',
+      type: '',
       isActive: true,
       pricingRules: []
-    });
-    setPricingSchemeModalVisible(true);
-  };
+    })
+    setPricingSchemeModalVisible(true)
+  }
+
+  const getPricingRuleOptions = pricingType => {
+    const options = {
+      sqft_turnkey: [
+        { value: 'walls', label: 'Interior Walls ($/sqft)' },
+        { value: 'ceilings', label: 'Ceilings ($/sqft)' },
+        { value: 'exterior_walls', label: 'Exterior Walls ($/sqft)' }
+      ],
+      sqft_labor_paint: [
+        { value: 'labor_rate', label: 'Labor Rate ($/sqft)' },
+        { value: 'paint', label: 'Paint Cost ($/gallon)' },
+        { value: 'coverage', label: 'Paint Coverage (sqft/gallon)' }
+      ],
+      hourly_time_materials: [
+        { value: 'hourly_rate', label: 'Hourly Rate ($/hour per painter)' },
+        { value: 'crew_size', label: 'Default Crew Size (# painters)' },
+        { value: 'paint', label: 'Paint Cost ($/gallon)' }
+      ],
+      unit_pricing: [
+        { value: 'door', label: 'Door ($/each)' },
+        { value: 'window', label: 'Window ($/each)' },
+        { value: 'trim', label: 'Trim ($/linear ft)' },
+        { value: 'shutter', label: 'Shutter ($/each)' },
+        { value: 'cabinet_door', label: 'Cabinet Door ($/each)' },
+        { value: 'garage_door', label: 'Garage Door ($/each)' }
+      ],
+      room_flat_rate: [
+        { value: 'small_bedroom', label: 'Small Bedroom (10x12x8)' },
+        { value: 'medium_bedroom', label: 'Medium Bedroom (12x14x8)' },
+        { value: 'large_bedroom', label: 'Large Bedroom (14x16x8)' },
+        { value: 'small_living', label: 'Small Living Room (12x15x8)' },
+        { value: 'medium_living', label: 'Medium Living Room (15x20x8)' },
+        { value: 'large_living', label: 'Large Living Room (20x25x9)' },
+        { value: 'bathroom', label: 'Bathroom (5x8x8)' },
+        { value: 'kitchen', label: 'Kitchen (12x15x8)' }
+      ]
+    }
+    return options[pricingType] || []
+  }
 
   const handleEditPricingScheme = scheme => {
-    setEditingPricingScheme(scheme);
-    const rulesArray = [];
+    setEditingPricingScheme(scheme)
+    setSelectedPricingType(scheme.type)
+    const rulesArray = []
     if (scheme.pricingRules && typeof scheme.pricingRules === 'object') {
       Object.entries(scheme.pricingRules).forEach(([surface, obj]) => {
-        rulesArray.push({ surface, price: obj.price, unit: obj.unit });
-      });
+        rulesArray.push({ surface, price: obj.price, unit: obj.unit })
+      })
     } else if (Array.isArray(scheme.pricingRules)) {
-      scheme.pricingRules.forEach(r => rulesArray.push(r));
+      scheme.pricingRules.forEach(r => rulesArray.push(r))
     }
     pricingSchemeForm.setFieldsValue({
       ...scheme,
       pricingRules: rulesArray
-    });
-    setPricingSchemeModalVisible(true);
-  };
+    })
+    setPricingSchemeModalVisible(true)
+  }
 
   const handleDeletePricingScheme = async schemeId => {
     try {
-      const response = await apiService.delete(`/pricing-schemes/${schemeId}`);
+      const response = await apiService.delete(`/pricing-schemes/${schemeId}`)
       if (response.success) {
-        message.success('Pricing scheme deleted successfully');
-        const schemesData = await apiService.get('/pricing-schemes');
+        message.success('Pricing scheme deleted successfully')
+        const schemesData = await apiService.get('/pricing-schemes')
         if (schemesData.success) {
-          setPricingSchemes(schemesData.data);
+          setPricingSchemes(schemesData.data)
         }
       }
     } catch (error) {
-      message.error('Failed to delete pricing scheme: ' + error.message);
+      message.error('Failed to delete pricing scheme: ' + error.message)
     }
-  };
+  }
 
   const handlePricingSchemeSubmit = async values => {
     try {
-      const rulesArray = values.pricingRules || [];
-      const pricingRulesObj = {};
+      const rulesArray = values.pricingRules || []
+      const pricingRulesObj = {}
       if (Array.isArray(rulesArray)) {
         rulesArray.forEach(rule => {
-          if (!rule) return;
-          const key = String(rule.surface || '').trim();
-          if (!key) return;
+          if (!rule) return
+          const key = String(rule.surface || '').trim()
+          if (!key) return
           pricingRulesObj[key] = {
             price: Number(rule.price) || 0,
             unit: String(rule.unit || '').trim() || 'sqft'
-          };
-        });
-      } else if (values.pricingRules && typeof values.pricingRules === 'object') {
-        Object.assign(pricingRulesObj, values.pricingRules);
+          }
+        })
+      } else if (
+        values.pricingRules &&
+        typeof values.pricingRules === 'object'
+      ) {
+        Object.assign(pricingRulesObj, values.pricingRules)
       }
 
-      const payload = { ...values, pricingRules: pricingRulesObj };
+      const payload = { ...values, pricingRules: pricingRulesObj }
 
-      let response;
+      let response
       if (editingPricingScheme) {
-        response = await apiService.put(`/pricing-schemes/${editingPricingScheme.id}`, payload);
+        response = await apiService.put(
+          `/pricing-schemes/${editingPricingScheme.id}`,
+          payload
+        )
         if (response.success) {
-          message.success('Pricing scheme updated successfully');
+          message.success('Pricing scheme updated successfully')
         }
       } else {
-        response = await apiService.post('/pricing-schemes', payload);
+        response = await apiService.post('/pricing-schemes', payload)
         if (response.success) {
-          message.success('Pricing scheme created successfully');
+          message.success('Pricing scheme created successfully')
         }
       }
 
-      setPricingSchemeModalVisible(false);
-      const schemesData = await apiService.get('/pricing-schemes');
+      setPricingSchemeModalVisible(false)
+      const schemesData = await apiService.get('/pricing-schemes')
       if (schemesData.success) {
-        setPricingSchemes(schemesData.data);
+        setPricingSchemes(schemesData.data)
       }
     } catch (error) {
-      message.error(`Failed to ${editingPricingScheme ? 'update' : 'create'} pricing scheme: ${error.message}`);
+      message.error(
+        `Failed to ${
+          editingPricingScheme ? 'update' : 'create'
+        } pricing scheme: ${error.message}`
+      )
     }
-  };
+  }
 
   const handleEnable2FA = async () => {
-    setSaving(true);
+    setSaving(true)
     try {
-      const response = await apiService.post('/auth/enable-2fa', {});
+      const response = await apiService.post('/auth/enable-2fa', {})
       if (response.success) {
-        setTwoFactorEnabled(true);
-        setQrCodeUrl(response.data.qrCodeUrl);
-        message.success('Two-factor authentication enabled. Scan the QR code with your authenticator app.');
+        setTwoFactorEnabled(true)
+        setQrCodeUrl(response.data.qrCodeUrl)
+        message.success(
+          'Two-factor authentication enabled. Scan the QR code with your authenticator app.'
+        )
       }
     } catch (error) {
-      message.error('Failed to enable 2FA: ' + error.message);
+      message.error('Failed to enable 2FA: ' + error.message)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
   const handleDisable2FA = async () => {
-    setSaving(true);
+    setSaving(true)
     try {
-      const response = await apiService.post('/auth/disable-2fa');
+      const response = await apiService.post('/auth/disable-2fa')
       if (response.success) {
-        setTwoFactorEnabled(false);
-        setQrCodeUrl(null);
-        message.success('Two-factor authentication disabled.');
+        setTwoFactorEnabled(false)
+        setQrCodeUrl(null)
+        message.success('Two-factor authentication disabled.')
       }
     } catch (error) {
-      message.error('Failed to disable 2FA: ' + error.message);
+      message.error('Failed to disable 2FA: ' + error.message)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
   if (loading) {
     return (
       <div className='flex items-center justify-center min-h-screen'>
         <Spin size='large' tip='Loading settings...' />
       </div>
-    );
+    )
   }
 
   return (
@@ -262,7 +357,8 @@ function SettingsPage() {
             <h1 className='text-3xl font-bold text-gray-900'>Settings</h1>
           </div>
           <p className='text-gray-600'>
-            Manage your company information, pricing defaults, and system preferences
+            Manage your company information, pricing defaults, and system
+            preferences
           </p>
         </div>
 
@@ -276,9 +372,6 @@ function SettingsPage() {
                 { label: 'Company', value: 'company' },
                 { label: 'Quotes', value: 'quotes' },
                 { label: 'Pricing Scheme', value: 'pricing' },
-                { label: 'Product Library', value: 'products' },
-                { label: 'Proposal Toggles', value: 'proposal' },
-                { label: 'Notifications', value: 'notifications' },
                 { label: 'Account', value: 'account' }
               ]}
               className='ant-segmented--rounded'
@@ -304,7 +397,9 @@ function SettingsPage() {
               key='company'
             >
               <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Company Information</h3>
+                <h3 className='text-lg font-semibold mb-4'>
+                  Company Information
+                </h3>
                 <Form
                   form={companyForm}
                   layout='vertical'
@@ -314,7 +409,9 @@ function SettingsPage() {
                   <Form.Item
                     label='Company Name'
                     name='companyName'
-                    rules={[{ required: true, message: 'Please enter company name' }]}
+                    rules={[
+                      { required: true, message: 'Please enter company name' }
+                    ]}
                   >
                     <Input size='large' placeholder='Your Company Name' />
                   </Form.Item>
@@ -335,11 +432,30 @@ function SettingsPage() {
                   </Form.Item>
 
                   <Form.Item label='Business Address' name='businessAddress'>
-                    <TextArea rows={3} placeholder='123 Main Street, City, State, ZIP' />
+                    <TextArea
+                      rows={3}
+                      placeholder='123 Main Street, City, State, ZIP'
+                    />
                   </Form.Item>
 
-                  <Form.Item label='Website' name='website'>
-                    <Input size='large' placeholder='www.yourcompany.com' />
+                  <Form.Item
+                    label='Trade Type'
+                    name='tradeType'
+                    rules={[
+                      { required: true, message: 'Please select a trade type' }
+                    ]}
+                  >
+                    <Select size='large' placeholder='Select your trade type'>
+                      <Option value='painter'>Painter</Option>
+                      <Option value='drywall'>Drywall</Option>
+                      <Option value='pressure_washing'>Pressure Washing</Option>
+                      <Option value='plumbing'>Plumbing</Option>
+                      <Option value='electrical'>Electrical</Option>
+                      <Option value='hvac'>HVAC</Option>
+                      <Option value='roofing'>Roofing</Option>
+                      <Option value='landscaping'>Landscaping</Option>
+                      <Option value='other'>Other</Option>
+                    </Select>
                   </Form.Item>
 
                   <Form.Item>
@@ -368,7 +484,9 @@ function SettingsPage() {
               key='quotes'
             >
               <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Default Quote Settings</h3>
+                <h3 className='text-lg font-semibold mb-4'>
+                  Default Quote Settings
+                </h3>
                 <Form
                   form={settingsForm}
                   layout='vertical'
@@ -425,24 +543,48 @@ function SettingsPage() {
                     </Form.Item>
                   </div>
 
-                  <Form.Item label='Quote Validity (Days)' name='quoteValidityDays'>
-                    <InputNumber size='large' min={1} max={365} style={{ width: '200px' }} />
+                  <Form.Item
+                    label='Quote Validity (Days)'
+                    name='quoteValidityDays'
+                  >
+                    <InputNumber
+                      size='large'
+                      min={1}
+                      max={365}
+                      style={{ width: '200px' }}
+                    />
                   </Form.Item>
 
                   <Form.Item label='Business Hours' name='businessHours'>
                     <Input size='large' placeholder='Mon-Fri 8AM-5PM' />
                   </Form.Item>
 
-                  <Form.Item label='Payment Terms' name='paymentTerms' tooltip='Default payment terms for quotes'>
-                    <TextArea rows={3} placeholder='e.g., Net 30, 50% deposit required, balance due upon completion' />
+                  <Form.Item
+                    label='Payment Terms'
+                    name='paymentTerms'
+                    tooltip='Default payment terms for quotes'
+                  >
+                    <TextArea
+                      rows={3}
+                      placeholder='e.g., Net 30, 50% deposit required, balance due upon completion'
+                    />
                   </Form.Item>
 
                   <Form.Item label='Warranty Terms' name='warrantyTerms'>
-                    <TextArea rows={3} placeholder='e.g., 1 year workmanship warranty' />
+                    <TextArea
+                      rows={3}
+                      placeholder='e.g., 1 year workmanship warranty'
+                    />
                   </Form.Item>
 
-                  <Form.Item label='General Terms & Conditions' name='generalTerms'>
-                    <TextArea rows={4} placeholder='Standard terms and conditions for all quotes' />
+                  <Form.Item
+                    label='General Terms & Conditions'
+                    name='generalTerms'
+                  >
+                    <TextArea
+                      rows={4}
+                      placeholder='Standard terms and conditions for all quotes'
+                    />
                   </Form.Item>
 
                   <Form.Item>
@@ -483,12 +625,16 @@ function SettingsPage() {
                     {pricingSchemes.map(scheme => (
                       <Card
                         key={scheme.id}
-                        className={`${scheme.isDefault ? 'border-blue-500 border-2' : ''}`}
+                        className={`${
+                          scheme.isDefault ? 'border-blue-500 border-2' : ''
+                        }`}
                       >
                         <div className='flex items-center justify-between'>
                           <div className='flex-1'>
                             <div className='flex items-center gap-2'>
-                              <h4 className='font-semibold text-lg'>{scheme.name}</h4>
+                              <h4 className='font-semibold text-lg'>
+                                {scheme.name}
+                              </h4>
                               {scheme.isDefault && (
                                 <span className='bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded'>
                                   Default
@@ -501,33 +647,45 @@ function SettingsPage() {
                               )}
                             </div>
                             <p className='text-gray-600 text-sm mt-1'>
-                              Type: <span className='font-medium'>{scheme.type.replace('_', ' ').toUpperCase()}</span>
+                              Type:{' '}
+                              <span className='font-medium'>
+                                {scheme.type.replace('_', ' ').toUpperCase()}
+                              </span>
                             </p>
                             {scheme.description && (
-                              <p className='text-gray-500 text-sm mt-1'>{scheme.description}</p>
+                              <p className='text-gray-500 text-sm mt-1'>
+                                {scheme.description}
+                              </p>
                             )}
-                            {scheme.pricingRules && Object.keys(scheme.pricingRules).length > 0 && (
-                              <div className='mt-2'>
-                                <p className='text-xs text-gray-500 mb-1'>Pricing Rules:</p>
-                                <div className='flex flex-wrap gap-1'>
-                                  {Object.entries(scheme.pricingRules).map(([key, value]) => (
-                                    <span
-                                      key={key}
-                                      className='bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded'
-                                    >
-                                      {key}: ${value.price}/{value.unit}
-                                    </span>
-                                  ))}
+                            {scheme.pricingRules &&
+                              Object.keys(scheme.pricingRules).length > 0 && (
+                                <div className='mt-2'>
+                                  <p className='text-xs text-gray-500 mb-1'>
+                                    Pricing Rules:
+                                  </p>
+                                  <div className='flex flex-wrap gap-1'>
+                                    {Object.entries(scheme.pricingRules).map(
+                                      ([key, value]) => (
+                                        <span
+                                          key={key}
+                                          className='bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded'
+                                        >
+                                          {key}: ${value.price}/{value.unit}
+                                        </span>
+                                      )
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
                           </div>
                           <div className='flex items-center gap-2'>
                             {!scheme.isDefault && (
                               <Button
                                 type='default'
                                 size='small'
-                                onClick={() => handleSetDefaultScheme(scheme.id)}
+                                onClick={() =>
+                                  handleSetDefaultScheme(scheme.id)
+                                }
                               >
                                 Set Default
                               </Button>
@@ -542,7 +700,9 @@ function SettingsPage() {
                             <Popconfirm
                               title='Delete pricing scheme?'
                               description='This action cannot be undone.'
-                              onConfirm={() => handleDeletePricingScheme(scheme.id)}
+                              onConfirm={() =>
+                                handleDeletePricingScheme(scheme.id)
+                              }
                               okText='Delete'
                               cancelText='Cancel'
                             >
@@ -559,69 +719,15 @@ function SettingsPage() {
                   <div className='text-center py-12 text-gray-500'>
                     <FiFileText className='text-5xl mx-auto mb-4 text-gray-300' />
                     <p>No pricing schemes created yet.</p>
-                    <Button type='primary' className='mt-4' onClick={handleCreatePricingScheme}>
+                    <Button
+                      type='primary'
+                      className='mt-4'
+                      onClick={handleCreatePricingScheme}
+                    >
                       Create Your First Scheme
                     </Button>
                   </div>
                 )}
-              </div>
-            </TabPane>
-
-            {/* Product Library Tab */}
-            <TabPane
-              tab={
-                <span className='flex items-center gap-2'>
-                  <FiPackage />
-                  Product Library
-                </span>
-              }
-              key='products'
-            >
-              <div className='py-4'>
-                <div className='text-center py-12'>
-                  <FiPackage className='text-5xl mx-auto mb-4 text-gray-300' />
-                  <h3 className='text-lg font-semibold mb-2'>Product Library</h3>
-                  <p className='text-gray-600 mb-4'>Manage your paint products and color library</p>
-                  <Button
-                    type='primary'
-                    size='large'
-                    onClick={() => navigate('/products')}
-                  >
-                    Go to Product Library
-                  </Button>
-                </div>
-              </div>
-            </TabPane>
-
-            {/* Proposal Toggles Tab */}
-            <TabPane
-              tab={
-                <span className='flex items-center gap-2'>
-                  <FiFileText />
-                  Proposal Toggles
-                </span>
-              }
-              key='proposal'
-            >
-              <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Proposal Toggles</h3>
-                <p className='text-gray-600'>Coming soon...</p>
-              </div>
-            </TabPane>
-
-            {/* Notifications Tab */}
-            <TabPane
-              tab={
-                <span className='flex items-center gap-2'>
-                  <FiSettings />
-                  Notifications
-                </span>
-              }
-              key='notifications'
-            >
-              <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Notifications</h3>
-                <p className='text-gray-600'>Coming soon...</p>
               </div>
             </TabPane>
 
@@ -640,14 +746,22 @@ function SettingsPage() {
                 <div className='max-w-2xl space-y-4'>
                   <Card>
                     <h4 className='font-semibold mb-2'>Password</h4>
-                    <p className='text-gray-600 text-sm mb-3'>Change your account password</p>
-                    <Button onClick={() => message.info('Password change - Coming soon')}>
+                    <p className='text-gray-600 text-sm mb-3'>
+                      Change your account password
+                    </p>
+                    <Button
+                      onClick={() =>
+                        message.info('Password change - Coming soon')
+                      }
+                    >
                       Change Password
                     </Button>
                   </Card>
 
                   <Card>
-                    <h4 className='font-semibold mb-2'>Two-Factor Authentication</h4>
+                    <h4 className='font-semibold mb-2'>
+                      Two-Factor Authentication
+                    </h4>
                     <p className='text-gray-600 text-sm mb-3'>
                       {twoFactorEnabled
                         ? 'Two-factor authentication is enabled. You will receive a code via email on login.'
@@ -658,9 +772,14 @@ function SettingsPage() {
                         {qrCodeUrl && (
                           <div className='mb-4'>
                             <p className='text-gray-600 text-sm mb-2'>
-                              Scan this QR code with your authenticator app to set up 2FA:
+                              Scan this QR code with your authenticator app to
+                              set up 2FA:
                             </p>
-                            <img src={qrCodeUrl} alt="2FA QR Code" className='w-48 h-48 mx-auto' />
+                            <img
+                              src={qrCodeUrl}
+                              alt='2FA QR Code'
+                              className='w-48 h-48 mx-auto'
+                            />
                           </div>
                         )}
                         <Popconfirm
@@ -694,18 +813,32 @@ function SettingsPage() {
 
                   <Card>
                     <h4 className='font-semibold mb-2'>Subscription</h4>
-                    <p className='text-gray-600 text-sm mb-3'>Manage your subscription and billing</p>
-                    <Button onClick={() => message.info('Subscription management - Coming soon')}>
+                    <p className='text-gray-600 text-sm mb-3'>
+                      Manage your subscription and billing
+                    </p>
+                    <Button
+                      onClick={() =>
+                        message.info('Subscription management - Coming soon')
+                      }
+                    >
                       Manage Subscription
                     </Button>
                   </Card>
 
                   <Card className='border-red-200'>
-                    <h4 className='font-semibold text-red-600 mb-2'>Danger Zone</h4>
-                    <p className='text-gray-600 text-sm mb-3'>Permanently delete your account and all data</p>
+                    <h4 className='font-semibold text-red-600 mb-2'>
+                      Danger Zone
+                    </h4>
+                    <p className='text-gray-600 text-sm mb-3'>
+                      Permanently delete your account and all data
+                    </p>
                     <Button
                       danger
-                      onClick={() => message.warning('Account deletion requires confirmation')}
+                      onClick={() =>
+                        message.warning(
+                          'Account deletion requires confirmation'
+                        )
+                      }
                     >
                       Delete Account
                     </Button>
@@ -718,7 +851,11 @@ function SettingsPage() {
 
         {/* Pricing Scheme Modal */}
         <Modal
-          title={editingPricingScheme ? 'Edit Pricing Scheme' : 'Create Pricing Scheme'}
+          title={
+            editingPricingScheme
+              ? 'Edit Pricing Scheme'
+              : 'Create Pricing Scheme'
+          }
           open={pricingSchemeModalVisible}
           onCancel={() => setPricingSchemeModalVisible(false)}
           footer={null}
@@ -734,7 +871,9 @@ function SettingsPage() {
               <Form.Item
                 label='Scheme Name'
                 name='name'
-                rules={[{ required: true, message: 'Please enter scheme name' }]}
+                rules={[
+                  { required: true, message: 'Please enter scheme name' }
+                ]}
               >
                 <Input placeholder='e.g., Square-Foot (Turnkey)' />
               </Form.Item>
@@ -742,20 +881,183 @@ function SettingsPage() {
               <Form.Item
                 label='Scheme Type'
                 name='type'
-                rules={[{ required: true, message: 'Please select scheme type' }]}
+                rules={[
+                  { required: true, message: 'Please select scheme type' }
+                ]}
               >
-                <Select>
-                  <Option value='sqft_turnkey'>Square-Foot (Turnkey)</Option>
-                  <Option value='sqft_labor_only'>Square-Foot (Labor Only)</Option>
-                  <Option value='hourly_time_materials'>Hourly (Time & Materials)</Option>
-                  <Option value='unit_based'>Unit Based</Option>
+                <Select
+                  placeholder='Select Scheme Type'
+                  className='h-fit'
+                  defaultValue={""}
+                  onChange={value => {
+                    setSelectedPricingType(value)
+                    pricingSchemeForm.setFieldsValue({ pricingRules: [] })
+                  }}
+                >
+                  <Option selected value={""}>
+                    <div>
+                      <div className='font-semibold'>
+                        -- Select Scheme Type --
+                      </div>
+                      <div className='text-xs text-gray-500'>
+                        Choose a Scheme Type to define how quotes are
+                        calculated
+                      </div>
+                    </div>
+                  </Option>
+
+                  <Option value='sqft_turnkey'>
+                    <div>
+                      <div className='font-semibold'>
+                        Square Foot (Turnkey, All-In)
+                      </div>
+                      <div className='text-xs text-gray-500'>
+                        Best for whole-house projects, simple one-number quotes
+                      </div>
+                    </div>
+                  </Option>
+                  <Option value='sqft_labor_paint'>
+                    <div>
+                      <div className='font-semibold'>
+                        Square Foot (Labor + Paint Separated)
+                      </div>
+                      <div className='text-xs text-gray-500'>
+                        Transparent pricing with Good/Better/Best paint options
+                      </div>
+                    </div>
+                  </Option>
+                  <Option value='hourly_time_materials'>
+                    <div>
+                      <div className='font-semibold'>
+                        Hourly Rate (Time & Materials)
+                      </div>
+                      <div className='text-xs text-gray-500'>
+                        Best for small jobs or uncertain scope
+                      </div>
+                    </div>
+                  </Option>
+                  <Option value='unit_pricing'>
+                    <div>
+                      <div className='font-semibold'>Unit Pricing</div>
+                      <div className='text-xs text-gray-500'>
+                        Quote by doors, windows, trim, cabinets, shutters
+                      </div>
+                    </div>
+                  </Option>
+                  <Option value='room_flat_rate'>
+                    <div>
+                      <div className='font-semibold'>
+                        Room-Based / Flat Rate
+                      </div>
+                      <div className='text-xs text-gray-500'>
+                        Flat rates by room size - simple for homeowners
+                      </div>
+                    </div>
+                  </Option>
                 </Select>
               </Form.Item>
             </div>
 
             <Form.Item label='Description' name='description'>
-              <Input.TextArea rows={2} placeholder='Optional description of this pricing scheme' />
+              <Input.TextArea
+                rows={2}
+                placeholder='Optional description of this pricing scheme'
+              />
             </Form.Item>
+
+            {selectedPricingType && (
+              <div className='mb-4 p-4 bg-blue-50 border border-blue-200 rounded'>
+                <div className='font-semibold text-blue-900 mb-2'>
+                  {selectedPricingType === 'sqft_turnkey' &&
+                    '📐 Square Foot (Turnkey) - All-Inclusive Pricing'}
+                  {selectedPricingType === 'sqft_labor_paint' &&
+                    '🎨 Square Foot (Labor + Paint) - Transparent Pricing'}
+                  {selectedPricingType === 'hourly_time_materials' &&
+                    '⏱️ Hourly Rate - Time & Materials'}
+                  {selectedPricingType === 'unit_pricing' &&
+                    '🔢 Unit Pricing - Per Item Pricing'}
+                  {selectedPricingType === 'room_flat_rate' &&
+                    '🏠 Room-Based - Flat Rate by Room'}
+                </div>
+                <div className='text-sm text-blue-800'>
+                  {selectedPricingType === 'sqft_turnkey' && (
+                    <>
+                      <p className='mb-1'>
+                        <strong>Formula:</strong> Total Paintable Sqft × Price
+                        per Sqft
+                      </p>
+                      <p className='mb-1'>
+                        <strong>Example:</strong> 10,500 sqft × $1.15 = $12,075
+                      </p>
+                      <p className='text-xs text-blue-600 mt-2'>
+                        Best for whole-house projects and customers who want one
+                        simple number.
+                      </p>
+                    </>
+                  )}
+                  {selectedPricingType === 'sqft_labor_paint' && (
+                    <>
+                      <p className='mb-1'>
+                        <strong>Formula:</strong> (Sqft × Labor Rate) + (Gallons
+                        × Paint Price)
+                      </p>
+                      <p className='mb-1'>
+                        <strong>Example:</strong> (10,500 × $0.55) + (30 × $40)
+                        = $6,975
+                      </p>
+                      <p className='text-xs text-blue-600 mt-2'>
+                        Great for transparency and upselling Good/Better/Best
+                        paint quality.
+                      </p>
+                    </>
+                  )}
+                  {selectedPricingType === 'hourly_time_materials' && (
+                    <>
+                      <p className='mb-1'>
+                        <strong>Formula:</strong> (Crew Size × Hours × Rate) +
+                        Paint Cost
+                      </p>
+                      <p className='mb-1'>
+                        <strong>Example:</strong> (3 painters × 40 hrs × $50) +
+                        $1,200 = $7,200
+                      </p>
+                      <p className='text-xs text-blue-600 mt-2'>
+                        Perfect for small jobs or when scope is uncertain.
+                      </p>
+                    </>
+                  )}
+                  {selectedPricingType === 'unit_pricing' && (
+                    <>
+                      <p className='mb-1'>
+                        <strong>Formula:</strong> Σ(Quantity × Unit Price)
+                      </p>
+                      <p className='mb-1'>
+                        <strong>Example:</strong> (20 doors × $85) + (900 lf
+                        trim × $2.50) = $4,100
+                      </p>
+                      <p className='text-xs text-blue-600 mt-2'>
+                        Best for trim-heavy jobs, cabinets, doors, and detailed
+                        work.
+                      </p>
+                    </>
+                  )}
+                  {selectedPricingType === 'room_flat_rate' && (
+                    <>
+                      <p className='mb-1'>
+                        <strong>Formula:</strong> Σ(Room Type × Flat Rate)
+                      </p>
+                      <p className='mb-1'>
+                        <strong>Example:</strong> Bedroom ($350) + Living Room
+                        ($650) = $1,000
+                      </p>
+                      <p className='text-xs text-blue-600 mt-2'>
+                        Simple pricing homeowners love - great for quick quotes!
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
 
             <Form.Item label='Active' name='isActive' valuePropName='checked'>
               <Switch />
@@ -772,31 +1074,53 @@ function SettingsPage() {
                 {(fields, { add, remove }) => (
                   <>
                     {fields.map(({ key, name, ...restField }) => (
-                      <div key={key} className='flex items-center gap-3 mb-3 p-3 border rounded'>
+                      <div
+                        key={key}
+                        className='flex items-center gap-3 mb-3 p-3 border rounded'
+                      >
                         <Form.Item
                           {...restField}
                           name={[name, 'surface']}
-                          rules={[{ required: true, message: 'Surface required' }]}
+                          rules={[
+                            { required: true, message: 'Surface required' }
+                          ]}
                           className='flex-1'
                         >
                           <Select placeholder='Surface/Work Type'>
-                            <Option value='walls'>Interior Walls</Option>
-                            <Option value='ceilings'>Ceilings</Option>
-                            <Option value='trim'>Trim/Baseboards</Option>
-                            <Option value='doors'>Doors</Option>
-                            <Option value='windows'>Windows</Option>
-                            <Option value='hourly_rate'>Hourly Rate</Option>
-                            <Option value='primer'>Primer Application</Option>
-                            <Option value='custom'>Custom Work</Option>
+                            {selectedPricingType &&
+                              getPricingRuleOptions(selectedPricingType).map(
+                                opt => (
+                                  <Option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </Option>
+                                )
+                              )}
+                            {!selectedPricingType && (
+                              <>
+                                <Option value='walls'>Interior Walls</Option>
+                                <Option value='ceilings'>Ceilings</Option>
+                                <Option value='trim'>Trim/Baseboards</Option>
+                                <Option value='doors'>Doors</Option>
+                                <Option value='windows'>Windows</Option>
+                                <Option value='hourly_rate'>Hourly Rate</Option>
+                              </>
+                            )}
                           </Select>
                         </Form.Item>
 
                         <Form.Item
                           {...restField}
                           name={[name, 'price']}
-                          rules={[{ required: true, message: 'Price required' }]}
+                          rules={[
+                            { required: true, message: 'Price required' }
+                          ]}
                         >
-                          <InputNumber placeholder='0.00' min={0} precision={2} style={{ width: 100 }} />
+                          <InputNumber
+                            placeholder='0.00'
+                            min={0}
+                            precision={2}
+                            style={{ width: 100 }}
+                          />
                         </Form.Item>
 
                         <Form.Item
@@ -839,7 +1163,7 @@ function SettingsPage() {
         </Modal>
       </div>
     </div>
-  );
+  )
 }
 
-export default SettingsPage;
+export default SettingsPage

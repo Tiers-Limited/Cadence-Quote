@@ -7,14 +7,16 @@ import { useRegistrationForm } from "../hooks/useRegistrationForm"
 import { message, Input, Select, Button, Checkbox } from "antd"
 import { BuildingIcon } from "lucide-react"
 import GoogleAuthButton from "./GoogleAuthButton"
+import AppleAuthButton from "./AppleAuthButton"
 import Logo from "./Logo"
 import PropTypes from 'prop-types'
 
-function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
+function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }) {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const { formData, setFormData, errors, validateForm, TRADE_TYPES } = useRegistrationForm()
   const [isGoogleAuth, setIsGoogleAuth] = useState(false)
+  const [isAppleAuth, setIsAppleAuth] = useState(false)
   const navigate = useNavigate()
 
   // Auto-fill form with Google data when available
@@ -34,6 +36,24 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
     }
   }, [googleData, setFormData])
 
+  // Auto-fill form with Apple data when available
+  useEffect(() => {
+    if (appleData) {
+      setIsAppleAuth(true)
+      const nameParts = appleData.fullName ? appleData.fullName.split(' ') : ['', '']
+      setFormData((prev) => ({
+        ...prev,
+        firstName: nameParts[0] || '',
+        lastName: nameParts.slice(1).join(' ') || '',
+        email: appleData.email || '',
+        appleId: appleData.appleId || '',
+        authProvider: 'apple',
+      }))
+      // Don't require password for Apple OAuth users
+      message.success('Apple authentication successful! Please complete your registration.')
+    }
+  }, [appleData, setFormData])
+
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({
@@ -45,14 +65,21 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
   const handleSubmit = (e) => {
     e.preventDefault()
 
-    if (validateForm(isGoogleAuth)) {
-      onSubmit({
+    const isOAuth = isGoogleAuth || isAppleAuth
+    if (validateForm(isOAuth)) {
+      const submitData = {
         ...formData,
-        ...(isGoogleAuth && { 
-          googleId: googleData?.googleId,
-          authProvider: 'google' 
-        })
-      })
+      }
+      
+      if (isGoogleAuth && googleData?.googleId) {
+        submitData.googleId = googleData.googleId
+        submitData.authProvider = 'google'
+      } else if (isAppleAuth && appleData?.appleId) {
+        submitData.appleId = appleData.appleId
+        submitData.authProvider = 'apple'
+      }
+      
+      onSubmit(submitData)
     } else {
       message.error("Please fix the errors in the form")
     }
@@ -115,9 +142,12 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
       </div>
 
       <div className="bg-white rounded-xl shadow-lg p-8">
-        {/* Google Sign Up Option */}
+        {/* OAuth Sign Up Options */}
         <div className="mb-6">
-          <GoogleAuthButton mode="signup" />
+          <div className="space-y-3">
+            <GoogleAuthButton mode="signup" />
+            <AppleAuthButton mode="signup" />
+          </div>
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-300"></div>
