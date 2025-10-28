@@ -59,46 +59,46 @@ const getSettings = async (req, res) => {
  * Update company information
  * PUT /api/settings/company
  */
-const updateCompanyInfo = async (req, res) => {
-  try {
-    const tenantId = req.user.tenantId;
-    const {
-      companyName,
-      email,
-      phoneNumber,
-      businessAddress,
-      tradeType
-    } = req.body;
+// const updateCompanyInfo = async (req, res) => {
+//   try {
+//     const tenantId = req.user.tenantId;
+//     const {
+//       companyName,
+//       email,
+//       phoneNumber,
+//       businessAddress,
+//       tradeType
+//     } = req.body;
 
-    const tenant = await Tenant.findByPk(tenantId);
-    if (!tenant) {
-      return res.status(404).json({
-        success: false,
-        message: 'Tenant not found'
-      });
-    }
+//     const tenant = await Tenant.findByPk(tenantId);
+//     if (!tenant) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Tenant not found'
+//       });
+//     }
 
-    await tenant.update({
-      companyName: companyName || tenant.companyName,
-      email: email || tenant.email,
-      phoneNumber: phoneNumber || tenant.phoneNumber,
-      businessAddress: businessAddress !== undefined ? businessAddress : tenant.businessAddress,
-      tradeType: tradeType || tenant.tradeType
-    });
+//     await tenant.update({
+//       companyName: companyName || tenant.companyName,
+//       email: email || tenant.email,
+//       phoneNumber: phoneNumber || tenant.phoneNumber,
+//       businessAddress: businessAddress !== undefined ? businessAddress : tenant.businessAddress,
+//       tradeType: tradeType || tenant.tradeType
+//     });
 
-    res.json({
-      success: true,
-      message: 'Company information updated successfully',
-      data: tenant
-    });
-  } catch (error) {
-    console.error('Update company info error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update company information'
-    });
-  }
-};
+//     res.json({
+//       success: true,
+//       message: 'Company information updated successfully',
+//       data: tenant
+//     });
+//   } catch (error) {
+//     console.error('Update company info error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to update company information'
+//     });
+//   }
+// };
 
 /**
  * Update contractor settings

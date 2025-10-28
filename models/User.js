@@ -42,10 +42,16 @@ const User = sequelize.define('User', {
     allowNull: true,
     field: 'google_id'
   },
+  appleId: {
+    type: DataTypes.STRING,
+    unique: true,
+    allowNull: true,
+    field: 'apple_id'
+  },
   authProvider: {
     type: DataTypes.STRING,
     allowNull: true,
-    defaultValue: 'local', // 'local', 'google', or 'local,google'
+    defaultValue: 'local', // 'local', 'google', 'apple', or combinations like 'local,google'
     field: 'auth_provider'
   },
   role: {
@@ -86,7 +92,8 @@ const User = sequelize.define('User', {
   indexes: [
     { fields: ['tenantId'] },
     { unique: true, fields: ['email'] },
-    { fields: ['google_id'] }
+    { fields: ['google_id'] },
+    { fields: ['apple_id'] }
   ]
 });
 

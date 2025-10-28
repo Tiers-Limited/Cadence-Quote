@@ -6,6 +6,7 @@ const paintProductController = require('../controllers/paintProductController');
 const colorLibraryController = require('../controllers/colorLibraryController');
 const multer = require('multer');
 const os = require('os');
+const settingsController = require('../controllers/settingsController');
 
 // Configure multer to use the system temp directory and name the file uniquely
 const upload = multer({ dest: os.tmpdir() });
@@ -48,6 +49,11 @@ router.post('/pricing-schemes', pricingSchemeController.createPricingScheme);
 router.put('/pricing-schemes/:id', pricingSchemeController.updatePricingScheme);
 router.delete('/pricing-schemes/:id', pricingSchemeController.deletePricingScheme);
 router.put('/pricing-schemes/:id/set-default', pricingSchemeController.setDefaultScheme);
+
+// Settings routes
+router.get('/settings', settingsController.getSettings);
+router.put('/settings', settingsController.updateSettings);
+router.put('/settings/company', settingsController.updateCompanyInfo);
 
 // Lead Form routes
 router.get('/lead-forms', leadFormController.getLeadForms);

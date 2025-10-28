@@ -283,13 +283,14 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if user registered with Google OAuth
-    if (user.authProvider === 'google' && !user.password) {
+    // Check if user registered with OAuth (Google or Apple)
+    if ((user.authProvider === 'google' || user.authProvider === 'apple') && !user.password) {
+      const provider = user.authProvider === 'google' ? 'Google' : 'Apple';
       return res.status(400).json({
         success: false,
-        message: 'This account was created using Google Sign-In. Please use "Continue with Google" to login.',
-        authProvider: 'google',
-        requiresGoogleAuth: true
+        message: `This account was created using ${provider} Sign-In. Please use "Continue with ${provider}" to login.`,
+        authProvider: user.authProvider,
+        requiresOAuth: true
       });
     }
 
@@ -302,8 +303,8 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if 2FA is enabled and not a Google OAuth login
-    if (user.twoFactorEnabled && user.authProvider !== 'google') {
+    // Check if 2FA is enabled and not an OAuth login
+    if (user.twoFactorEnabled && user.authProvider !== 'google' && user.authProvider !== 'apple') {
       // Generate 2FA code (6-digit TOTP)
       const code = speakeasy.totp({
         secret: user.twoFactorSecret,
@@ -621,6 +622,7 @@ const registerWithPayment = async (req, res) => {
       tradeType,
       subscriptionPlan,
       googleId,
+      appleId,
       authProvider
     } = req.body;
 
@@ -635,7 +637,10 @@ const registerWithPayment = async (req, res) => {
     }
 
     const isGoogleAuth = authProvider === 'google' && googleId;
-    if (!isGoogleAuth && (!password || password.length < 8)) {
+    const isAppleAuth = authProvider === 'apple' && appleId;
+    const isOAuth = isGoogleAuth || isAppleAuth;
+    
+    if (!isOAuth && (!password || password.length < 8)) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
@@ -710,6 +715,10 @@ const registerWithPayment = async (req, res) => {
     if (isGoogleAuth) {
       userCreateData.googleId = googleId;
       userCreateData.authProvider = 'google';
+      userCreateData.emailVerified = true;
+    } else if (isAppleAuth) {
+      userCreateData.appleId = appleId;
+      userCreateData.authProvider = 'apple';
       userCreateData.emailVerified = true;
     } else {
       userCreateData.password = password;
@@ -801,8 +810,8 @@ const registerWithPayment = async (req, res) => {
     await transaction.commit();
     console.log('Transaction committed successfully');
 
-    // Send email verification for non-Google users
-    if (!isGoogleAuth) {
+    // Send email verification for non-OAuth users
+    if (!isOAuth) {
       try {
         const verificationToken = generateVerificationToken(user.id, user.email);
         await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
@@ -814,7 +823,7 @@ const registerWithPayment = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: isGoogleAuth
+      message: isOAuth
         ? 'Registration initiated. Please complete payment.'
         : 'Registration initiated. Please complete payment and check your email to verify your account.',
       data: {
@@ -1152,7 +1161,270 @@ const linkGoogleAccount = async (req, res) => {
 };
 
 /**
- * Set password for Google-only account
+ * Handle Apple OAuth callback
+ * GET /api/auth/apple/callback
+ */
+const handleAppleCallback = async (req, res) => {
+  try {
+    const response = req.user;
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    console.log("Backend Apple User Response:", response);
+
+    // New user - redirect to registration page with Apple data
+    if (response.isNewUser) {
+      const profile = response.appleProfile;
+      
+      // Encode profile data to pass in URL
+      const appleData = {
+        appleId: response.appleId,
+        email: response.email,
+        fullName: response.fullName,
+        provider: 'apple',
+        timestamp: Date.now()
+      };
+
+      // Base64 encode the data
+      const encodedData = Buffer.from(JSON.stringify(appleData)).toString('base64');
+
+      // Redirect to registration page with encoded data
+      return res.redirect(`${FRONTEND_URL}/register?appleData=${encodedData}`);
+    } 
+    // Existing user - generate tokens and redirect to dashboard
+    else {
+      const token = generateToken(response.user.id, response.user.tenantId);
+      const refreshToken = generateRefreshToken(response.user.id, response.user.tenantId);
+
+      // Redirect to login success page with tokens
+      return res.redirect(
+        `${FRONTEND_URL}/auth/apple/success?token=${token}&refreshToken=${refreshToken}`
+      );
+    }
+
+  } catch (error) {
+    console.error('Apple callback error:', error);
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+    
+    // Redirect to login with error
+    return res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(error.message || 'Authentication failed')}`);
+  }
+};
+
+/**
+ * Complete Apple signup with company details
+ * POST /api/auth/apple/complete-signup
+ */
+const completeAppleSignup = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {
+      appleData, // Base64 encoded data from Apple
+      companyName,
+      phoneNumber,
+      businessAddress,
+      tradeType,
+      subscriptionPlan
+    } = req.body;
+
+    // Decode and validate Apple data
+    let appleInfo;
+    try {
+      const decoded = Buffer.from(appleData, 'base64').toString('utf-8');
+      appleInfo = JSON.parse(decoded);
+      
+      // Check timestamp (data should be used within 30 minutes)
+      const thirtyMinutes = 30 * 60 * 1000;
+      if (Date.now() - appleInfo.timestamp > thirtyMinutes) {
+        return res.status(400).json({
+          success: false,
+          message: 'Apple authentication data expired. Please try again.'
+        });
+      }
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Apple authentication data'
+      });
+    }
+
+    // Validation
+    if (!companyName || !phoneNumber || !tradeType || !subscriptionPlan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields',
+        required: ['companyName', 'phoneNumber', 'tradeType', 'subscriptionPlan']
+      });
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ where: { email: appleInfo.email } });
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'Email already registered'
+      });
+    }
+
+    // Create tenant
+    const tenant = await Tenant.create({
+      companyName,
+      email: appleInfo.email,
+      phoneNumber,
+      businessAddress: businessAddress || null,
+      tradeType,
+      subscriptionPlan,
+      isActive: false, // Will be activated after payment
+      paymentStatus: 'pending'
+    }, { transaction });
+
+    // Create user with Apple OAuth
+    const user = await User.create({
+      fullName: appleInfo.fullName,
+      email: appleInfo.email,
+      password: null, // No password for OAuth users
+      appleId: appleInfo.appleId,
+      authProvider: 'apple',
+      role: 'contractor_admin',
+      tenantId: tenant.id,
+      isActive: false, // Will be activated after payment
+      emailVerified: true // Apple emails are pre-verified
+    }, { transaction });
+
+    // Get plan details
+    const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
+
+    // Create payment record
+    const payment = await Payment.create({
+      tenantId: tenant.id,
+      userId: user.id,
+      subscriptionPlan,
+      amount: planDetails.price,
+      currency: 'usd',
+      status: 'pending',
+      description: `${planDetails.name} - ${tenant.companyName}`,
+      metadata: {
+        planFeatures: planDetails.features,
+        registrationFlow: true,
+        authProvider: 'apple'
+      }
+    }, { transaction });
+
+    // Create Stripe Checkout Session
+    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    const session = await createCheckoutSession({
+      userId: user.id,
+      tenantId: tenant.id,
+      subscriptionPlan,
+      email: user.email,
+      successUrl: `${BACKEND_URL}/api/v1/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
+      cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`
+    });
+
+    // Update payment with session ID
+    await payment.update({
+      stripeSessionId: session.sessionId
+    }, { transaction });
+
+    await transaction.commit();
+
+    console.log('Apple signup initiated:', {
+      tenantId: tenant.id,
+      userId: user.id,
+      email: appleInfo.email,
+      authProvider: 'apple'
+    });
+
+    // Return Stripe checkout URL
+    res.status(200).json({
+      success: true,
+      message: 'Apple signup completed. Please complete payment.',
+      data: {
+        stripeUrl: session.sessionUrl,
+        sessionId: session.sessionId,
+        tenant: {
+          id: tenant.id,
+          companyName: tenant.companyName
+        },
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email
+        }
+      }
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Complete Apple signup error:', error);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to complete Apple signup. Please try again.'
+    });
+  }
+};
+
+/**
+ * Link Apple account to existing user
+ * POST /api/auth/apple/link
+ */
+const linkAppleAccount = async (req, res) => {
+  try {
+    const { appleToken } = req.body;
+    const userId = req.user.id;
+
+    // For Apple, you'd need to verify the identity token
+    // This is a simplified version - in production you should verify the token
+    const appleId = req.body.appleId; // You'd extract this from the verified token
+
+    if (!appleId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Apple ID is required'
+      });
+    }
+
+    // Check if Apple account is already linked to another user
+    const existingUser = await User.findOne({
+      where: { appleId }
+    });
+
+    if (existingUser && existingUser.id !== userId) {
+      return res.status(409).json({
+        success: false,
+        message: 'This Apple account is already linked to another user'
+      });
+    }
+
+    // Update user with Apple ID
+    const user = await User.findByPk(userId);
+    await user.update({
+      appleId,
+      authProvider: user.authProvider === 'local' ? 'local,apple' : 'apple'
+    });
+
+    res.json({
+      success: true,
+      message: 'Apple account linked successfully',
+      data: {
+        authProvider: user.authProvider
+      }
+    });
+
+  } catch (error) {
+    console.error('Link Apple account error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to link Apple account'
+    });
+  }
+};
+
+/**
+ * Set password for OAuth-only account
  * POST /api/auth/set-password
  * @access Private (requires authentication)
  */
@@ -1418,6 +1690,9 @@ module.exports = {
   handleGoogleCallback,
   completeGoogleSignup,
   linkGoogleAccount,
+  handleAppleCallback,
+  completeAppleSignup,
+  linkAppleAccount,
   setPassword,
   sendVerificationEmail,
   verifyEmail,

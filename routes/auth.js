@@ -10,6 +10,9 @@ const {
   handleGoogleCallback,
   completeGoogleSignup,
   linkGoogleAccount,
+  handleAppleCallback,
+  completeAppleSignup,
+  linkAppleAccount,
   setPassword,
   sendVerificationEmail,
   verifyEmail,
@@ -131,8 +134,56 @@ router.post('/google/complete-signup', completeGoogleSignup);
 router.post('/google/link', auth, linkGoogleAccount);
 
 /**
+ * @route   GET /api/auth/apple/url
+ * @desc    Get Apple OAuth URL with query parameters
+ * @access  Public
+ */
+router.get('/apple/url', (req, res) => {
+  const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
+  const authUrl = `${BACKEND_URL}/api/v1/auth/apple?${new URLSearchParams(req.query).toString()}`;
+  res.json({ url: authUrl });
+});
+
+/**
+ * @route   GET /api/auth/apple
+ * @desc    Initiate Apple OAuth
+ * @access  Public
+ */
+router.get('/apple', passport.authenticate('apple', {
+  scope: ['name', 'email'],
+  session: false
+}));
+
+/**
+ * @route   POST /api/auth/apple/callback
+ * @desc    Apple OAuth callback
+ * @access  Public
+ */
+router.post('/apple/callback',
+  passport.authenticate('apple', { 
+    session: false,
+    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=apple_auth_failed`
+  }),
+  handleAppleCallback
+);
+
+/**
+ * @route   POST /api/auth/apple/complete-signup
+ * @desc    Complete Apple OAuth signup with company details
+ * @access  Public
+ */
+router.post('/apple/complete-signup', completeAppleSignup);
+
+/**
+ * @route   POST /api/auth/apple/link
+ * @desc    Link Apple account to existing user
+ * @access  Private
+ */
+router.post('/apple/link', auth, linkAppleAccount);
+
+/**
  * @route   POST /api/auth/set-password
- * @desc    Set password for Google-only accounts
+ * @desc    Set password for OAuth-only accounts
  * @access  Private
  */
 router.post('/set-password', auth, setPassword);
