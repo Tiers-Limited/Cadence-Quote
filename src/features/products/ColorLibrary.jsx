@@ -254,7 +254,7 @@ const columns = [
   }
 
   return (
-    <div className="p-6">
+    <div className="">
       <div className="flex justify-between mb-4">
         <h2 className="text-2xl font-semibold">Color Library</h2>
         <div>

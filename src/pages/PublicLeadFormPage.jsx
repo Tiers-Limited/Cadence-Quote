@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Form, Input, Button, Select, message, Checkbox, InputNumber, Radio, Steps, Progress, Result, Spin } from 'antd'
-import { FiSend, FiCheckCircle, FiUser, FiHome, FiArrowRight, FiArrowLeft } from 'react-icons/fi'
+import { Card, Form, Input, Button, Select, message, Checkbox, InputNumber, Radio, Steps, Progress, Result, Spin, Upload } from 'antd'
+import { FiSend, FiCheckCircle, FiUser, FiHome, FiArrowRight, FiArrowLeft, FiUpload } from 'react-icons/fi'
 import { apiService } from '../services/apiService'
+import { uploadMultipleImagesToCloudinary, isCloudinaryConfigured } from '../utils/cloudinaryUpload'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -18,6 +19,11 @@ function PublicLeadFormPage() {
   const [currentStep, setCurrentStep] = useState(0)
   const [formData, setFormData] = useState({})
   const [ballparkQuote, setBallparkQuote] = useState(null)
+  const [quoteRange, setQuoteRange] = useState(null)
+  const [quoteMessage, setQuoteMessage] = useState(null)
+  const [fileList, setFileList] = useState([])
+  const [uploadingImages, setUploadingImages] = useState(false)
+  const [cloudinaryUrls, setCloudinaryUrls] = useState([])
 
   useEffect(() => {
     fetchLeadForm()
@@ -47,6 +53,35 @@ function PublicLeadFormPage() {
       
       setSubmitting(true)
 
+      // Upload images to Cloudinary if any
+      let photoUrls = cloudinaryUrls; // Use already uploaded URLs
+      
+      // If there are files not yet uploaded to Cloudinary
+      const filesToUpload = fileList
+        .filter(file => file.originFileObj && !cloudinaryUrls.includes(file.url))
+        .map(file => file.originFileObj);
+      
+      if (filesToUpload.length > 0 && isCloudinaryConfigured()) {
+        try {
+          setUploadingImages(true);
+          message.loading('Uploading images...', 0);
+          const uploadedUrls = await uploadMultipleImagesToCloudinary(filesToUpload);
+          photoUrls = [...cloudinaryUrls, ...uploadedUrls];
+          setCloudinaryUrls(photoUrls);
+          message.destroy();
+          message.success(`${uploadedUrls.length} image(s) uploaded successfully!`);
+        } catch (uploadError) {
+          message.destroy();
+          message.error('Failed to upload images. Please try again.');
+          console.error('Cloudinary upload error:', uploadError);
+          setSubmitting(false);
+          setUploadingImages(false);
+          return;
+        } finally {
+          setUploadingImages(false);
+        }
+      }
+
       // Get UTM parameters from URL
       const urlParams = new URLSearchParams(window.location.search)
       const utmData = {
@@ -66,6 +101,7 @@ function PublicLeadFormPage() {
         roomCount: allData.roomCount,
         projectType: allData.projectType,
         projectDetails: allData.projectDetails,
+        photoUrls: photoUrls.length > 0 ? JSON.stringify(photoUrls) : null,
         preferredContactMethod: allData.preferredContactMethod,
         bestTimeToContact: allData.bestTimeToContact,
         timeline: allData.timeline,
@@ -81,7 +117,11 @@ function PublicLeadFormPage() {
       if (response.success) {
         setSubmitted(true)
         setBallparkQuote(response.data?.ballparkQuote)
+        setQuoteRange(response.data?.quoteRange)
+        setQuoteMessage(response.data?.quoteMessage)
         form.resetFields()
+        setFileList([])
+        setCloudinaryUrls([])
         message.success('Thank you! We\'ll be in touch soon.')
       }
     } catch (error) {
@@ -143,17 +183,16 @@ function PublicLeadFormPage() {
             }
             extra={[
               <div key="details" className="text-left space-y-4 mt-6">
-                {ballparkQuote && (
+                {ballparkQuote && quoteRange && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-6">
                     <h3 className="text-lg font-semibold text-green-900 mb-2">
                       Your Ballpark Estimate
                     </h3>
                     <div className="text-3xl font-bold text-green-600">
-                      ${(parseFloat(ballparkQuote) - 700).toLocaleString()} - $
-                      {(parseFloat(ballparkQuote) + 700).toLocaleString()}
+                      ${quoteRange.low.toLocaleString()} - ${quoteRange.high.toLocaleString()}
                     </div>
                     <p className="text-sm text-gray-600 mt-2">
-                      Based on your zip code and project size
+                      {quoteMessage || 'Based on your zip code and project size'}
                     </p>
                   </div>
                 )}
@@ -346,6 +385,62 @@ function PublicLeadFormPage() {
                 >
                   <TextArea rows={4} placeholder="Please describe your painting project in detail..." />
                 </Form.Item>
+
+                <Form.Item
+                  label="Project Photos (Optional)"
+                  name="photos"
+                  extra={
+                    isCloudinaryConfigured() 
+                      ? "Upload photos to help us understand your project better. Max 5 photos, max 5MB each."
+                      : "⚠️ Image upload is not configured. Contact administrator to set up Cloudinary."
+                  }
+                >
+                  <Upload
+                    listType="picture-card"
+                    fileList={fileList}
+                    onChange={({ fileList: newFileList }) => setFileList(newFileList)}
+                    beforeUpload={(file) => {
+                      const isImage = file.type.startsWith('image/');
+                      if (!isImage) {
+                        message.error('You can only upload image files!');
+                        return Upload.LIST_IGNORE;
+                      }
+                      const isLt5M = file.size / 1024 / 1024 < 5;
+                      if (!isLt5M) {
+                        message.error('Image must be smaller than 5MB!');
+                        return Upload.LIST_IGNORE;
+                      }
+                      
+                      if (!isCloudinaryConfigured()) {
+                        message.warning('Image upload is not configured');
+                        return Upload.LIST_IGNORE;
+                      }
+                      
+                      return false; // Prevent auto upload - we'll upload on form submit
+                    }}
+                    maxCount={5}
+                    onPreview={(file) => {
+                      const url = file.url || file.thumbUrl || (file.originFileObj && URL.createObjectURL(file.originFileObj));
+                      if (url) {
+                        window.open(url, '_blank');
+                      }
+                    }}
+                    onRemove={(file) => {
+                      // Remove from Cloudinary URLs if it was uploaded
+                      if (file.url && cloudinaryUrls.includes(file.url)) {
+                        setCloudinaryUrls(cloudinaryUrls.filter(url => url !== file.url));
+                      }
+                    }}
+                    disabled={!isCloudinaryConfigured()}
+                  >
+                    {fileList.length >= 5 ? null : (
+                      <div>
+                        <FiUpload style={{ fontSize: '24px', marginBottom: '8px' }} />
+                        <div style={{ marginTop: 8 }}>Upload Photo</div>
+                      </div>
+                    )}
+                  </Upload>
+                </Form.Item>
               </div>
             )}
 
@@ -443,9 +538,10 @@ function PublicLeadFormPage() {
                   icon={<FiCheckCircle />}
                   iconPosition="end"
                   onClick={handleSubmit}
-                  loading={submitting}
+                  loading={submitting || uploadingImages}
+                  disabled={submitting || uploadingImages}
                 >
-                  Submit Request
+                  {uploadingImages ? 'Uploading Images...' : submitting ? 'Submitting...' : 'Submit Request'}
                 </Button>
               )}
             </div>

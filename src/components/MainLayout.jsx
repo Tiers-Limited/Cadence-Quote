@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useState } from 'react'
 import '../styles/sidebar.css'
 import Logo from './Logo'
+import LogoIcon from './LogoIcon'
 
 function MainLayout({ children }) {
   const navigate = useNavigate()
@@ -94,7 +95,7 @@ function MainLayout({ children }) {
       >
         <div style={{ background: '#eff0f4' }} className="flex items-center h-32 p-6 border-b flex-shrink-0">
           <span className="text-[#4a8bff] font-bold text-lg truncate">
-            {collapsed ? 'C' : <Logo />}
+            {collapsed ? <LogoIcon/> : <Logo />}
           </span>
         </div>
         <div className=" overflow-y-auto flex-1 h-[calc(100dvh-12rem)] overflow-x-hidden">
@@ -125,12 +126,12 @@ function MainLayout({ children }) {
       </Layout.Sider>
 
       {/* Mobile backdrop overlay */}
-      {!collapsed && (
+      {/* {!collapsed && (
         <div
           className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-[1000]"
           onClick={() => setCollapsed(true)}
         />
-      )}
+      )} */}
 
       <Layout 
         className="transition-all duration-200 ease-in-out min-h-screen bg-gray-50"

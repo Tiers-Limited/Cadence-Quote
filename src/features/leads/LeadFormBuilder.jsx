@@ -145,7 +145,7 @@ const LeadFormBuilder = () => {
           />
           <Button
             icon={<EyeOutlined />}
-            onClick={() => window.open(record.publicUrl, '_blank')}
+            onClick={() => window.open("/public-form/"+record.publicUrl, '_blank')}
           />
           <Button
             icon={<DeleteOutlined />}
@@ -163,58 +163,168 @@ const LeadFormBuilder = () => {
       dataIndex: 'createdAt',
       key: 'createdAt',
       render: (date) => new Date(date).toLocaleDateString(),
+      width: 120,
     },
     {
       title: 'Form',
-      dataIndex: ['form', 'formName'],
-      key: 'formName',
+      dataIndex: ['LeadForm', 'formTitle'],
+      key: 'formTitle',
+      width: 150,
     },
     {
       title: 'Contact',
       key: 'contact',
-      render: (_, record) => {
-        const data = record.data || {};
-        return (
-          <Space direction="vertical" size="small">
-            <Space>
-              <Text>{data.name}</Text>
-            </Space>
-            {data.email && (
-              <Space>
-                <MailOutlined />
-                <Text>{data.email}</Text>
-              </Space>
-            )}
-            {data.phone && (
-              <Space>
-                <PhoneOutlined />
-                <Text>{data.phone}</Text>
-              </Space>
-            )}
+      width: 250,
+      render: (_, record) => (
+        <Space direction="vertical" size="small">
+          <Space>
+            <Text strong>{record.fullName}</Text>
           </Space>
-        );
-      },
+          {record.email && (
+            <Space>
+              <MailOutlined />
+              <Text copyable>{record.email}</Text>
+            </Space>
+          )}
+          {record.phone && (
+            <Space>
+              <PhoneOutlined />
+              <Text copyable>{record.phone}</Text>
+            </Space>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: 'Project',
+      key: 'project',
+      width: 200,
+      render: (_, record) => (
+        <Space direction="vertical" size="small">
+          <Text>Type: {record.projectType?.replace('_', ' ').toUpperCase()}</Text>
+          {record.homeSize && <Text>Size: {record.homeSize} sq ft</Text>}
+          {record.ballparkQuote && <Text strong>Quote: ${record.ballparkQuote}</Text>}
+        </Space>
+      ),
     },
     {
       title: 'Details',
       key: 'details',
+      width: 100,
       render: (_, record) => (
         <Button
           icon={<FormOutlined />}
           onClick={() => {
+            // Parse photoUrls if it's a string
+            let photoUrls = [];
+            try {
+              photoUrls = typeof record.photoUrls === 'string' 
+                ? JSON.parse(record.photoUrls) 
+                : (record.photoUrls || []);
+            } catch (e) {
+              photoUrls = [];
+            }
+
             Modal.info({
               title: 'Lead Details',
               content: (
-                <div>
-                  {Object.entries(record.data || {}).map(([key, value]) => (
-                    <div key={key} className="mb-2">
-                      <Text strong>{key}: </Text>
-                      <Text>{value}</Text>
+                <div className="space-y-4">
+                  <div>
+                    <Text strong>Full Name: </Text>
+                    <Text>{record.fullName}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Email: </Text>
+                    <Text copyable>{record.email}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Phone: </Text>
+                    <Text copyable>{record.phone}</Text>
+                  </div>
+                  {record.address && (
+                    <div>
+                      <Text strong>Address: </Text>
+                      <Text>{record.address}</Text>
                     </div>
-                  ))}
+                  )}
+                  {record.zipCode && (
+                    <div>
+                      <Text strong>Zip Code: </Text>
+                      <Text>{record.zipCode}</Text>
+                    </div>
+                  )}
+                  {record.homeSize && (
+                    <div>
+                      <Text strong>Home Size: </Text>
+                      <Text>{record.homeSize} sq ft</Text>
+                    </div>
+                  )}
+                  {record.roomCount && (
+                    <div>
+                      <Text strong>Room Count: </Text>
+                      <Text>{record.roomCount}</Text>
+                    </div>
+                  )}
+                  {record.projectType && (
+                    <div>
+                      <Text strong>Project Type: </Text>
+                      <Text>{record.projectType.replace('_', ' ').toUpperCase()}</Text>
+                    </div>
+                  )}
+                  {record.projectDetails && (
+                    <div>
+                      <Text strong>Project Details: </Text>
+                      <Text>{record.projectDetails}</Text>
+                    </div>
+                  )}
+                  {record.preferredContactMethod && (
+                    <div>
+                      <Text strong>Preferred Contact: </Text>
+                      <Text>{record.preferredContactMethod}</Text>
+                    </div>
+                  )}
+                  {record.bestTimeToContact && (
+                    <div>
+                      <Text strong>Best Time: </Text>
+                      <Text>{record.bestTimeToContact}</Text>
+                    </div>
+                  )}
+                  {record.timeline && (
+                    <div>
+                      <Text strong>Timeline: </Text>
+                      <Text>{record.timeline}</Text>
+                    </div>
+                  )}
+                  {record.referralSource && (
+                    <div>
+                      <Text strong>Referral Source: </Text>
+                      <Text>{record.referralSource}</Text>
+                    </div>
+                  )}
+                  {record.ballparkQuote && (
+                    <div>
+                      <Text strong>Ballpark Quote: </Text>
+                      <Text>${record.ballparkQuote}</Text>
+                    </div>
+                  )}
+                  {photoUrls.length > 0 && (
+                    <div>
+                      <Text strong>Photos: </Text>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        {photoUrls.map((url, index) => (
+                          <img 
+                            key={index} 
+                            src={url} 
+                            alt={`Project ${index + 1}`}
+                            className="w-full h-32 object-cover rounded"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ),
-              width: 600,
+              width: 700,
             });
           }}
         >
@@ -225,6 +335,7 @@ const LeadFormBuilder = () => {
     {
       title: 'Status',
       key: 'status',
+      width: 120,
       render: (_, record) => {
         const statusColors = {
           new: 'blue',
@@ -255,10 +366,13 @@ const LeadFormBuilder = () => {
       },
     },
     {
-      title: 'Follow Up',
-      dataIndex: 'followUpDate',
-      key: 'followUpDate',
-      render: (date) => date ? new Date(date).toLocaleDateString() : '-',
+      title: 'Source',
+      dataIndex: 'source',
+      key: 'source',
+      width: 100,
+      render: (source) => (
+        <Tag color="green">{source?.toUpperCase()}</Tag>
+      ),
     },
   ];
 

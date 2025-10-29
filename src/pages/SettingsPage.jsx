@@ -348,7 +348,7 @@ function SettingsPage () {
   }
 
   return (
-    <div className='p-8'>
+    <div className=''>
       <div className='max-w-6xl mx-auto'>
         {/* Header */}
         <div className='mb-6'>

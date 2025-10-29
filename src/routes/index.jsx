@@ -18,6 +18,7 @@ import EmailVerificationPage from '../pages/EmailVerificationPage';
 import TwoFactorVerificationPage from '../pages/TwoFactorVerificationPage';
 import ComingSoonPage from '../pages/ComingSoonPage';
 import RoleBasedRoute from '../pages/RoleBasedRoute';
+import PublicLeadFormPage from '../pages/PublicLeadFormPage';
 import { Spin } from 'antd';
 
 const AppRoutes = () => {
@@ -43,6 +44,9 @@ const AppRoutes = () => {
       <Route path='/payment-success' element={<PaymentSuccessPage />} />
       <Route path='/payment-cancel' element={<PaymentCancelPage />} />
       <Route path='/coming-soon' element={<ComingSoonPage />} />
+      
+      {/* Public Lead Form Route - No authentication required */}
+      <Route path='/public-form/:publicUrl' element={<PublicLeadFormPage />} />
 
       {/* Protected Routes for contractor_admin with MainLayout */}
       <Route
