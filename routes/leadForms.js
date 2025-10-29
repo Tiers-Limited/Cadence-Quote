@@ -6,10 +6,10 @@ const { authenticateToken } = require('../middleware/auth');
 
 // PUBLIC ROUTES (no authentication required)
 // Get lead form by public URL
-router.get('/public/:publicUrl', leadFormController.getLeadFormByUrl);
+router.get('/public/:publicUrl', leadFormController.getPublicLeadForm);
 
 // Submit lead form
-router.post('/public/:publicUrl/submit', leadFormController.submitLeadForm);
+router.post('/public/:publicUrl/submit', leadFormController.submitPublicLead);
 
 // AUTHENTICATED ROUTES
 router.use(authenticateToken);

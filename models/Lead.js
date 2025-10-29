@@ -181,6 +181,12 @@ const Lead = sequelize.define('Lead', {
     field: 'contacted_at',
     comment: 'Timestamp when lead was first contacted'
   },
+  lastReminderAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'last_reminder_at',
+    comment: 'Timestamp when last follow-up reminder was sent'
+  },
   responseTime: {
     type: DataTypes.INTEGER,
     allowNull: true,
@@ -192,22 +198,13 @@ const Lead = sequelize.define('Lead', {
     allowNull: true,
     field: 'assigned_to',
     comment: 'User ID of assigned salesperson/estimator'
-  },
-  createdAt: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW,
-    field: 'created_at'
-  },
-  updatedAt: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW,
-    field: 'updated_at'
   }
 }, {
-  timestamps: false, // We define them manually to match snake_case
+  timestamps: true,
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
   tableName: 'leads',
+  underscored: true, // This will automatically convert createdAt to created_at
   indexes: [
     {
       fields: ['tenant_id']
@@ -220,9 +217,6 @@ const Lead = sequelize.define('Lead', {
     },
     {
       fields: ['email']
-    },
-    {
-      fields: ['createdAt']
     }
   ]
 });

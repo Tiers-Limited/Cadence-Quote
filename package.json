@@ -20,6 +20,7 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "~1.9.1",
     "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
     "nodemailer": "^7.0.9",
     "nodemon": "^3.1.10",
     "passport": "^0.7.0",
@@ -32,6 +33,7 @@
     "sequelize": "^6.37.7",
     "speakeasy": "^2.0.0",
     "stripe": "^19.1.0",
+    "twilio": "^5.10.4",
     "xlsx": "^0.18.5"
   }
 }

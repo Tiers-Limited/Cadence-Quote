@@ -13,9 +13,9 @@ const upload = multer({ dest: os.tmpdir() });
 const pricingSchemeController = require('../controllers/pricingSchemeController');
 const leadFormController = require('../controllers/leadFormController');
 
-// Public routes (no auth required)
-router.get('/public/lead-forms/:publicUrl', leadFormController.getPublicLeadForm);
-router.post('/public/lead-forms/:publicUrl/submit', leadFormController.submitPublicLead);
+// Public routes (no auth required) - MUST be before auth middleware
+router.get('/lead-forms/public/:publicUrl', leadFormController.getPublicLeadForm);
+router.post('/lead-forms/public/:publicUrl/submit', leadFormController.submitPublicLead);
 
 // Protected routes
 router.use(auth);
@@ -68,9 +68,5 @@ router.get('/leads/:id', leadFormController.getLeadById);
 router.post('/leads/:formId/submit', leadFormController.submitLead);
 router.put('/leads/:id', leadFormController.updateLead);
 router.delete('/leads/:id', leadFormController.deleteLead);
-
-// Public routes (no auth required)
-router.get('/public/lead-forms/:publicUrl', leadFormController.getPublicLeadForm);
-router.post('/public/lead-forms/:publicUrl/submit', leadFormController.submitPublicLead);
 
 module.exports = router;

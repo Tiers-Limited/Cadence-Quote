@@ -2,6 +2,9 @@
 const LeadForm = require('../models/LeadForm');
 const Lead = require('../models/Lead');
 const crypto = require('crypto');
+const zipCodePricingService = require('../services/zipCodePricingService');
+const emailService = require('../services/emailService');
+const smsService = require('../services/smsService');
 
 /**
  * Get all leads for a tenant
@@ -205,7 +208,7 @@ const submitLead = async (req, res) => {
 const submitPublicLead = async (req, res) => {
   try {
     const { publicUrl } = req.params;
-    const { name, email, phone, address, projectType, message, formData } = req.body;
+    const { name, email, phone, address, projectType, message, formData, photoUrls } = req.body;
 
     // Find form by public URL
     const form = await LeadForm.findOne({
@@ -219,16 +222,75 @@ const submitPublicLead = async (req, res) => {
       });
     }
 
-    // Create lead
+    // Extract enhanced fields from formData
+    const {
+      firstName,
+      lastName,
+      zipCode,
+      homeSize,
+      roomCount,
+      projectDetails,
+      preferredContactMethod,
+      bestTimeToContact,
+      timeline,
+      paintPreference,
+      referralSource,
+      agreedToTerms,
+      utmSource,
+      utmMedium,
+      utmCampaign
+    } = formData || {};
+
+    // Calculate ballpark quote using AI pricing service
+    let ballparkQuote = null;
+    let pricingBreakdown = null;
+    
+    if (form.enableZipCodePricing && zipCode) {
+      try {
+        pricingBreakdown = zipCodePricingService.getPricingBreakdown({
+          zipCode,
+          homeSize,
+          roomCount,
+          projectType: projectType || 'interior'
+        });
+        ballparkQuote = pricingBreakdown.quote;
+      } catch (pricingError) {
+        console.error('Pricing calculation error:', pricingError);
+        // Continue without ballpark quote
+      }
+    }
+
+    // Create lead with all enhanced fields
     const lead = await Lead.create({
       tenantId: form.tenantId,
-      formId: form.id,
-      name,
+      leadFormId: form.id,
+      // Basic fields (legacy compatibility)
+      fullName: firstName && lastName ? `${firstName} ${lastName}` : name || `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown',
+      firstName,
+      lastName,
       email,
       phone,
       address: address || null,
       projectType: projectType || null,
       message: message || null,
+      // Enhanced fields
+      zipCode,
+      homeSize,
+      roomCount,
+      projectDetails,
+      photoUrls,
+      preferredContactMethod,
+      bestTimeToContact,
+      timeline,
+      paintPreference,
+      referralSource,
+      agreedToTerms: agreedToTerms || false,
+      ballparkQuote,
+      // UTM tracking
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      // Metadata
       formData,
       status: 'new',
       source: 'public'
@@ -237,13 +299,68 @@ const submitPublicLead = async (req, res) => {
     // Increment submission count
     await form.increment('submissionCount');
 
-    res.status(201).json({
+    // Send email notifications (async, don't block response)
+    if (form.sendConfirmationEmail && email) {
+      emailService.sendLeadConfirmation({
+        to: email,
+        leadName: `${firstName || name}`,
+        data: {
+          ballparkQuote,
+          quoteRange: pricingBreakdown?.range,
+          companyName: process.env.APP_NAME || 'Our Team'
+        }
+      }).catch(err => console.error('Failed to send confirmation email:', err));
+
+      // Send SMS confirmation if phone provided and preferredContactMethod includes text
+      if (phone && preferredContactMethod === 'text') {
+        smsService.sendLeadConfirmation({
+          to: phone,
+          leadName: firstName || name,
+          ballparkQuote,
+          quoteRange: pricingBreakdown?.range
+        }).catch(err => console.error('Failed to send confirmation SMS:', err));
+      }
+    }
+
+    if (form.sendInternalNotification && form.notificationEmails) {
+      const recipients = Array.isArray(form.notificationEmails) 
+        ? form.notificationEmails 
+        : form.notificationEmails.split(',').map(e => e.trim());
+      
+      // Send email notification
+      emailService.sendInternalNotification({
+        to: recipients,
+        lead,
+        form
+      }).catch(err => console.error('Failed to send internal notification:', err));
+
+      // Send SMS notification to team if phone numbers configured
+      if (process.env.TEAM_PHONE_NUMBERS) {
+        const teamPhones = process.env.TEAM_PHONE_NUMBERS.split(',').map(p => p.trim());
+        smsService.sendInternalNotification({
+          to: teamPhones,
+          lead
+        }).catch(err => console.error('Failed to send internal SMS:', err));
+      }
+    }
+
+    // Prepare response with ballpark quote
+    const response = {
       success: true,
-      message: 'Thank you! Your submission has been received. We will contact you soon.',
+      message: form.thankYouMessage || 'Thank you! Your submission has been received. We will contact you soon.',
       data: {
         id: lead.id
       }
-    });
+    };
+
+    // Include ballpark quote in response if available
+    if (ballparkQuote && pricingBreakdown) {
+      response.data.ballparkQuote = ballparkQuote;
+      response.data.quoteRange = pricingBreakdown.range;
+      response.data.quoteMessage = pricingBreakdown.message;
+    }
+
+    res.status(201).json(response);
   } catch (error) {
     console.error('Submit public lead error:', error);
     res.status(500).json({

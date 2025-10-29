@@ -111,6 +111,15 @@ app.use(function(err, req, res, next) {
     } else {
       console.log('ℹ No users in database yet. Users will be created during registration.');
     }
+
+    // Start Lead Reminder Job (check for uncontacted leads every 5 minutes)
+    if (process.env.ENABLE_LEAD_REMINDERS !== 'false') {
+      const leadReminderJob = require('./jobs/leadReminderJob');
+      leadReminderJob.start();
+      console.log('✓ Lead Reminder Job started');
+    } else {
+      console.log('ℹ Lead Reminder Job disabled (ENABLE_LEAD_REMINDERS=false)');
+    }
   } catch (error) {
     console.error('✗ Database sync failed:', error.message);
     console.error('💡 Try running the migration manually:');
