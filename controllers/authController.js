@@ -1,15 +1,25 @@
 // controllers/authController.js
-const User = require('../models/User');
-const Tenant = require('../models/Tenant');
-const Payment = require('../models/Payment');
-const TwoFactorCode = require('../models/TwoFactorCode');
-const { generateToken, generateRefreshToken, refreshAccessToken } = require('../middleware/auth');
-const { createCheckoutSession, SUBSCRIPTION_PLANS } = require('../services/stripeService');
-const emailService = require('../services/emailService');
-const { generateVerificationToken, verifyVerificationToken } = require('../utils/verificationToken');
-const sequelize = require('../config/database');
-const { OAuth2Client } = require('google-auth-library');
-const speakeasy = require('speakeasy');
+const User = require("../models/User");
+const Tenant = require("../models/Tenant");
+const Payment = require("../models/Payment");
+const TwoFactorCode = require("../models/TwoFactorCode");
+const {
+  generateToken,
+  generateRefreshToken,
+  refreshAccessToken,
+} = require("../middleware/auth");
+const {
+  createCheckoutSession,
+  SUBSCRIPTION_PLANS,
+} = require("../services/stripeService");
+const emailService = require("../services/emailService");
+const {
+  generateVerificationToken,
+  verifyVerificationToken,
+} = require("../utils/verificationToken");
+const sequelize = require("../config/database");
+const { OAuth2Client } = require("google-auth-library");
+const speakeasy = require("speakeasy");
 
 /**
  * Register new tenant (contractor company) and admin user
@@ -17,7 +27,7 @@ const speakeasy = require('speakeasy');
  */
 const register = async (req, res) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {
       // User fields
@@ -29,15 +39,29 @@ const register = async (req, res) => {
       phoneNumber,
       businessAddress,
       tradeType,
-      subscriptionPlan
+      subscriptionPlan,
     } = req.body;
 
     // Validation
-    if (!fullName || !email || !password || !companyName || !phoneNumber || !tradeType) {
+    if (
+      !fullName ||
+      !email ||
+      !password ||
+      !companyName ||
+      !phoneNumber ||
+      !tradeType
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields',
-        required: ['fullName', 'email', 'password', 'companyName', 'phoneNumber', 'tradeType']
+        message: "Missing required fields",
+        required: [
+          "fullName",
+          "email",
+          "password",
+          "companyName",
+          "phoneNumber",
+          "tradeType",
+        ],
       });
     }
 
@@ -45,16 +69,16 @@ const register = async (req, res) => {
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 8 characters long'
+        message: "Password must be at least 8 characters long",
       });
     }
 
     // Validate subscription plan
-    const validPlans = ['starter', 'pro'];
+    const validPlans = ["starter", "pro"];
     if (subscriptionPlan && !validPlans.includes(subscriptionPlan)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid subscription plan. Must be "starter" or "pro"'
+        message: 'Invalid subscription plan. Must be "starter" or "pro"',
       });
     }
 
@@ -63,31 +87,37 @@ const register = async (req, res) => {
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: 'Email already registered'
+        message: "Email already registered",
       });
     }
 
     // Create tenant
-    const tenant = await Tenant.create({
-      companyName,
-      email,
-      phoneNumber,
-      businessAddress: businessAddress || null,
-      tradeType,
-      subscriptionPlan: subscriptionPlan || 'starter',
-      isActive: true
-    }, { transaction });
+    const tenant = await Tenant.create(
+      {
+        companyName,
+        email,
+        phoneNumber,
+        businessAddress: businessAddress || null,
+        tradeType,
+        subscriptionPlan: subscriptionPlan || "starter",
+        isActive: true,
+      },
+      { transaction }
+    );
 
     // Create admin user for the tenant
-    const user = await User.create({
-      fullName,
-      email,
-      password, // Will be hashed by beforeCreate hook
-      role: 'contractor_admin',
-      tenantId: tenant.id,
-      isActive: true,
-      emailVerified: false // Will send verification email
-    }, { transaction });
+    const user = await User.create(
+      {
+        fullName,
+        email,
+        password, // Will be hashed by beforeCreate hook
+        role: "contractor_admin",
+        tenantId: tenant.id,
+        isActive: true,
+        emailVerified: false, // Will send verification email
+      },
+      { transaction }
+    );
 
     // Commit transaction
     await transaction.commit();
@@ -98,57 +128,63 @@ const register = async (req, res) => {
     // Send email verification for non-Google users
     try {
       const verificationToken = generateVerificationToken(user.id, user.email);
-      await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
-      console.log('✓ Verification email sent to:', user.email);
+      await emailService.sendVerificationEmail(
+        user.email,
+        verificationToken,
+        user.fullName
+      );
+      console.log("✓ Verification email sent to:", user.email);
     } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
+      console.error("Failed to send verification email:", emailError);
       // Don't fail registration if email fails, just log it
     }
 
     // Return success response
     res.status(201).json({
       success: true,
-      message: 'Registration successful! Please check your email to verify your account.',
+      message:
+        "Registration successful! Please check your email to verify your account.",
       data: {
         user: {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
           role: user.role,
-          emailVerified: user.emailVerified
+          emailVerified: user.emailVerified,
         },
         tenant: {
           id: tenant.id,
           companyName: tenant.companyName,
           tradeType: tenant.tradeType,
-          subscriptionPlan: tenant.subscriptionPlan
+          subscriptionPlan: tenant.subscriptionPlan,
         },
         token,
-        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${tenant.id}`
-      }
+        accessUrl: `${
+          process.env.FRONTEND_URL || "http://localhost:5173"
+        }/tenant/${tenant.id}`,
+      },
     });
-
   } catch (error) {
     // Rollback transaction on error
     await transaction.rollback();
-    
-    console.error('Registration error:', error);
-    
+
+    console.error("Registration error:", error);
+
     // Handle Sequelize validation errors
-    if (error.name === 'SequelizeValidationError') {
+    if (error.name === "SequelizeValidationError") {
       return res.status(400).json({
         success: false,
-        message: 'Validation error',
-        errors: error.errors.map(e => ({
+        message: "Validation error",
+        errors: error.errors.map((e) => ({
           field: e.path,
-          message: e.message
-        }))
+          message: e.message,
+        })),
       });
     }
 
     res.status(500).json({
       success: false,
-      message: 'Registration failed. Please try again.'
+      message: "Registration failed. Please try again.",
     });
   }
 };
@@ -171,7 +207,7 @@ const register = async (req, res) => {
 
 //     // Find user with tenant information (optimized query)
 //     const user = await User.findOne({
-//       where: { 
+//       where: {
 //         email,
 //         isActive: true
 //       },
@@ -183,7 +219,6 @@ const register = async (req, res) => {
 //         required: true // INNER JOIN for better performance
 //       }]
 //     });
-   
 
 //     if (!user) {
 //       return res.status(401).json({
@@ -236,7 +271,7 @@ const register = async (req, res) => {
 //         token,
 //         refreshToken,
 //         accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`,
-        
+
 //       }
 //     });
 
@@ -251,46 +286,103 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, authProvider } = req.body;
 
     // Validation
-    if (!email || !password) {
+    if (!email) {
       return res.status(400).json({
         success: false,
-        message: 'Email and password are required'
+        message: "Email is required",
       });
     }
 
     // Find user with tenant information
     const user = await User.findOne({
-      where: { 
+      where: {
         email,
-        isActive: true
+        isActive: true,
       },
-      attributes: ['id', 'fullName', 'email', 'role', 'tenantId', 'authProvider', 'password', 'emailVerified', 'twoFactorEnabled', 'twoFactorSecret'],
-      include: [{
-        model: Tenant,
-        where: { isActive: true },
-        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan'],
-        required: true
-      }]
+      attributes: [
+        "id",
+        "fullName",
+        "email",
+        "role",
+        "tenantId",
+        "authProvider",
+        "password",
+        "emailVerified",
+        "twoFactorEnabled",
+        "twoFactorSecret",
+      ],
+      include: [
+        {
+          model: Tenant,
+          where: { isActive: true },
+          attributes: ["id", "companyName", "tradeType", "subscriptionPlan"],
+          required: true,
+        },
+      ],
     });
 
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: "No account found with this email",
       });
     }
 
-    // Check if user registered with OAuth (Google or Apple)
-    if ((user.authProvider === 'google' || user.authProvider === 'apple') && !user.password) {
-      const provider = user.authProvider === 'google' ? 'Google' : 'Apple';
+    // ✅ If OAuth user (Google/Apple) without password, auto-login
+    if (
+      (user.authProvider === "google" ||
+        user.authProvider === "apple" ||
+        user.authProvider === "local") &&
+      !user.password
+    ) {
+      // Optional: Verify the provider matches if passed from frontend
+      if (authProvider && authProvider !== user.authProvider) {
+        return res.status(400).json({
+          success: false,
+          message: `This account was created using ${user.authProvider.toUpperCase()} Sign-In. Please continue with ${user.authProvider.toUpperCase()}.`,
+        });
+      }
+
+      // Generate JWTs
+      const token = generateToken(user.id, user.tenantId);
+      const refreshToken = generateRefreshToken(user.id, user.tenantId);
+
+      return res.json({
+        success: true,
+        message: `${
+          user.authProvider.charAt(0).toUpperCase() + user.authProvider.slice(1)
+        } Sign-In successful`,
+        data: {
+          user: {
+            id: user.id,
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
+            emailVerified: user.emailVerified,
+          },
+          tenant: {
+            id: user.Tenant.id,
+            companyName: user.Tenant.companyName,
+            tradeType: user.Tenant.tradeType,
+            subscriptionPlan: user.Tenant.subscriptionPlan,
+          },
+          token,
+          refreshToken,
+          accessUrl: `${
+            process.env.FRONTEND_URL || "http://localhost:5173"
+          }/tenant/${user.Tenant.id}`,
+        },
+      });
+    }
+
+    // For normal email/password users
+    if (!password) {
       return res.status(400).json({
         success: false,
-        message: `This account was created using ${provider} Sign-In. Please use "Continue with ${provider}" to login.`,
-        authProvider: user.authProvider,
-        requiresOAuth: true
+        message: "Password is required for email/password login",
       });
     }
 
@@ -299,72 +391,74 @@ const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: "Invalid email or password",
       });
     }
 
-    // Check if 2FA is enabled and not an OAuth login
-    if (user.twoFactorEnabled && user.authProvider !== 'google' && user.authProvider !== 'apple') {
-      // Generate 2FA code (6-digit TOTP)
+    // Check if 2FA is enabled (and not OAuth)
+    if (user.twoFactorEnabled && user.authProvider === "local") {
       const code = speakeasy.totp({
         secret: user.twoFactorSecret,
-        encoding: 'base32'
+        encoding: "base32",
       });
 
-      // Store code with 5-minute expiry
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
       await TwoFactorCode.create({
         userId: user.id,
         code,
-        expiresAt
+        expiresAt,
       });
 
-      // Send 2FA code via email
-      await emailService.sendTwoFactorCodeEmail(user.email, code, user.fullName);
+      await emailService.sendTwoFactorCodeEmail(
+        user.email,
+        code,
+        user.fullName
+      );
 
       return res.json({
         success: true,
         requiresTwoFactor: true,
-        message: 'Two-factor authentication code sent to your email',
+        message: "Two-factor authentication code sent to your email",
         data: {
           userId: user.id,
-          email: user.email
-        }
+          email: user.email,
+        },
       });
     }
 
-    // Generate JWT token if no 2FA or Google OAuth
+    // Generate JWT token for local login
     const token = generateToken(user.id, user.tenantId);
     const refreshToken = generateRefreshToken(user.id, user.tenantId);
 
     res.json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       data: {
         user: {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
           role: user.role,
-          emailVerified: user.emailVerified
+          emailVerified: user.emailVerified,
         },
         tenant: {
           id: user.Tenant.id,
           companyName: user.Tenant.companyName,
           tradeType: user.Tenant.tradeType,
-          subscriptionPlan: user.Tenant.subscriptionPlan
+          subscriptionPlan: user.Tenant.subscriptionPlan,
         },
         token,
         refreshToken,
-        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`
-      }
+        accessUrl: `${
+          process.env.FRONTEND_URL || "http://localhost:5173"
+        }/tenant/${user.Tenant.id}`,
+      },
     });
-
   } catch (error) {
-    console.error('Login error:', error);
+    console.error("Login error:", error);
     res.status(500).json({
       success: false,
-      message: 'Login failed. Please try again.'
+      message: "Login failed. Please try again.",
     });
   }
 };
@@ -380,47 +474,56 @@ const verifyTwoFactorCode = async (req, res) => {
     if (!userId || !code) {
       return res.status(400).json({
         success: false,
-        message: 'User ID and 2FA code are required'
+        message: "User ID and 2FA code are required",
       });
     }
 
     // Find user
     const user = await User.findOne({
       where: { id: userId, isActive: true },
-      attributes: ['id', 'fullName', 'email', 'role', 'tenantId', 'twoFactorSecret'],
-      include: [{
-        model: Tenant,
-        where: { isActive: true },
-        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan'],
-        required: true
-      }]
+      attributes: [
+        "id",
+        "fullName",
+        "email",
+        "role",
+        "tenantId",
+        "twoFactorSecret",
+      ],
+      include: [
+        {
+          model: Tenant,
+          where: { isActive: true },
+          attributes: ["id", "companyName", "tradeType", "subscriptionPlan"],
+          required: true,
+        },
+      ],
     });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     // Verify TOTP code
     const isValidCode = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
-      encoding: 'base32',
+      encoding: "base32",
       token: code,
-      window: 1 // Allow 30-second window
+      window: 1, // Allow 30-second window
     });
 
     if (!isValidCode) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid or expired 2FA code'
+        message: "Invalid or expired 2FA code",
       });
     }
 
     // Clean up used code
     await TwoFactorCode.destroy({
-      where: { userId, code }
+      where: { userId, code },
     });
 
     // Generate JWT token
@@ -429,32 +532,33 @@ const verifyTwoFactorCode = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Two-factor authentication successful',
+      message: "Two-factor authentication successful",
       data: {
         user: {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
           role: user.role,
-          emailVerified: user.emailVerified
+          emailVerified: user.emailVerified,
         },
         tenant: {
           id: user.Tenant.id,
           companyName: user.Tenant.companyName,
           tradeType: user.Tenant.tradeType,
-          subscriptionPlan: user.Tenant.subscriptionPlan
+          subscriptionPlan: user.Tenant.subscriptionPlan,
         },
         token,
         refreshToken,
-        accessUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tenant/${user.Tenant.id}`
-      }
+        accessUrl: `${
+          process.env.FRONTEND_URL || "http://localhost:5173"
+        }/tenant/${user.Tenant.id}`,
+      },
     });
-
   } catch (error) {
-    console.error('2FA verification error:', error);
+    console.error("2FA verification error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to verify 2FA code'
+      message: "Failed to verify 2FA code",
     });
   }
 };
@@ -472,45 +576,44 @@ const enableTwoFactor = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     if (user.twoFactorEnabled) {
       return res.status(400).json({
         success: false,
-        message: 'Two-factor authentication is already enabled'
+        message: "Two-factor authentication is already enabled",
       });
     }
 
     // Generate TOTP secret
     const secret = speakeasy.generateSecret({
-      name: `Contractor Hub (${user.email})`
+      name: `Contractor Hub (${user.email})`,
     });
 
     await user.update({
       twoFactorSecret: secret.base32,
-      twoFactorEnabled: true
+      twoFactorEnabled: true,
     });
 
     // Generate QR code for authenticator app
-    const qrcode = require('qrcode');
+    const qrcode = require("qrcode");
     const qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
 
     res.json({
       success: true,
-      message: 'Two-factor authentication enabled',
+      message: "Two-factor authentication enabled",
       data: {
         qrCodeUrl,
-        secret: secret.base32
-      }
+        secret: secret.base32,
+      },
     });
-
   } catch (error) {
-    console.error('Enable 2FA error:', error);
+    console.error("Enable 2FA error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to enable 2FA'
+      message: "Failed to enable 2FA",
     });
   }
 };
@@ -528,37 +631,36 @@ const disableTwoFactor = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     if (!user.twoFactorEnabled) {
       return res.status(400).json({
         success: false,
-        message: 'Two-factor authentication is not enabled'
+        message: "Two-factor authentication is not enabled",
       });
     }
 
     await user.update({
       twoFactorEnabled: false,
-      twoFactorSecret: null
+      twoFactorSecret: null,
     });
 
     // Clean up any existing 2FA codes
     await TwoFactorCode.destroy({
-      where: { userId }
+      where: { userId },
     });
 
     res.json({
       success: true,
-      message: 'Two-factor authentication disabled'
+      message: "Two-factor authentication disabled",
     });
-
   } catch (error) {
-    console.error('Disable 2FA error:', error);
+    console.error("Disable 2FA error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to disable 2FA'
+      message: "Failed to disable 2FA",
     });
   }
 };
@@ -571,12 +673,29 @@ const getProfile = async (req, res) => {
     // User is already attached by authenticateToken middleware (optimized query)
     const user = await User.findOne({
       where: { id: req.user.id },
-      attributes: ['id', 'fullName', 'email', 'role', 'isActive', 'emailVerified', 'createdAt'],
-      include: [{
-        model: Tenant,
-        attributes: ['id', 'companyName', 'tradeType', 'subscriptionPlan', 'phoneNumber', 'businessAddress'],
-        required: true // INNER JOIN for better performance
-      }]
+      attributes: [
+        "id",
+        "fullName",
+        "email",
+        "role",
+        "isActive",
+        "emailVerified",
+        "createdAt",
+      ],
+      include: [
+        {
+          model: Tenant,
+          attributes: [
+            "id",
+            "companyName",
+            "tradeType",
+            "subscriptionPlan",
+            "phoneNumber",
+            "businessAddress",
+          ],
+          required: true, // INNER JOIN for better performance
+        },
+      ],
     });
 
     res.json({
@@ -589,17 +708,16 @@ const getProfile = async (req, res) => {
           role: user.role,
           isActive: user.isActive,
           emailVerified: user.emailVerified,
-          createdAt: user.createdAt
+          createdAt: user.createdAt,
         },
-        tenant: user.Tenant
-      }
+        tenant: user.Tenant,
+      },
     });
-
   } catch (error) {
-    console.error('Get profile error:', error);
+    console.error("Get profile error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get profile'
+      message: "Failed to get profile",
     });
   }
 };
@@ -609,6 +727,7 @@ const getProfile = async (req, res) => {
  * POST /api/auth/register-with-payment
  */
 const registerWithPayment = async (req, res) => {
+  console.log(req.body);
   const transaction = await sequelize.transaction();
 
   try {
@@ -623,84 +742,111 @@ const registerWithPayment = async (req, res) => {
       subscriptionPlan,
       googleId,
       appleId,
-      authProvider
+      authProvider,
     } = req.body;
 
     // Validation
-    if (!fullName || !email || !companyName || !phoneNumber || !tradeType || !subscriptionPlan) {
+    if (
+      !fullName ||
+      !email ||
+      !companyName ||
+      !phoneNumber ||
+      !tradeType ||
+      !subscriptionPlan
+    ) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields',
-        required: ['fullName', 'email', 'companyName', 'phoneNumber', 'tradeType', 'subscriptionPlan']
+        message: "Missing required fields",
+        required: [
+          "fullName",
+          "email",
+          "companyName",
+          "phoneNumber",
+          "tradeType",
+          "subscriptionPlan",
+        ],
       });
     }
 
-    const isGoogleAuth = authProvider === 'google' && googleId;
-    const isAppleAuth = authProvider === 'apple' && appleId;
+    console.log(authProvider);
+
+    const isGoogleAuth = authProvider === "google" && googleId;
+    const isAppleAuth = authProvider === "apple" && appleId;
     const isOAuth = isGoogleAuth || isAppleAuth;
-    
+
     if (!isOAuth && (!password || password.length < 8)) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: !password ? 'Password is required for email registration' : 'Password must be at least 8 characters long'
+        message: !password
+          ? "Password is required for email registration"
+          : "Password must be at least 8 characters long",
       });
     }
 
-    const validPlans = ['starter', 'pro'];
+    const validPlans = ["starter", "pro"];
     if (!validPlans.includes(subscriptionPlan)) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Invalid subscription plan. Must be "starter" or "pro"'
+        message: 'Invalid subscription plan. Must be "starter" or "pro"',
       });
     }
 
     // Check for existing user
-    console.log('Checking for existing user:', email);
+    console.log("Checking for existing user:", email);
     try {
-      const existingUser = await User.findOne({ 
+      const existingUser = await User.findOne({
         where: { email },
-        transaction 
+        transaction,
       });
       if (existingUser) {
         await transaction.rollback();
         return res.status(409).json({
           success: false,
-          message: 'Email already registered'
+          message: "Email already registered",
         });
       }
     } catch (error) {
-      console.error('Error checking existing user:', error);
+      console.error("Error checking existing user:", error);
       await transaction.rollback();
       return res.status(500).json({
         success: false,
-        message: 'Failed to check existing user'
+        message: "Failed to check existing user",
       });
     }
 
     // Create tenant
-    console.log('Creating tenant with data:', { companyName, email, phoneNumber, tradeType, subscriptionPlan });
+    console.log("Creating tenant with data:", {
+      companyName,
+      email,
+      phoneNumber,
+      tradeType,
+      subscriptionPlan,
+    });
     let tenant;
     try {
-      tenant = await Tenant.create({
-        companyName,
-        email,
-        phoneNumber,
-        businessAddress: businessAddress || null,
-        tradeType,
-        subscriptionPlan,
-        isActive: false,
-        paymentStatus: 'pending'
-      }, { transaction });
-      console.log('Tenant created:', tenant.id);
+      tenant = await Tenant.create(
+        {
+          companyName,
+          email,
+          phoneNumber,
+          businessAddress: businessAddress || null,
+          tradeType,
+          subscriptionPlan,
+          isActive: false,
+          paymentStatus: "pending",
+        },
+        { transaction }
+      );
+      console.log("Tenant created:", tenant.id);
     } catch (error) {
-      console.error('Tenant creation failed:', error);
+      console.error("Tenant creation failed:", error);
       await transaction.rollback();
       return res.status(500).json({
         success: false,
-        message: 'Failed to create tenant'
+        message: "Failed to create tenant",
       });
     }
 
@@ -708,69 +854,76 @@ const registerWithPayment = async (req, res) => {
     const userCreateData = {
       fullName,
       email,
-      role: 'contractor_admin',
+      role: "contractor_admin",
       tenantId: tenant.id,
-      isActive: false
+      isActive: false,
     };
     if (isGoogleAuth) {
       userCreateData.googleId = googleId;
-      userCreateData.authProvider = 'google';
+      userCreateData.authProvider = "google";
       userCreateData.emailVerified = true;
     } else if (isAppleAuth) {
       userCreateData.appleId = appleId;
-      userCreateData.authProvider = 'apple';
+      userCreateData.authProvider = "apple";
       userCreateData.emailVerified = true;
     } else {
       userCreateData.password = password;
       userCreateData.emailVerified = false;
     }
 
-    console.log('Creating user with data:', { fullName, email, role: 'contractor_admin' });
+    console.log("Creating user with data:", {
+      fullName,
+      email,
+      role: "contractor_admin",
+    });
     let user;
     try {
       user = await User.create(userCreateData, { transaction });
-      console.log('User created:', user.id);
+      console.log("User created:", user.id);
     } catch (error) {
-      console.error('User creation failed:', error);
+      console.error("User creation failed:", error);
       await transaction.rollback();
       return res.status(500).json({
         success: false,
-        message: 'Failed to create user'
+        message: "Failed to create user",
       });
     }
 
     // Create payment
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
-    console.log('Creating payment for tenant:', tenant.id);
+    console.log("Creating payment for tenant:", tenant.id);
     let payment;
     try {
-      payment = await Payment.create({
-        tenantId: tenant.id,
-        userId: user.id,
-        subscriptionPlan,
-        amount: planDetails.price,
-        currency: 'usd',
-        status: 'pending',
-        description: `${planDetails.name} - ${tenant.companyName}`,
-        metadata: {
-          planFeatures: planDetails.features,
-          registrationFlow: true
-        }
-      }, { transaction });
-      console.log('Payment created:', payment.id);
+      payment = await Payment.create(
+        {
+          tenantId: tenant.id,
+          userId: user.id,
+          subscriptionPlan,
+          amount: planDetails.price,
+          currency: "usd",
+          status: "pending",
+          description: `${planDetails.name} - ${tenant.companyName}`,
+          metadata: {
+            planFeatures: planDetails.features,
+            registrationFlow: true,
+          },
+        },
+        { transaction }
+      );
+      console.log("Payment created:", payment.id);
     } catch (error) {
-      console.error('Payment creation failed:', error);
+      console.error("Payment creation failed:", error);
       await transaction.rollback();
       return res.status(500).json({
         success: false,
-        message: 'Failed to create payment'
+        message: "Failed to create payment",
       });
     }
 
     // Create Stripe checkout session
-    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-    console.log('Creating Stripe checkout session');
+    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4001";
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+    console.log("Creating Stripe checkout session");
     let session;
     try {
       session = await createCheckoutSession({
@@ -779,53 +932,63 @@ const registerWithPayment = async (req, res) => {
         subscriptionPlan,
         email: user.email,
         successUrl: `${BACKEND_URL}/api/v1/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
-        cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`
+        cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`,
       });
-      console.log('Stripe session created:', session.sessionId);
+      console.log("Stripe session created:", session.sessionId);
     } catch (error) {
-      console.error('Stripe session creation failed:', error);
+      console.error("Stripe session creation failed:", error);
       await transaction.rollback();
       return res.status(500).json({
         success: false,
-        message: 'Failed to create Stripe checkout session'
+        message: "Failed to create Stripe checkout session",
       });
     }
 
     // Update payment with session ID
     try {
-      await payment.update({
-        stripeSessionId: session.sessionId
-      }, { transaction });
-      console.log('Payment updated with session ID:', session.sessionId);
+      await payment.update(
+        {
+          stripeSessionId: session.sessionId,
+        },
+        { transaction }
+      );
+      console.log("Payment updated with session ID:", session.sessionId);
     } catch (error) {
-      console.error('Payment update failed:', error);
+      console.error("Payment update failed:", error);
       await transaction.rollback();
       return res.status(500).json({
         success: false,
-        message: 'Failed to update payment'
+        message: "Failed to update payment",
       });
     }
 
     // Commit transaction
     await transaction.commit();
-    console.log('Transaction committed successfully');
+    console.log("Transaction committed successfully");
 
     // Send email verification for non-OAuth users
     if (!isOAuth) {
       try {
-        const verificationToken = generateVerificationToken(user.id, user.email);
-        await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
-        console.log('Verification email sent to:', user.email);
+        const verificationToken = generateVerificationToken(
+          user.id,
+          user.email
+        );
+        await emailService.sendVerificationEmail(
+          user.email,
+          verificationToken,
+          user.fullName
+        );
+        console.log("Verification email sent to:", user.email);
       } catch (emailError) {
-        console.error('Failed to send verification email:', emailError);
+        console.error("Failed to send verification email:", emailError);
       }
     }
 
     res.status(200).json({
       success: true,
       message: isOAuth
-        ? 'Registration initiated. Please complete payment.'
-        : 'Registration initiated. Please complete payment and check your email to verify your account.',
+        ? "Registration initiated. Please complete payment."
+        : "Registration initiated. Please complete payment and check your email to verify your account.",
       data: {
         stripeUrl: session.sessionUrl,
         sessionId: session.sessionId,
@@ -833,40 +996,39 @@ const registerWithPayment = async (req, res) => {
           id: tenant.id,
           companyName: tenant.companyName,
           tradeType: tenant.tradeType,
-          subscriptionPlan: tenant.subscriptionPlan
+          subscriptionPlan: tenant.subscriptionPlan,
         },
         user: {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
-          emailVerified: user.emailVerified
-        }
-      }
+          emailVerified: user.emailVerified,
+        },
+      },
     });
-
   } catch (error) {
-    console.error('Registration with payment error:', error);
+    console.error("Registration with payment error:", error);
     try {
       await transaction.rollback();
-      console.log('Transaction rolled back');
+      console.log("Transaction rolled back");
     } catch (rollbackError) {
-      console.error('Rollback failed:', rollbackError);
+      console.error("Rollback failed:", rollbackError);
     }
 
-    if (error.name === 'SequelizeValidationError') {
+    if (error.name === "SequelizeValidationError") {
       return res.status(400).json({
         success: false,
-        message: 'Validation error',
-        errors: error.errors.map(e => ({
+        message: "Validation error",
+        errors: error.errors.map((e) => ({
           field: e.path,
-          message: e.message
-        }))
+          message: e.message,
+        })),
       });
     }
 
     res.status(500).json({
       success: false,
-      message: 'Registration failed. Please try again.'
+      message: "Registration failed. Please try again.",
     });
   }
 };
@@ -878,20 +1040,20 @@ const registerWithPayment = async (req, res) => {
  */
 const getGoogleAuthUrl = async (req, res) => {
   try {
-    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
+    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4001";
     const { mode } = req.query; // 'login' or 'signup'
-    
-    const authUrl = `${BACKEND_URL}/api/auth/google?mode=${mode || 'login'}`;
-    
+
+    const authUrl = `${BACKEND_URL}/api/auth/google?mode=${mode || "login"}`;
+
     res.json({
       success: true,
-      data: { url: authUrl }
+      data: { url: authUrl },
     });
   } catch (error) {
-    console.error('Get Google auth URL error:', error);
+    console.error("Get Google auth URL error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to generate Google auth URL'
+      message: "Failed to generate Google auth URL",
     });
   }
 };
@@ -903,49 +1065,59 @@ const getGoogleAuthUrl = async (req, res) => {
 const handleGoogleCallback = async (req, res) => {
   try {
     const response = req.user;
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
     console.log("Backend User Response:", response);
 
     // New user - redirect to registration page with Google data
     if (response.isNewUser) {
       const profile = response.googleProfile;
-      
+
       // Encode profile data to pass in URL
       const googleData = {
         googleId: profile.id,
-        email: profile.emails && profile.emails[0] ? profile.emails[0].value : '',
-        firstName: profile.name?.givenName || '',
-        lastName: profile.name?.familyName || '',
-        fullName: profile.displayName || '',
-        photo: profile.photos && profile.photos[0] ? profile.photos[0].value : '',
-        provider: 'google',
-        timestamp: Date.now()
+        email:
+          profile.emails && profile.emails[0] ? profile.emails[0].value : "",
+        firstName: profile.name?.givenName || "",
+        lastName: profile.name?.familyName || "",
+        fullName: profile.displayName || "",
+        photo:
+          profile.photos && profile.photos[0] ? profile.photos[0].value : "",
+        provider: "google",
+        timestamp: Date.now(),
       };
 
       // Base64 encode the data
-      const encodedData = Buffer.from(JSON.stringify(googleData)).toString('base64');
+      const encodedData = Buffer.from(JSON.stringify(googleData)).toString(
+        "base64"
+      );
 
       // Redirect to registration page with encoded data
       return res.redirect(`${FRONTEND_URL}/register?googleData=${encodedData}`);
-    } 
+    }
     // Existing user - generate tokens and redirect to dashboard
     else {
       const token = generateToken(response.user.id, response.user.tenantId);
-      const refreshToken = generateRefreshToken(response.user.id, response.user.tenantId);
+      const refreshToken = generateRefreshToken(
+        response.user.id,
+        response.user.tenantId
+      );
 
       // Redirect to login success page with tokens
       return res.redirect(
         `${FRONTEND_URL}/auth/google/success?token=${token}&refreshToken=${refreshToken}`
       );
     }
-
   } catch (error) {
-    console.error('Google callback error:', error);
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-    
+    console.error("Google callback error:", error);
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+
     // Redirect to login with error
-    return res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(error.message || 'Authentication failed')}`);
+    return res.redirect(
+      `${FRONTEND_URL}/login?error=${encodeURIComponent(
+        error.message || "Authentication failed"
+      )}`
+    );
   }
 };
 
@@ -963,27 +1135,27 @@ const completeGoogleSignup = async (req, res) => {
       phoneNumber,
       businessAddress,
       tradeType,
-      subscriptionPlan
+      subscriptionPlan,
     } = req.body;
 
     // Decode and validate Google data
     let googleInfo;
     try {
-      const decoded = Buffer.from(googleData, 'base64').toString('utf-8');
+      const decoded = Buffer.from(googleData, "base64").toString("utf-8");
       googleInfo = JSON.parse(decoded);
-      
+
       // Check timestamp (data should be used within 30 minutes)
       const thirtyMinutes = 30 * 60 * 1000;
       if (Date.now() - googleInfo.timestamp > thirtyMinutes) {
         return res.status(400).json({
           success: false,
-          message: 'Google authentication data expired. Please try again.'
+          message: "Google authentication data expired. Please try again.",
         });
       }
     } catch (error) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid Google authentication data'
+        message: "Invalid Google authentication data",
       });
     }
 
@@ -991,67 +1163,83 @@ const completeGoogleSignup = async (req, res) => {
     if (!companyName || !phoneNumber || !tradeType || !subscriptionPlan) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields',
-        required: ['companyName', 'phoneNumber', 'tradeType', 'subscriptionPlan']
+        message: "Missing required fields",
+        required: [
+          "companyName",
+          "phoneNumber",
+          "tradeType",
+          "subscriptionPlan",
+        ],
       });
     }
 
     // Check if email already exists
-    const existingUser = await User.findOne({ where: { email: googleInfo.email } });
+    const existingUser = await User.findOne({
+      where: { email: googleInfo.email },
+    });
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: 'Email already registered'
+        message: "Email already registered",
       });
     }
 
     // Create tenant (no subdomain)
-    const tenant = await Tenant.create({
-      companyName,
-      email: googleInfo.email,
-      phoneNumber,
-      businessAddress: businessAddress || null,
-      tradeType,
-      subscriptionPlan,
-      isActive: false, // Will be activated after payment
-      paymentStatus: 'pending'
-    }, { transaction });
+    const tenant = await Tenant.create(
+      {
+        companyName,
+        email: googleInfo.email,
+        phoneNumber,
+        businessAddress: businessAddress || null,
+        tradeType,
+        subscriptionPlan,
+        isActive: false, // Will be activated after payment
+        paymentStatus: "pending",
+      },
+      { transaction }
+    );
 
     // Create user with Google OAuth
-    const user = await User.create({
-      fullName: googleInfo.fullName,
-      email: googleInfo.email,
-      password: null, // No password for OAuth users
-      googleId: googleInfo.googleId,
-      authProvider: 'google',
-      role: 'contractor_admin',
-      tenantId: tenant.id,
-      isActive: false, // Will be activated after payment
-      emailVerified: true // Google emails are pre-verified
-    }, { transaction });
+    const user = await User.create(
+      {
+        fullName: googleInfo.fullName,
+        email: googleInfo.email,
+        password: null, // No password for OAuth users
+        googleId: googleInfo.googleId,
+        authProvider: "google",
+        role: "contractor_admin",
+        tenantId: tenant.id,
+        isActive: false, // Will be activated after payment
+        emailVerified: true, // Google emails are pre-verified
+      },
+      { transaction }
+    );
 
     // Get plan details
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
 
     // Create payment record
-    const payment = await Payment.create({
-      tenantId: tenant.id,
-      userId: user.id,
-      subscriptionPlan,
-      amount: planDetails.price,
-      currency: 'usd',
-      status: 'pending',
-      description: `${planDetails.name} - ${tenant.companyName}`,
-      metadata: {
-        planFeatures: planDetails.features,
-        registrationFlow: true,
-        authProvider: 'google'
-      }
-    }, { transaction });
+    const payment = await Payment.create(
+      {
+        tenantId: tenant.id,
+        userId: user.id,
+        subscriptionPlan,
+        amount: planDetails.price,
+        currency: "usd",
+        status: "pending",
+        description: `${planDetails.name} - ${tenant.companyName}`,
+        metadata: {
+          planFeatures: planDetails.features,
+          registrationFlow: true,
+          authProvider: "google",
+        },
+      },
+      { transaction }
+    );
 
     // Create Stripe Checkout Session
-    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
 
     const session = await createCheckoutSession({
       userId: user.id,
@@ -1059,49 +1247,51 @@ const completeGoogleSignup = async (req, res) => {
       subscriptionPlan,
       email: user.email,
       successUrl: `${BACKEND_URL}/api/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
-      cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`
+      cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`,
     });
 
     // Update payment with session ID
-    await payment.update({
-      stripeSessionId: session.sessionId
-    }, { transaction });
+    await payment.update(
+      {
+        stripeSessionId: session.sessionId,
+      },
+      { transaction }
+    );
 
     await transaction.commit();
 
-    console.log('Google signup initiated:', {
+    console.log("Google signup initiated:", {
       tenantId: tenant.id,
       userId: user.id,
       email: googleInfo.email,
-      authProvider: 'google'
+      authProvider: "google",
     });
 
     // Return Stripe checkout URL
     res.status(200).json({
       success: true,
-      message: 'Google signup completed. Please complete payment.',
+      message: "Google signup completed. Please complete payment.",
       data: {
         stripeUrl: session.sessionUrl,
         sessionId: session.sessionId,
         tenant: {
           id: tenant.id,
-          companyName: tenant.companyName
+          companyName: tenant.companyName,
         },
         user: {
           id: user.id,
           fullName: user.fullName,
-          email: user.email
-        }
-      }
+          email: user.email,
+        },
+      },
     });
-
   } catch (error) {
     await transaction.rollback();
-    console.error('Complete Google signup error:', error);
+    console.error("Complete Google signup error:", error);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to complete Google signup. Please try again.'
+      message: "Failed to complete Google signup. Please try again.",
     });
   }
 };
@@ -1118,7 +1308,7 @@ const linkGoogleAccount = async (req, res) => {
     // Verify Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: googleToken,
-      audience: process.env.GOOGLE_CLIENT_ID
+      audience: process.env.GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
@@ -1126,13 +1316,13 @@ const linkGoogleAccount = async (req, res) => {
 
     // Check if Google account is already linked to another user
     const existingUser = await User.findOne({
-      where: { googleId }
+      where: { googleId },
     });
 
     if (existingUser && existingUser.id !== userId) {
       return res.status(409).json({
         success: false,
-        message: 'This Google account is already linked to another user'
+        message: "This Google account is already linked to another user",
       });
     }
 
@@ -1140,22 +1330,21 @@ const linkGoogleAccount = async (req, res) => {
     const user = await User.findByPk(userId);
     await user.update({
       googleId,
-      authProvider: user.authProvider === 'local' ? 'local,google' : 'google'
+      authProvider: user.authProvider === "local" ? "local,google" : "google",
     });
 
     res.json({
       success: true,
-      message: 'Google account linked successfully',
+      message: "Google account linked successfully",
       data: {
-        authProvider: user.authProvider
-      }
+        authProvider: user.authProvider,
+      },
     });
-
   } catch (error) {
-    console.error('Link Google account error:', error);
+    console.error("Link Google account error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to link Google account'
+      message: "Failed to link Google account",
     });
   }
 };
@@ -1167,46 +1356,54 @@ const linkGoogleAccount = async (req, res) => {
 const handleAppleCallback = async (req, res) => {
   try {
     const response = req.user;
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
     console.log("Backend Apple User Response:", response);
 
     // New user - redirect to registration page with Apple data
     if (response.isNewUser) {
       const profile = response.appleProfile;
-      
+
       // Encode profile data to pass in URL
       const appleData = {
         appleId: response.appleId,
         email: response.email,
         fullName: response.fullName,
-        provider: 'apple',
-        timestamp: Date.now()
+        provider: "apple",
+        timestamp: Date.now(),
       };
 
       // Base64 encode the data
-      const encodedData = Buffer.from(JSON.stringify(appleData)).toString('base64');
+      const encodedData = Buffer.from(JSON.stringify(appleData)).toString(
+        "base64"
+      );
 
       // Redirect to registration page with encoded data
       return res.redirect(`${FRONTEND_URL}/register?appleData=${encodedData}`);
-    } 
+    }
     // Existing user - generate tokens and redirect to dashboard
     else {
       const token = generateToken(response.user.id, response.user.tenantId);
-      const refreshToken = generateRefreshToken(response.user.id, response.user.tenantId);
+      const refreshToken = generateRefreshToken(
+        response.user.id,
+        response.user.tenantId
+      );
 
       // Redirect to login success page with tokens
       return res.redirect(
         `${FRONTEND_URL}/auth/apple/success?token=${token}&refreshToken=${refreshToken}`
       );
     }
-
   } catch (error) {
-    console.error('Apple callback error:', error);
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-    
+    console.error("Apple callback error:", error);
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+
     // Redirect to login with error
-    return res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(error.message || 'Authentication failed')}`);
+    return res.redirect(
+      `${FRONTEND_URL}/login?error=${encodeURIComponent(
+        error.message || "Authentication failed"
+      )}`
+    );
   }
 };
 
@@ -1224,27 +1421,27 @@ const completeAppleSignup = async (req, res) => {
       phoneNumber,
       businessAddress,
       tradeType,
-      subscriptionPlan
+      subscriptionPlan,
     } = req.body;
 
     // Decode and validate Apple data
     let appleInfo;
     try {
-      const decoded = Buffer.from(appleData, 'base64').toString('utf-8');
+      const decoded = Buffer.from(appleData, "base64").toString("utf-8");
       appleInfo = JSON.parse(decoded);
-      
+
       // Check timestamp (data should be used within 30 minutes)
       const thirtyMinutes = 30 * 60 * 1000;
       if (Date.now() - appleInfo.timestamp > thirtyMinutes) {
         return res.status(400).json({
           success: false,
-          message: 'Apple authentication data expired. Please try again.'
+          message: "Apple authentication data expired. Please try again.",
         });
       }
     } catch (error) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid Apple authentication data'
+        message: "Invalid Apple authentication data",
       });
     }
 
@@ -1252,67 +1449,83 @@ const completeAppleSignup = async (req, res) => {
     if (!companyName || !phoneNumber || !tradeType || !subscriptionPlan) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields',
-        required: ['companyName', 'phoneNumber', 'tradeType', 'subscriptionPlan']
+        message: "Missing required fields",
+        required: [
+          "companyName",
+          "phoneNumber",
+          "tradeType",
+          "subscriptionPlan",
+        ],
       });
     }
 
     // Check if email already exists
-    const existingUser = await User.findOne({ where: { email: appleInfo.email } });
+    const existingUser = await User.findOne({
+      where: { email: appleInfo.email },
+    });
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: 'Email already registered'
+        message: "Email already registered",
       });
     }
 
     // Create tenant
-    const tenant = await Tenant.create({
-      companyName,
-      email: appleInfo.email,
-      phoneNumber,
-      businessAddress: businessAddress || null,
-      tradeType,
-      subscriptionPlan,
-      isActive: false, // Will be activated after payment
-      paymentStatus: 'pending'
-    }, { transaction });
+    const tenant = await Tenant.create(
+      {
+        companyName,
+        email: appleInfo.email,
+        phoneNumber,
+        businessAddress: businessAddress || null,
+        tradeType,
+        subscriptionPlan,
+        isActive: false, // Will be activated after payment
+        paymentStatus: "pending",
+      },
+      { transaction }
+    );
 
     // Create user with Apple OAuth
-    const user = await User.create({
-      fullName: appleInfo.fullName,
-      email: appleInfo.email,
-      password: null, // No password for OAuth users
-      appleId: appleInfo.appleId,
-      authProvider: 'apple',
-      role: 'contractor_admin',
-      tenantId: tenant.id,
-      isActive: false, // Will be activated after payment
-      emailVerified: true // Apple emails are pre-verified
-    }, { transaction });
+    const user = await User.create(
+      {
+        fullName: appleInfo.fullName,
+        email: appleInfo.email,
+        password: null, // No password for OAuth users
+        appleId: appleInfo.appleId,
+        authProvider: "apple",
+        role: "contractor_admin",
+        tenantId: tenant.id,
+        isActive: false, // Will be activated after payment
+        emailVerified: true, // Apple emails are pre-verified
+      },
+      { transaction }
+    );
 
     // Get plan details
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
 
     // Create payment record
-    const payment = await Payment.create({
-      tenantId: tenant.id,
-      userId: user.id,
-      subscriptionPlan,
-      amount: planDetails.price,
-      currency: 'usd',
-      status: 'pending',
-      description: `${planDetails.name} - ${tenant.companyName}`,
-      metadata: {
-        planFeatures: planDetails.features,
-        registrationFlow: true,
-        authProvider: 'apple'
-      }
-    }, { transaction });
+    const payment = await Payment.create(
+      {
+        tenantId: tenant.id,
+        userId: user.id,
+        subscriptionPlan,
+        amount: planDetails.price,
+        currency: "usd",
+        status: "pending",
+        description: `${planDetails.name} - ${tenant.companyName}`,
+        metadata: {
+          planFeatures: planDetails.features,
+          registrationFlow: true,
+          authProvider: "apple",
+        },
+      },
+      { transaction }
+    );
 
     // Create Stripe Checkout Session
-    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4001";
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
     const session = await createCheckoutSession({
       userId: user.id,
@@ -1320,49 +1533,51 @@ const completeAppleSignup = async (req, res) => {
       subscriptionPlan,
       email: user.email,
       successUrl: `${BACKEND_URL}/api/v1/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
-      cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`
+      cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`,
     });
 
     // Update payment with session ID
-    await payment.update({
-      stripeSessionId: session.sessionId
-    }, { transaction });
+    await payment.update(
+      {
+        stripeSessionId: session.sessionId,
+      },
+      { transaction }
+    );
 
     await transaction.commit();
 
-    console.log('Apple signup initiated:', {
+    console.log("Apple signup initiated:", {
       tenantId: tenant.id,
       userId: user.id,
       email: appleInfo.email,
-      authProvider: 'apple'
+      authProvider: "apple",
     });
 
     // Return Stripe checkout URL
     res.status(200).json({
       success: true,
-      message: 'Apple signup completed. Please complete payment.',
+      message: "Apple signup completed. Please complete payment.",
       data: {
         stripeUrl: session.sessionUrl,
         sessionId: session.sessionId,
         tenant: {
           id: tenant.id,
-          companyName: tenant.companyName
+          companyName: tenant.companyName,
         },
         user: {
           id: user.id,
           fullName: user.fullName,
-          email: user.email
-        }
-      }
+          email: user.email,
+        },
+      },
     });
-
   } catch (error) {
     await transaction.rollback();
-    console.error('Complete Apple signup error:', error);
+    console.error("Complete Apple signup error:", error);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to complete Apple signup. Please try again.'
+      message: "Failed to complete Apple signup. Please try again.",
     });
   }
 };
@@ -1383,19 +1598,19 @@ const linkAppleAccount = async (req, res) => {
     if (!appleId) {
       return res.status(400).json({
         success: false,
-        message: 'Apple ID is required'
+        message: "Apple ID is required",
       });
     }
 
     // Check if Apple account is already linked to another user
     const existingUser = await User.findOne({
-      where: { appleId }
+      where: { appleId },
     });
 
     if (existingUser && existingUser.id !== userId) {
       return res.status(409).json({
         success: false,
-        message: 'This Apple account is already linked to another user'
+        message: "This Apple account is already linked to another user",
       });
     }
 
@@ -1403,22 +1618,21 @@ const linkAppleAccount = async (req, res) => {
     const user = await User.findByPk(userId);
     await user.update({
       appleId,
-      authProvider: user.authProvider === 'local' ? 'local,apple' : 'apple'
+      authProvider: user.authProvider === "local" ? "local,apple" : "apple",
     });
 
     res.json({
       success: true,
-      message: 'Apple account linked successfully',
+      message: "Apple account linked successfully",
       data: {
-        authProvider: user.authProvider
-      }
+        authProvider: user.authProvider,
+      },
     });
-
   } catch (error) {
-    console.error('Link Apple account error:', error);
+    console.error("Link Apple account error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to link Apple account'
+      message: "Failed to link Apple account",
     });
   }
 };
@@ -1437,21 +1651,21 @@ const setPassword = async (req, res) => {
     if (!password || !confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Password and confirmation are required'
+        message: "Password and confirmation are required",
       });
     }
 
     if (password !== confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Passwords do not match'
+        message: "Passwords do not match",
       });
     }
 
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 8 characters long'
+        message: "Password must be at least 8 characters long",
       });
     }
 
@@ -1460,29 +1674,30 @@ const setPassword = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     // Update user with password and auth provider
     await user.update({
       password, // Will be hashed by beforeUpdate hook
-      authProvider: user.authProvider === 'google' ? 'local,google' : user.authProvider
+      authProvider:
+        user.authProvider === "google" ? "local,google" : user.authProvider,
     });
 
     res.json({
       success: true,
-      message: 'Password set successfully. You can now login with email and password.',
+      message:
+        "Password set successfully. You can now login with email and password.",
       data: {
-        authProvider: user.authProvider
-      }
+        authProvider: user.authProvider,
+      },
     });
-
   } catch (error) {
-    console.error('Set password error:', error);
+    console.error("Set password error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to set password'
+      message: "Failed to set password",
     });
   }
 };
@@ -1501,7 +1716,7 @@ const sendVerificationEmail = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -1509,7 +1724,7 @@ const sendVerificationEmail = async (req, res) => {
     if (user.emailVerified) {
       return res.status(400).json({
         success: false,
-        message: 'Email is already verified'
+        message: "Email is already verified",
       });
     }
 
@@ -1517,18 +1732,21 @@ const sendVerificationEmail = async (req, res) => {
     const verificationToken = generateVerificationToken(user.id, user.email);
 
     // Send verification email
-    await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+    await emailService.sendVerificationEmail(
+      user.email,
+      verificationToken,
+      user.fullName
+    );
 
     res.json({
       success: true,
-      message: 'Verification email sent successfully. Please check your email.'
+      message: "Verification email sent successfully. Please check your email.",
     });
-
   } catch (error) {
-    console.error('Send verification email error:', error);
+    console.error("Send verification email error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to send verification email'
+      message: "Failed to send verification email",
     });
   }
 };
@@ -1544,7 +1762,7 @@ const verifyEmail = async (req, res) => {
     if (!token) {
       return res.status(400).json({
         success: false,
-        message: 'Verification token is required'
+        message: "Verification token is required",
       });
     }
 
@@ -1553,13 +1771,13 @@ const verifyEmail = async (req, res) => {
 
     if (!tokenResult.valid) {
       const errorMessage = tokenResult.expired
-        ? 'Verification link has expired. Please request a new one.'
-        : 'Invalid verification link.';
+        ? "Verification link has expired. Please request a new one."
+        : "Invalid verification link.";
 
       return res.status(400).json({
         success: false,
         message: errorMessage,
-        expired: tokenResult.expired || false
+        expired: tokenResult.expired || false,
       });
     }
 
@@ -1567,22 +1785,22 @@ const verifyEmail = async (req, res) => {
     const user = await User.findOne({
       where: {
         id: tokenResult.userId,
-        email: tokenResult.email
-      }
+        email: tokenResult.email,
+      },
     });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     if (user.emailVerified) {
       return res.status(200).json({
         success: true,
-        message: 'Email is already verified',
-        alreadyVerified: true
+        message: "Email is already verified",
+        alreadyVerified: true,
       });
     }
 
@@ -1591,14 +1809,13 @@ const verifyEmail = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Email verified successfully! You can now access all features.'
+      message: "Email verified successfully! You can now access all features.",
     });
-
   } catch (error) {
-    console.error('Verify email error:', error);
+    console.error("Verify email error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to verify email'
+      message: "Failed to verify email",
     });
   }
 };
@@ -1617,7 +1834,7 @@ const resendVerificationEmail = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -1625,7 +1842,7 @@ const resendVerificationEmail = async (req, res) => {
     if (user.emailVerified) {
       return res.status(400).json({
         success: false,
-        message: 'Email is already verified'
+        message: "Email is already verified",
       });
     }
 
@@ -1633,35 +1850,37 @@ const resendVerificationEmail = async (req, res) => {
     const verificationToken = generateVerificationToken(user.id, user.email);
 
     // Send verification email
-    await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+    await emailService.sendVerificationEmail(
+      user.email,
+      verificationToken,
+      user.fullName
+    );
 
     res.json({
       success: true,
-      message: 'Verification email sent successfully. Please check your email.'
+      message: "Verification email sent successfully. Please check your email.",
     });
-
   } catch (error) {
-    console.error('Resend verification email error:', error);
+    console.error("Resend verification email error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to resend verification email'
+      message: "Failed to resend verification email",
     });
   }
 };
-
 
 const get2FAStatus = async (req, res) => {
   try {
     const userId = req.user.id;
 
     const user = await User.findByPk(userId, {
-      attributes: ['id', 'twoFactorEnabled', 'twoFactorSecret']
+      attributes: ["id", "twoFactorEnabled", "twoFactorSecret"],
     });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -1669,14 +1888,14 @@ const get2FAStatus = async (req, res) => {
       success: true,
       data: {
         twoFactorEnabled: user.twoFactorEnabled,
-        hasTwoFactorSecret: !!user.twoFactorSecret
-      }
+        hasTwoFactorSecret: !!user.twoFactorSecret,
+      },
     });
   } catch (error) {
-    console.error('Get 2FA status error:', error);
+    console.error("Get 2FA status error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve 2FA status'
+      message: "Failed to retrieve 2FA status",
     });
   }
 };
@@ -1700,5 +1919,5 @@ module.exports = {
   verifyTwoFactorCode,
   enableTwoFactor,
   disableTwoFactor,
-  get2FAStatus
+  get2FAStatus,
 };
