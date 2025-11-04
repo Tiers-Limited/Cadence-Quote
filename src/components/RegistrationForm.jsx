@@ -1,97 +1,128 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import { FiUser, FiMail, FiLock, FiEye, FiEyeOff, FiPhone, FiMapPin } from "react-icons/fi"
-import { useRegistrationForm } from "../hooks/useRegistrationForm"
-import { message, Input, Select, Button, Checkbox } from "antd"
-import { BuildingIcon } from "lucide-react"
-import GoogleAuthButton from "./GoogleAuthButton"
-import AppleAuthButton from "./AppleAuthButton"
-import Logo from "./Logo"
-import PropTypes from 'prop-types'
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  FiUser,
+  FiMail,
+  FiLock,
+  FiEye,
+  FiEyeOff,
+  FiPhone,
+  FiMapPin,
+} from "react-icons/fi";
+import { useRegistrationForm } from "../hooks/useRegistrationForm";
+import { message, Input, Select, Button, Checkbox } from "antd";
+import { BuildingIcon } from "lucide-react";
+import GoogleAuthButton from "./GoogleAuthButton";
+import AppleAuthButton from "./AppleAuthButton";
+import Logo from "./Logo";
+import PropTypes from "prop-types";
 
-function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }) {
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const { formData, setFormData, errors, validateForm, TRADE_TYPES } = useRegistrationForm()
-  const [isGoogleAuth, setIsGoogleAuth] = useState(false)
-  const [isAppleAuth, setIsAppleAuth] = useState(false)
-  const navigate = useNavigate()
+function RegistrationForm({ onSubmit, onNavigateToLogin, googleData }) {
+  const [searchParams] = useSearchParams();
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const { formData, setFormData, errors, validateForm, TRADE_TYPES } =
+    useRegistrationForm();
+  const [isGoogleAuth, setIsGoogleAuth] = useState(false);
+  const [isAppleAuth, setIsAppleAuth] = useState(false);
+  const [appleData, setAppleData] = useState(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const appleDataParam = searchParams.get("appleData");
+
+    if (appleDataParam) {
+      try {
+        const decoded = JSON.parse(decodeURIComponent(appleDataParam));
+        setAppleData(decoded);
+      } catch (err) {
+        console.error("Error decoding Apple data:", err);
+        message.error("Failed to process Apple authentication data.");
+      }
+    }
+  }, [searchParams]);
 
   // Auto-fill form with Google data when available
   useEffect(() => {
     if (googleData) {
-      setIsGoogleAuth(true)
+      setIsGoogleAuth(true);
       setFormData((prev) => ({
         ...prev,
-        firstName: googleData.firstName || '',
-        lastName: googleData.lastName || '',
-        email: googleData.email || '',
-        googleId: googleData.googleId || '',
-        authProvider: 'google',
-      }))
+        firstName: googleData.firstName || "",
+        lastName: googleData.lastName || "",
+        email: googleData.email || "",
+        googleId: googleData.googleId || "",
+        authProvider: "google",
+      }));
       // Don't require password for Google OAuth users
-      message.success('Google authentication successful! Please complete your registration.')
+      message.success(
+        "Google authentication successful! Please complete your registration."
+      );
     }
-  }, [googleData, setFormData])
+  }, [googleData, setFormData]);
 
-  // Auto-fill form with Apple data when available
   useEffect(() => {
     if (appleData) {
-      setIsAppleAuth(true)
-      const nameParts = appleData.fullName ? appleData.fullName.split(' ') : ['', '']
+      setIsAppleAuth(true);
+      const nameParts = appleData.fullName
+        ? appleData.fullName.split(" ")
+        : ["", ""];
+
       setFormData((prev) => ({
         ...prev,
-        firstName: nameParts[0] || '',
-        lastName: nameParts.slice(1).join(' ') || '',
-        email: appleData.email || '',
-        appleId: appleData.appleId || '',
-        authProvider: 'apple',
-      }))
-      // Don't require password for Apple OAuth users
-      message.success('Apple authentication successful! Please complete your registration.')
+        firstName: nameParts[0] || "",
+        lastName: nameParts.slice(1).join(" ") || "",
+        email: appleData.email || "",
+        appleId: appleData.appleId || "",
+        authProvider: "apple",
+      }));
+
+      message.success(
+        "Apple authentication successful! Please complete your registration."
+      );
     }
-  }, [appleData, setFormData])
+  }, [appleData]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target
+    const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
       [name]: value,
-    }))
-  }
+    }));
+  };
 
   const handleSubmit = (e) => {
-    e.preventDefault()
+    e.preventDefault();
 
-    const isOAuth = isGoogleAuth || isAppleAuth
+    const isOAuth = isGoogleAuth || isAppleAuth;
     if (validateForm(isOAuth)) {
       const submitData = {
         ...formData,
-      }
-      
-      if (isGoogleAuth && googleData?.googleId) {
-        submitData.googleId = googleData.googleId
-        submitData.authProvider = 'google'
-      } else if (isAppleAuth && appleData?.appleId) {
-        submitData.appleId = appleData.appleId
-        submitData.authProvider = 'apple'
-      }
-      
-      onSubmit(submitData)
-    } else {
-      message.error("Please fix the errors in the form")
-    }
-  }
+      };
 
-    const handleNavigateToLogin = () => {
-    if (onNavigateToLogin) {
-      onNavigateToLogin()
+      if (isGoogleAuth && googleData?.googleId) {
+        submitData.googleId = googleData.googleId;
+        submitData.authProvider = "google";
+      } else if (isAppleAuth && appleData?.appleId) {
+        submitData.appleId = appleData.appleId;
+        submitData.authProvider = "apple";
+      }
+
+      onSubmit(submitData);
     } else {
-      navigate('/login')
+      message.error("Please fix the errors in the form");
     }
-  }
+  };
+
+  const handleNavigateToLogin = () => {
+    if (onNavigateToLogin) {
+      onNavigateToLogin();
+    } else {
+      navigate("/login");
+    }
+  };
 
   const inputFields = [
     {
@@ -129,7 +160,7 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
       icon: FiPhone,
       placeholder: "+1 (555) 000-0000",
     },
-  ]
+  ];
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -137,7 +168,9 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
         <div className="flex justify-center mb-4">
           <Logo width={48} />
         </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Your Account</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          Create Your Account
+        </h1>
         <p className="text-gray-600">Join our contractor network today</p>
       </div>
 
@@ -153,7 +186,9 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
               <div className="w-full border-t border-gray-300"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or sign up with email</span>
+              <span className="px-2 bg-white text-gray-500">
+                Or sign up with email
+              </span>
             </div>
           </div>
         </div>
@@ -164,25 +199,34 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
               <div className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full font-semibold">
                 1
               </div>
-              <span className="ml-2 text-sm font-semibold text-gray-700">Account Details</span>
+              <span className="ml-2 text-sm font-semibold text-gray-700">
+                Account Details
+              </span>
             </div>
             <div className="flex-1 h-1 bg-gray-300 mx-4"></div>
             <div className="flex items-center">
               <div className="flex items-center justify-center w-8 h-8 bg-gray-300 text-gray-600 rounded-full font-semibold">
                 2
               </div>
-              <span className="ml-2 text-sm font-semibold text-gray-500">Select Plan</span>
+              <span className="ml-2 text-sm font-semibold text-gray-500">
+                Select Plan
+              </span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {inputFields.map((field) => {
-              const Icon = field.icon
+              const Icon = field.icon;
               return (
                 <div key={field.name}>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">{field.label}</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    {field.label}
+                  </label>
                   <div className="relative">
-                    <Icon className="absolute left-3 top-3 text-gray-400" size={20} />
+                    <Icon
+                      className="absolute left-3 top-3 text-gray-400"
+                      size={20}
+                    />
                     <input
                       type={field.type}
                       name={field.name}
@@ -190,38 +234,50 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
                       onChange={handleChange}
                       placeholder={field.placeholder}
                       className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${
-                        errors[field.name] ? "border-red-500" : "border-gray-300"
+                        errors[field.name]
+                          ? "border-red-500"
+                          : "border-gray-300"
                       }`}
                     />
                   </div>
-                  {errors[field.name] && <p className="text-red-500 text-xs mt-1">{errors[field.name]}</p>}
+                  {errors[field.name] && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {errors[field.name]}
+                    </p>
+                  )}
                 </div>
-              )
+              );
             })}
             <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Trade Type</label>
-            <Select
-              name="tradeType"
-              value={formData.tradeType || "Select Trade Type"}
-              onChange={(value) => setFormData((prev) => ({ ...prev, tradeType: value }))}
-              className="w-full"
-              placeholder="Select Trade Type"
-            >
-              <Select.Option value="Select Trade Type">Select Trade Type</Select.Option>
-              {TRADE_TYPES.map((type) => (
-                <Select.Option key={type.value} value={type.value}>
-                  {type.label}
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Trade Type
+              </label>
+              <Select
+                name="tradeType"
+                value={formData.tradeType || "Select Trade Type"}
+                onChange={(value) =>
+                  setFormData((prev) => ({ ...prev, tradeType: value }))
+                }
+                className="w-full"
+                placeholder="Select Trade Type"
+              >
+                <Select.Option value="Select Trade Type">
+                  Select Trade Type
                 </Select.Option>
-              ))}
-            </Select>
+                {TRADE_TYPES.map((type) => (
+                  <Select.Option key={type.value} value={type.value}>
+                    {type.label}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
           </div>
-          </div>
-
-      
 
           {/* Business Address */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Business Address (Optional)</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Business Address (Optional)
+            </label>
             <textarea
               name="businessAddress"
               value={formData.businessAddress}
@@ -234,12 +290,20 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
 
           {/* Password Fields */}
           {/* Password fields - only required for non-Google auth */}
-          {!isGoogleAuth && (
+          {!isGoogleAuth && !isAppleAuth && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-2">Password</label>
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-semibold text-gray-700 mb-2"
+                >
+                  Password
+                </label>
                 <div className="relative">
-                  <FiLock className="absolute left-3 top-3 text-gray-400" size={20} />
+                  <FiLock
+                    className="absolute left-3 top-3 text-gray-400"
+                    size={20}
+                  />
                   <input
                     id="password"
                     type={showPassword ? "text" : "password"}
@@ -256,16 +320,30 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
                   >
-                    {showPassword ? <FiEyeOff size={20} /> : <FiEye size={20} />}
+                    {showPassword ? (
+                      <FiEyeOff size={20} />
+                    ) : (
+                      <FiEye size={20} />
+                    )}
                   </button>
                 </div>
-                {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
+                {errors.password && (
+                  <p className="text-red-500 text-xs mt-1">{errors.password}</p>
+                )}
               </div>
 
               <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-semibold text-gray-700 mb-2">Confirm Password</label>
+                <label
+                  htmlFor="confirmPassword"
+                  className="block text-sm font-semibold text-gray-700 mb-2"
+                >
+                  Confirm Password
+                </label>
                 <div className="relative">
-                  <FiLock className="absolute left-3 top-3 text-gray-400" size={20} />
+                  <FiLock
+                    className="absolute left-3 top-3 text-gray-400"
+                    size={20}
+                  />
                   <input
                     id="confirmPassword"
                     type={showConfirmPassword ? "text" : "password"}
@@ -274,7 +352,9 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
                     onChange={handleChange}
                     placeholder="••••••••"
                     className={`w-full pl-10 pr-10 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${
-                      errors.confirmPassword ? "border-red-500" : "border-gray-300"
+                      errors.confirmPassword
+                        ? "border-red-500"
+                        : "border-gray-300"
                     }`}
                   />
                   <button
@@ -282,10 +362,18 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
                   >
-                    {showConfirmPassword ? <FiEyeOff size={20} /> : <FiEye size={20} />}
+                    {showConfirmPassword ? (
+                      <FiEyeOff size={20} />
+                    ) : (
+                      <FiEye size={20} />
+                    )}
                   </button>
                 </div>
-                {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
+                {errors.confirmPassword && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.confirmPassword}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -294,7 +382,18 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
           {isGoogleAuth && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm text-blue-800">
-                ✓ Authenticated with Google. No password needed. Please complete the remaining fields.
+                ✓ Authenticated with Google. No password needed. Please complete
+                the remaining fields.
+              </p>
+            </div>
+          )}
+
+          {/* Apple Auth Info Message */}
+          {isAppleAuth && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                ✓ Authenticated with Apple. No password needed. Please complete
+                the remaining fields.
               </p>
             </div>
           )}
@@ -310,16 +409,24 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
             />
             <label className="ml-3 text-sm text-gray-600">
               I agree to the{" "}
-              <a href="#" className="text-blue-600 hover:text-blue-700 font-medium">
+              <a
+                href="#"
+                className="text-blue-600 hover:text-blue-700 font-medium"
+              >
                 Terms of Service
               </a>{" "}
               and{" "}
-              <a href="#" className="text-blue-600 hover:text-blue-700 font-medium">
+              <a
+                href="#"
+                className="text-blue-600 hover:text-blue-700 font-medium"
+              >
                 Privacy Policy
               </a>
             </label>
           </div>
-          {errors.agreeToTerms && <p className="text-red-500 text-xs">{errors.agreeToTerms}</p>}
+          {errors.agreeToTerms && (
+            <p className="text-red-500 text-xs">{errors.agreeToTerms}</p>
+          )}
 
           <button
             type="submit"
@@ -331,13 +438,16 @@ function RegistrationForm({ onSubmit, onNavigateToLogin, googleData, appleData }
 
         <p className="text-center text-gray-600 mt-6">
           Already have an account?{" "}
-          <button onClick={handleNavigateToLogin} className="text-blue-600 hover:text-blue-700 font-semibold">
+          <button
+            onClick={handleNavigateToLogin}
+            className="text-blue-600 hover:text-blue-700 font-semibold"
+          >
             Sign in here
           </button>
         </p>
       </div>
     </div>
-  )
+  );
 }
 
-export default RegistrationForm
+export default RegistrationForm;

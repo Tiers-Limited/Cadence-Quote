@@ -1,38 +1,33 @@
-"use client"
+"use client";
 
-import { FaApple } from "react-icons/fa"
-import { message } from "antd"
-import PropTypes from 'prop-types'
+import { FaApple } from "react-icons/fa";
+import { message } from "antd";
+import PropTypes from "prop-types";
+import { Client, Account } from "appwrite";
 
-function AppleAuthButton({ mode = 'login', onSuccess, onError }) {
+function AppleAuthButton({ mode = "login", appData = {}, onSuccess, onError }) {
   const handleAppleAuth = async () => {
     try {
-      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4001/api/v1'
-      
-      // Get Apple auth URL from backend
-      const response = await fetch(`${apiBaseUrl}/auth/apple/url?mode=${mode}`)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      
-      const data = await response.json()
-      
-      console.log('Apple auth URL response:', data)
-      
-      if (data.url) {
-        // Redirect to Apple OAuth (full page redirect)
-        window.location.href = data.url
-      } else {
-        console.error('Response data:', data)
-        throw new Error('Failed to get Apple auth URL from response')
-      }
+      const client = new Client()
+        .setEndpoint(import.meta.env.VITE_APPWRITE_ENDPOINT)
+        .setProject(import.meta.env.VITE_APPWRITE_PROJECT_ID);
+
+      const account = new Account(client);
+
+      // Encode any additional data you want to send
+      const encodedAppData = encodeURIComponent(JSON.stringify(appData));
+
+      const successUrl = `${window.location.origin}/auth/apple/success?mode=${mode}&appData=${encodedAppData}`;
+      const failureUrl = `${window.location.origin}/auth/failure`;
+
+      // Redirect user to Apple OAuth
+      await account.createOAuth2Session("apple", successUrl, failureUrl);
     } catch (error) {
-      console.error('Apple auth error:', error)
-      message.error(`Failed to initialize Apple authentication: ${error.message}`)
-      if (onError) onError(error)
+      console.error("Apple auth error:", error);
+      message.error(`Failed to initialize Apple authentication: ${error.message}`);
+      if (onError) onError(error);
     }
-  }
+  };
 
   return (
     <button
@@ -42,16 +37,17 @@ function AppleAuthButton({ mode = 'login', onSuccess, onError }) {
     >
       <FaApple size={24} />
       <span>
-        {mode === 'signup' ? 'Sign up with Apple' : 'Continue with Apple'}
+        {mode === "signup" ? "Sign up with Apple" : "Continue with Apple"}
       </span>
     </button>
-  )
+  );
 }
 
 AppleAuthButton.propTypes = {
-  mode: PropTypes.oneOf(['login', 'signup']),
+  mode: PropTypes.oneOf(["login", "signup"]),
+  appData: PropTypes.object,
   onSuccess: PropTypes.func,
   onError: PropTypes.func,
-}
+};
 
-export default AppleAuthButton
+export default AppleAuthButton;

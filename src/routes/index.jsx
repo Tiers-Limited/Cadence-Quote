@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import LoginPage from '../pages/LoginPage';
+import AuthSuccess from '../components/AppleSuccess';
 import DashboardPage from '../pages/DashboardPage';
 import MainLayout from '../components/MainLayout';
 import SettingsPage from '../pages/SettingsPage';
@@ -36,8 +37,9 @@ const AppRoutes = () => {
         isAuthenticated ? <Navigate to='/dashboard' replace /> : <LoginPage />
       } />
       <Route path='/register' element={<RegistrationPage />} />
+      <Route path='/auth/apple/success' element={<AuthSuccess />} />
       <Route path='/auth/google/success' element={<GoogleAuthSuccessPage />} />
-      <Route path='/auth/apple/success' element={<AppleAuthSuccessPage />} />
+      {/* <Route path='/auth/apple/success' element={<AppleAuthSuccessPage />} /> */}
       <Route path="/verify-email" element={<EmailVerificationPage />} />
       <Route path='/verify-2fa' element={<TwoFactorVerificationPage />} />
       <Route path='/registration-success' element={<PaymentSuccessPage />} />

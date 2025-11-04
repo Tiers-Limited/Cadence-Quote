@@ -1,15 +1,13 @@
-
-
-import { useState } from "react"
-import { apiService } from "../services/apiService"
+import { useState } from "react";
+import { apiService } from "../services/apiService";
 
 export const useRegistrationSubmit = () => {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const submitRegistration = async (formData, selectedPlan) => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
     try {
       // Step 1: Register tenant and user with payment
@@ -21,46 +19,55 @@ export const useRegistrationSubmit = () => {
         tradeType: formData.tradeType,
         subscriptionPlan: selectedPlan.id,
         fullName: `${formData.firstName} ${formData.lastName}`,
-      }
+      };
 
       // Add password only for non-Google users
-      if (formData.authProvider === 'google' && formData.googleId) {
+      if (formData.authProvider === "google" && formData.googleId) {
         // Google OAuth registration
-        registrationPayload.googleId = formData.googleId
-        registrationPayload.authProvider = 'google'
+        registrationPayload.googleId = formData.googleId;
+        registrationPayload.authProvider = "google";
+      } else if (formData.authProvider === "apple" && formData.appleId) {
+        registrationPayload.appleId = formData.appleId;
+        registrationPayload.authProvider = "apple";
       } else {
         // Regular email/password registration
-        registrationPayload.password = formData.password
+        registrationPayload.password = formData.password;
       }
 
-      const registrationResponse = await apiService.post("/auth/register", registrationPayload)
+      const registrationResponse = await apiService.post(
+        "/auth/register",
+        registrationPayload
+      );
 
       if (registrationResponse.success) {
         // Store registration data for payment completion
-        localStorage.setItem("pendingRegistration", JSON.stringify({
-          sessionId: registrationResponse.data.sessionId,
-          tenant: registrationResponse.data.tenant,
-          user: registrationResponse.data.user,
-          plan: selectedPlan
-        }))
+        localStorage.setItem(
+          "pendingRegistration",
+          JSON.stringify({
+            sessionId: registrationResponse.data.sessionId,
+            tenant: registrationResponse.data.tenant,
+            user: registrationResponse.data.user,
+            plan: selectedPlan,
+          })
+        );
 
         // Return the Stripe checkout URL for redirection
         return {
           success: true,
           stripeUrl: registrationResponse.data.stripeUrl,
-          sessionId: registrationResponse.data.sessionId
-        }
+          sessionId: registrationResponse.data.sessionId,
+        };
       } else {
-        setError(registrationResponse.message || "Registration failed")
-        return { success: false, error: registrationResponse.message }
+        setError(registrationResponse.message || "Registration failed");
+        return { success: false, error: registrationResponse.message };
       }
     } catch (err) {
-      setError(err.message || "An error occurred during registration")
-      return { success: false, error: err.message }
+      setError(err.message || "An error occurred during registration");
+      return { success: false, error: err.message };
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  return { submitRegistration, loading, error }
-}
+  return { submitRegistration, loading, error };
+};

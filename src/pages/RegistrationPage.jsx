@@ -10,7 +10,6 @@ function RegistrationPage() {
   const [currentStep, setCurrentStep] = useState("form")
   const [formData, setFormData] = useState(null)
   const [googleData, setGoogleData] = useState(null)
-  const [appleData, setAppleData] = useState(null)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -30,21 +29,6 @@ function RegistrationPage() {
       }
     }
 
-    // Handle Apple OAuth data
-    const appleDataParam = searchParams.get('appleData')
-    if (appleDataParam) {
-      try {
-        // Decode base64 encoded Apple data
-        const decoded = JSON.parse(atob(appleDataParam))
-        console.log('Apple OAuth data received:', decoded)
-        setAppleData(decoded)
-        message.info('Please complete your registration details')
-      } catch (error) {
-        console.error('Error decoding Apple data:', error)
-        message.error('Failed to process Apple authentication data')
-      }
-    }
-
     // Handle payment cancellation redirect
     const error = searchParams.get('error')
     const plan = searchParams.get('plan')
@@ -61,6 +45,7 @@ function RegistrationPage() {
   }, [searchParams])
 
   const handleFormSubmit = (data) => {
+    console.log(data);
     setFormData(data)
     setCurrentStep("subscription")
   }
@@ -85,7 +70,6 @@ function RegistrationPage() {
           onSubmit={handleFormSubmit} 
           onNavigateToLogin={handleNavigateToLogin}
           googleData={googleData}
-          appleData={appleData}
         />
       )}
       {currentStep === "subscription" && (

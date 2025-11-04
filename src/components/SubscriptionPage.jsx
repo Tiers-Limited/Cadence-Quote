@@ -7,6 +7,7 @@ import { Spin, message } from "antd"
 import { useRegistrationSubmit } from "../hooks/useRegistrationSubmit"
 
 function SubscriptionPage({ formData, onSelectPlan, onBack }) {
+  console.log(formData);
   const [selectedPlan, setSelectedPlan] = useState(null)
   const [loading, setLoading] = useState(false)
   const [plans, setPlans] = useState({})
@@ -57,6 +58,7 @@ function SubscriptionPage({ formData, onSelectPlan, onBack }) {
       }
 
       // Call registration with payment - this will create user/tenant and redirect to Stripe
+      console.log(formData, "/////")
       const result = await submitRegistration(formData, selectedPlanData)
 
       if (!result.success) {
