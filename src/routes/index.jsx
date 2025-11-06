@@ -21,6 +21,7 @@ import ComingSoonPage from '../pages/ComingSoonPage';
 import RoleBasedRoute from '../pages/RoleBasedRoute';
 import PublicLeadFormPage from '../pages/PublicLeadFormPage';
 import { Spin } from 'antd';
+import BrandProductManager from '../features/admin/BrandProductManager';
 
 const AppRoutes = () => {
   const { isAuthenticated, loading } = useAuth();
@@ -49,6 +50,7 @@ const AppRoutes = () => {
       
       {/* Public Lead Form Route - No authentication required */}
       <Route path='/public-form/:publicUrl' element={<PublicLeadFormPage />} />
+      <Route path="/admin/products" element={<BrandProductManager />} />
 
       {/* Protected Routes for contractor_admin with MainLayout */}
       <Route
@@ -61,7 +63,7 @@ const AppRoutes = () => {
         }
       >
         <Route path='/dashboard' element={<DashboardPage />} />
-        <Route path='/products/catalog' element={<ProductCatalog />} />
+        <Route path='/products/catalog' element={<BrandProductManager />} />
         <Route path='/products/colors' element={<ColorLibrary />} />
         <Route path='/pricing/schemes' element={<PricingSchemes />} />
         <Route path='/leads/forms' element={<LeadFormBuilder />} />

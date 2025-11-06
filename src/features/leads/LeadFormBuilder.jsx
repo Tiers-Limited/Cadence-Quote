@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Table, Button, Modal, Form, Input, Select, Space,
-  Card, Tabs, message, Typography, Tag, Dropdown
+  Card, Tabs, message, Typography, Tag, Dropdown, Row, Col
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
@@ -21,6 +21,18 @@ const LeadFormBuilder = () => {
   const [editingForm, setEditingForm] = useState(null);
   const [activeTab, setActiveTab] = useState('forms');
   const [form] = Form.useForm();
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile screen
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const fetchForms = async () => {
     setLoading(true);
@@ -31,6 +43,7 @@ const LeadFormBuilder = () => {
       }
     } catch (error) {
       message.error('Failed to fetch forms');
+      console.error('Fetch forms error:', error);
     } finally {
       setLoading(false);
     }
@@ -45,6 +58,7 @@ const LeadFormBuilder = () => {
       }
     } catch (error) {
       message.error('Failed to fetch leads');
+      console.error('Fetch leads error:', error);
     } finally {
       setLoading(false);
     }
@@ -78,6 +92,7 @@ const LeadFormBuilder = () => {
       fetchForms();
     } catch (error) {
       message.error('Failed to save form');
+      console.error('Save form error:', error);
     }
   };
 
@@ -88,6 +103,7 @@ const LeadFormBuilder = () => {
       fetchForms();
     } catch (error) {
       message.error('Failed to delete form');
+      console.error('Delete form error:', error);
     }
   };
 
@@ -98,28 +114,32 @@ const LeadFormBuilder = () => {
       fetchLeads();
     } catch (error) {
       message.error('Failed to update lead status');
+      console.error('Update lead status error:', error);
     }
   };
-
   const formColumns = [
     {
       title: 'Form Name',
       dataIndex: 'formName',
       key: 'formName',
+      width: 150,
     },
     {
       title: 'Public Title',
       dataIndex: 'formTitle',
       key: 'formTitle',
+      width: 150,
     },
     {
       title: 'Submissions',
       dataIndex: 'submissionCount',
       key: 'submissionCount',
+      width: 120,
     },
     {
       title: 'Status',
       key: 'status',
+      width: 100,
       render: (_, record) => (
         <Tag color={record.isActive ? 'green' : 'red'}>
           {record.isActive ? 'Active' : 'Inactive'}
@@ -129,13 +149,17 @@ const LeadFormBuilder = () => {
     {
       title: 'Actions',
       key: 'actions',
+      fixed: 'right',
+      width: 200,
       render: (_, record) => (
-        <Space>
+        <Space size="small" wrap>
           <Button
+            size="small"
             icon={<EditOutlined />}
             onClick={() => showModal(record)}
           />
           <Button
+            size="small"
             icon={<LinkOutlined />}
             onClick={() => {
               // Copy public URL to clipboard
@@ -144,10 +168,12 @@ const LeadFormBuilder = () => {
             }}
           />
           <Button
+            size="small"
             icon={<EyeOutlined />}
             onClick={() => window.open("/public-form/"+record.publicUrl, '_blank')}
           />
           <Button
+            size="small"
             icon={<DeleteOutlined />}
             danger
             onClick={() => handleDelete(record.id)}
@@ -177,19 +203,17 @@ const LeadFormBuilder = () => {
       width: 250,
       render: (_, record) => (
         <Space direction="vertical" size="small">
-          <Space>
-            <Text strong>{record.fullName}</Text>
-          </Space>
+          <Text strong>{record.fullName}</Text>
           {record.email && (
-            <Space>
+            <Space size="small">
               <MailOutlined />
-              <Text copyable>{record.email}</Text>
+              <Text copyable className="text-xs">{record.email}</Text>
             </Space>
           )}
           {record.phone && (
-            <Space>
+            <Space size="small">
               <PhoneOutlined />
-              <Text copyable>{record.phone}</Text>
+              <Text copyable className="text-xs">{record.phone}</Text>
             </Space>
           )}
         </Space>
@@ -201,18 +225,19 @@ const LeadFormBuilder = () => {
       width: 200,
       render: (_, record) => (
         <Space direction="vertical" size="small">
-          <Text>Type: {record.projectType?.replace('_', ' ').toUpperCase()}</Text>
-          {record.homeSize && <Text>Size: {record.homeSize} sq ft</Text>}
-          {record.ballparkQuote && <Text strong>Quote: ${record.ballparkQuote}</Text>}
+          <Text className="text-xs">Type: {record.projectType?.replace('_', ' ').toUpperCase()}</Text>
+          {record.homeSize && <Text className="text-xs">Size: {record.homeSize} sq ft</Text>}
+          {record.ballparkQuote && <Text strong className="text-xs">Quote: ${record.ballparkQuote}</Text>}
         </Space>
       ),
     },
     {
       title: 'Details',
       key: 'details',
-      width: 100,
+      width: 120,
       render: (_, record) => (
         <Button
+          size="small"
           icon={<FormOutlined />}
           onClick={() => {
             // Parse photoUrls if it's a string
@@ -228,19 +253,21 @@ const LeadFormBuilder = () => {
             Modal.info({
               title: 'Lead Details',
               content: (
-                <div className="space-y-4">
-                  <div>
-                    <Text strong>Full Name: </Text>
-                    <Text>{record.fullName}</Text>
-                  </div>
-                  <div>
-                    <Text strong>Email: </Text>
-                    <Text copyable>{record.email}</Text>
-                  </div>
-                  <div>
-                    <Text strong>Phone: </Text>
-                    <Text copyable>{record.phone}</Text>
-                  </div>
+                <div className="space-y-3">
+                  <Row gutter={[8, 8]}>
+                    <Col span={24}>
+                      <Text strong>Full Name: </Text>
+                      <Text>{record.fullName}</Text>
+                    </Col>
+                    <Col span={24}>
+                      <Text strong>Email: </Text>
+                      <Text copyable>{record.email}</Text>
+                    </Col>
+                    <Col span={24}>
+                      <Text strong>Phone: </Text>
+                      <Text copyable>{record.phone}</Text>
+                    </Col>
+                  </Row>
                   {record.address && (
                     <div>
                       <Text strong>Address: </Text>
@@ -324,7 +351,7 @@ const LeadFormBuilder = () => {
                   )}
                 </div>
               ),
-              width: 700,
+              width: isMobile ? '100%' : 700,
             });
           }}
         >
@@ -409,17 +436,17 @@ const LeadFormBuilder = () => {
       required: false,
     },
   ];
-
   return (
-    <div className="p-6">
+    <div className="p-3 md:p-6">
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
         <TabPane tab="Lead Forms" key="forms">
-          <div className="flex justify-between mb-4">
-            <h2 className="text-2xl font-semibold">Lead Forms</h2>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <h2 className="text-xl md:text-2xl font-semibold">Lead Forms</h2>
             <Button
               type="primary"
               icon={<PlusOutlined />}
               onClick={() => showModal()}
+              block={isMobile}
             >
               Create Form
             </Button>
@@ -430,12 +457,14 @@ const LeadFormBuilder = () => {
             dataSource={forms}
             loading={loading}
             rowKey="id"
+            scroll={{ x: 'max-content' }}
+            pagination={{ pageSize: isMobile ? 10 : 20 }}
           />
         </TabPane>
 
         <TabPane tab="Leads" key="leads">
-          <div className="flex justify-between mb-4">
-            <h2 className="text-2xl font-semibold">Lead Management</h2>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <h2 className="text-xl md:text-2xl font-semibold">Lead Management</h2>
           </div>
 
           <Table
@@ -443,6 +472,8 @@ const LeadFormBuilder = () => {
             dataSource={leads}
             loading={loading}
             rowKey="id"
+            scroll={{ x: 'max-content' }}
+            pagination={{ pageSize: isMobile ? 10 : 20 }}
           />
         </TabPane>
       </Tabs>
@@ -451,7 +482,9 @@ const LeadFormBuilder = () => {
         title={editingForm ? 'Edit Lead Form' : 'Create Lead Form'}
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        width={800}
+        width={isMobile ? '100%' : 800}
+        style={isMobile ? { top: 0, paddingBottom: 0, maxWidth: '100vw' } : {}}
+        styles={isMobile ? { body: { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } } : {}}
         footer={null}
       >
         <Form
@@ -462,43 +495,55 @@ const LeadFormBuilder = () => {
             fields: defaultFormFields,
           }}
         >
-          <Form.Item
-            name="formName"
-            label="Internal Form Name"
-            rules={[{ required: true }]}
-          >
-            <Input />
-          </Form.Item>
+          <Row gutter={isMobile ? 0 : 16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="formName"
+                label="Internal Form Name"
+                rules={[{ required: true }]}
+              >
+                <Input />
+              </Form.Item>
+            </Col>
 
-          <Form.Item
-            name="formTitle"
-            label="Public Form Title"
-            rules={[{ required: true }]}
-          >
-            <Input />
-          </Form.Item>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="formTitle"
+                label="Public Form Title"
+                rules={[{ required: true }]}
+              >
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item
             name="formDescription"
             label="Form Description"
           >
-            <Input.TextArea />
+            <Input.TextArea rows={isMobile ? 2 : 3} />
           </Form.Item>
 
-          <Form.Item
-            name="redirectUrl"
-            label="Success Redirect URL"
-          >
-            <Input />
-          </Form.Item>
+          <Row gutter={isMobile ? 0 : 16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="redirectUrl"
+                label="Success Redirect URL"
+              >
+                <Input />
+              </Form.Item>
+            </Col>
 
-          <Form.Item
-            name="notificationEmails"
-            label="Notification Emails"
-            help="Comma-separated email addresses"
-          >
-            <Input />
-          </Form.Item>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="notificationEmails"
+                label="Notification Emails"
+                help="Comma-separated email addresses"
+              >
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item
             name="isActive"
@@ -511,15 +556,15 @@ const LeadFormBuilder = () => {
             </Select>
           </Form.Item>
 
-          <Card title="Form Fields" className="mb-4">
-            <div className="space-y-4">
+          <Card title="Form Fields" className="mb-4" size={isMobile ? 'small' : 'default'}>
+            <div className="space-y-2">
               {defaultFormFields.map((field, index) => (
                 <Card key={index} size="small" className="bg-gray-50">
                   <div className="flex items-center justify-between">
-                    <Space>
+                    <Space size="small">
                       <DragOutlined className="text-gray-400" />
                       <div>
-                        <div className="font-medium">{field.label}</div>
+                        <div className="font-medium text-sm">{field.label}</div>
                         <div className="text-xs text-gray-500">
                           Type: {field.type}
                           {field.required && ' • Required'}
@@ -533,11 +578,11 @@ const LeadFormBuilder = () => {
           </Card>
 
           <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => setModalVisible(false)}>
+            <Space className="w-full justify-end" size={isMobile ? 'small' : 'middle'}>
+              <Button onClick={() => setModalVisible(false)} block={isMobile}>
                 Cancel
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button type="primary" htmlType="submit" block={isMobile}>
                 {editingForm ? 'Update' : 'Create'}
               </Button>
             </Space>

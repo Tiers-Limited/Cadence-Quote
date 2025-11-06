@@ -13,7 +13,9 @@ import {
   Select,
   Popconfirm,
   Switch,
-  Tabs
+  Tabs,
+  Radio,
+  Badge
 } from 'antd'
 import '../styles/cards.css'
 import {
@@ -22,7 +24,8 @@ import {
   FiDollarSign,
   FiFileText,
   FiPackage,
-  FiLock
+  FiLock,
+  FiCheck
 } from 'react-icons/fi'
 import { apiService } from '../services/apiService'
 
@@ -37,6 +40,7 @@ function SettingsPage () {
   const [activeTab, setActiveTab] = useState('company')
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [qrCodeUrl, setQrCodeUrl] = useState(null)
+  const [defaultPricingScheme, setDefaultPricingScheme] = useState('sqft_turnkey')
 
   // Form instances
   const [companyForm] = Form.useForm()
@@ -49,6 +53,49 @@ function SettingsPage () {
     useState(false)
   const [editingPricingScheme, setEditingPricingScheme] = useState(null)
   const [selectedPricingType, setSelectedPricingType] = useState(null)
+
+  const pricingSchemeOptions = [
+    {
+      id: 'sqft_turnkey',
+      title: 'Square-Foot (Turnkey)',
+      description: 'All-in $/sqft price (labor + paint included).',
+      example: '1,200 sqft × $1.15 = $1,380',
+      bestFor: 'Fast quoting on full rooms, houses, or projects where customers want one simple number.',
+      formula: 'Total Paintable Sqft × Price per Sqft'
+    },
+    {
+      id: 'sqft_labor_paint',
+      title: 'Square-Foot (Labor + Paint Separated)',
+      description: 'Labor charged per sqft, paint priced separately by gallons.',
+      example: '1,200 sqft × $0.55 = $660 + paint cost',
+      bestFor: 'Clients who want transparency between labor and materials, or when upselling paint quality tiers.',
+      formula: '(Sqft × Labor Rate) + (Gallons × Paint Price)'
+    },
+    {
+      id: 'hourly_time_materials',
+      title: 'Hourly (Time & Materials)',
+      description: 'Crew hours × hourly rate, plus actual materials.',
+      example: '3 painters × 40 hrs × $50/hr = $6,000 + paint',
+      bestFor: 'Small jobs, repair-heavy projects, or when scope and time are uncertain.',
+      formula: '(Crew Size × Hours × Rate) + Paint Cost'
+    },
+    {
+      id: 'unit_pricing',
+      title: 'Unit / Assembly Pricing',
+      description: 'Price per unit (doors, windows, trim LF, cabinets, fences, decks).',
+      example: '10 doors × $45 = $450',
+      bestFor: 'Projects with measurable pieces (doors, cabinets, trim), where counting units gives clarity.',
+      formula: 'Σ(Quantity × Unit Price)'
+    },
+    {
+      id: 'room_flat_rate',
+      title: 'Room / Area Flat Rate',
+      description: 'Standard price per room or area from a catalog.',
+      example: 'Bedroom = $325',
+      bestFor: 'Quick bids on common areas (bedrooms, kitchens, baths), where flat pricing speeds up quoting.',
+      formula: 'Σ(Room Type × Flat Rate)'
+    }
+  ]
 
   useEffect(() => {
     fetchAllSettings()
@@ -90,6 +137,11 @@ function SettingsPage () {
       const schemesData = await apiService.get('/pricing-schemes')
       if (schemesData.success) {
         setPricingSchemes(schemesData.data)
+        // Find and set the default pricing scheme
+        const defaultScheme = schemesData.data.find(s => s.isDefault)
+        if (defaultScheme) {
+          setDefaultPricingScheme(defaultScheme.type)
+        }
       }
 
       // Fetch 2FA status
@@ -146,6 +198,44 @@ function SettingsPage () {
       }
     } catch (error) {
       message.error('Failed to update settings: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSavePricingScheme = async () => {
+    setSaving(true)
+    try {
+      // Find the existing scheme with this type or create new one
+      const existingScheme = pricingSchemes.find(s => s.type === defaultPricingScheme)
+      
+      if (existingScheme) {
+        // Set as default
+        const response = await apiService.put(`/pricing-schemes/${existingScheme.id}/set-default`)
+        if (response.success) {
+          message.success('Default pricing scheme updated successfully')
+          fetchAllSettings()
+        }
+      } else {
+        // Create new scheme with this type
+        const schemeData = pricingSchemeOptions.find(s => s.id === defaultPricingScheme)
+        const payload = {
+          name: schemeData.title,
+          type: defaultPricingScheme,
+          description: schemeData.description,
+          isActive: true,
+          isDefault: true,
+          pricingRules: {}
+        }
+        
+        const response = await apiService.post('/pricing-schemes', payload)
+        if (response.success) {
+          message.success('Pricing scheme created and set as default')
+          fetchAllSettings()
+        }
+      }
+    } catch (error) {
+      message.error('Failed to update pricing scheme: ' + error.message)
     } finally {
       setSaving(false)
     }
@@ -371,7 +461,6 @@ function SettingsPage () {
               options={[
                 { label: 'Company', value: 'company' },
                 { label: 'Quotes', value: 'quotes' },
-                { label: 'Pricing Scheme', value: 'pricing' },
                 { label: 'Account', value: 'account' }
               ]}
               className='ant-segmented--rounded'
@@ -599,135 +688,102 @@ function SettingsPage () {
                     </Button>
                   </Form.Item>
                 </Form>
-              </div>
-            </TabPane>
 
-            {/* Pricing Scheme Tab */}
-            <TabPane
-              tab={
-                <span className='flex items-center gap-2'>
-                  <FiFileText />
-                  Pricing Scheme
-                </span>
-              }
-              key='pricing'
-            >
-              <div className='py-4'>
-                <div className='flex items-center justify-between mb-4'>
-                  <h3 className='text-lg font-semibold'>Pricing Schemes</h3>
-                  <Button type='primary' onClick={handleCreatePricingScheme}>
-                    Create New Scheme
-                  </Button>
-                </div>
+                {/* Pricing Scheme Section */}
+                <div className='mt-8 pt-8 border-t'>
+                  <h3 className='text-lg font-semibold mb-2'>
+                    <FiDollarSign className='inline mr-2' />
+                    Pricing Scheme Settings
+                  </h3>
+                  <p className='text-sm text-gray-600 mb-6'>
+                    Choose your default pricing method. This will auto-fill in new quotes. Contractors can still override per quote.
+                  </p>
 
-                {pricingSchemes.length > 0 ? (
-                  <div className='space-y-3'>
-                    {pricingSchemes.map(scheme => (
-                      <Card
-                        key={scheme.id}
-                        className={`${
-                          scheme.isDefault ? 'border-blue-500 border-2' : ''
-                        }`}
-                      >
-                        <div className='flex items-center justify-between'>
-                          <div className='flex-1'>
-                            <div className='flex items-center gap-2'>
-                              <h4 className='font-semibold text-lg'>
-                                {scheme.name}
-                              </h4>
-                              {scheme.isDefault && (
-                                <span className='bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded'>
-                                  Default
-                                </span>
-                              )}
-                              {!scheme.isActive && (
-                                <span className='bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded'>
-                                  Inactive
-                                </span>
-                              )}
-                            </div>
-                            <p className='text-gray-600 text-sm mt-1'>
-                              Type:{' '}
-                              <span className='font-medium'>
-                                {scheme.type.replace('_', ' ').toUpperCase()}
-                              </span>
-                            </p>
-                            {scheme.description && (
-                              <p className='text-gray-500 text-sm mt-1'>
-                                {scheme.description}
-                              </p>
-                            )}
-                            {scheme.pricingRules &&
-                              Object.keys(scheme.pricingRules).length > 0 && (
-                                <div className='mt-2'>
-                                  <p className='text-xs text-gray-500 mb-1'>
-                                    Pricing Rules:
-                                  </p>
-                                  <div className='flex flex-wrap gap-1'>
-                                    {Object.entries(scheme.pricingRules).map(
-                                      ([key, value]) => (
-                                        <span
-                                          key={key}
-                                          className='bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded'
-                                        >
-                                          {key}: ${value.price}/{value.unit}
-                                        </span>
-                                      )
+                  <Radio.Group 
+                    value={defaultPricingScheme} 
+                    onChange={(e) => setDefaultPricingScheme(e.target.value)}
+                    className='w-full'
+                  >
+                    <div className='space-y-4'>
+                      {pricingSchemeOptions.map((scheme) => (
+                        <div key={scheme.id}>
+                          <Radio value={scheme.id} className='hidden' id={`radio-${scheme.id}`} />
+                          <label htmlFor={`radio-${scheme.id}`} className='cursor-pointer'>
+                            <Card 
+                              className={`p-6 transition-all duration-200 hover:shadow-md ${
+                                defaultPricingScheme === scheme.id 
+                                  ? 'border-blue-500 border-2 bg-blue-50/50 shadow-md' 
+                                  : 'border-gray-200 hover:border-blue-300'
+                              }`}
+                              onClick={() => setDefaultPricingScheme(scheme.id)}
+                            >
+                              <div className='flex items-start gap-4'>
+                                <div className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center mt-1 ${
+                                  defaultPricingScheme === scheme.id
+                                    ? 'border-blue-500 bg-blue-500'
+                                    : 'border-gray-300'
+                                }`}>
+                                  {defaultPricingScheme === scheme.id && (
+                                    <FiCheck className='text-white text-sm' />
+                                  )}
+                                </div>
+                                
+                                <div className='flex-1 space-y-3'>
+                                  <div className='flex items-center gap-3'>
+                                    <h4 className='font-semibold text-base text-gray-900'>
+                                      {scheme.title}
+                                    </h4>
+                                    {defaultPricingScheme === scheme.id && (
+                                      <Badge 
+                                        count="Default" 
+                                        style={{ backgroundColor: '#1890ff' }}
+                                      />
                                     )}
                                   </div>
+                                  
+                                  <p className='text-sm text-gray-700 leading-relaxed'>
+                                    {scheme.description}
+                                  </p>
+                                  
+                                  <div className='bg-amber-50 border border-amber-200 p-3 rounded-lg'>
+                                    <p className='text-sm font-mono text-gray-800'>
+                                      <span className='font-semibold text-amber-800'>Example: </span>
+                                      {scheme.example}
+                                    </p>
+                                  </div>
+                                  
+                                  <div className='bg-blue-50 border border-blue-200 p-3 rounded-lg'>
+                                    <p className='text-sm text-blue-900'>
+                                      <span className='font-semibold'>Formula: </span>
+                                      {scheme.formula}
+                                    </p>
+                                  </div>
+                                  
+                                  <p className='text-xs text-gray-600 italic'>
+                                    <span className='font-semibold'>Best for: </span>
+                                    {scheme.bestFor}
+                                  </p>
                                 </div>
-                              )}
-                          </div>
-                          <div className='flex items-center gap-2'>
-                            {!scheme.isDefault && (
-                              <Button
-                                type='default'
-                                size='small'
-                                onClick={() =>
-                                  handleSetDefaultScheme(scheme.id)
-                                }
-                              >
-                                Set Default
-                              </Button>
-                            )}
-                            <Button
-                              type='link'
-                              size='small'
-                              onClick={() => handleEditPricingScheme(scheme)}
-                            >
-                              Edit
-                            </Button>
-                            <Popconfirm
-                              title='Delete pricing scheme?'
-                              description='This action cannot be undone.'
-                              onConfirm={() =>
-                                handleDeletePricingScheme(scheme.id)
-                              }
-                              okText='Delete'
-                              cancelText='Cancel'
-                            >
-                              <Button type='link' size='small' danger>
-                                Delete
-                              </Button>
-                            </Popconfirm>
-                          </div>
+                              </div>
+                            </Card>
+                          </label>
                         </div>
-                      </Card>
-                    ))}
-                  </div>
-                ) : (
-                  <div className='text-center py-12 text-gray-500'>
-                    <FiFileText className='text-5xl mx-auto mb-4 text-gray-300' />
-                    <p>No pricing schemes created yet.</p>
+                      ))}
+                    </div>
+                  </Radio.Group>
+
+                  <div className='mt-6'>
                     <Button
                       type='primary'
-                      className='mt-4'
-                      onClick={handleCreatePricingScheme}
+                      icon={<FiSave />}
+                      loading={saving}
+                      size='large'
+                      onClick={handleSavePricingScheme}
                     >
-                      Create Your First Scheme
+                      Save Pricing Scheme
                     </Button>
                   </div>
-                )}
+                </div>
               </div>
             </TabPane>
 
@@ -848,319 +904,6 @@ function SettingsPage () {
             </TabPane>
           </Tabs>
         </Card>
-
-        {/* Pricing Scheme Modal */}
-        <Modal
-          title={
-            editingPricingScheme
-              ? 'Edit Pricing Scheme'
-              : 'Create Pricing Scheme'
-          }
-          open={pricingSchemeModalVisible}
-          onCancel={() => setPricingSchemeModalVisible(false)}
-          footer={null}
-          width={800}
-        >
-          <Form
-            form={pricingSchemeForm}
-            layout='vertical'
-            onFinish={handlePricingSchemeSubmit}
-            className='mt-4'
-          >
-            <div className='grid grid-cols-2 gap-4'>
-              <Form.Item
-                label='Scheme Name'
-                name='name'
-                rules={[
-                  { required: true, message: 'Please enter scheme name' }
-                ]}
-              >
-                <Input placeholder='e.g., Square-Foot (Turnkey)' />
-              </Form.Item>
-
-              <Form.Item
-                label='Scheme Type'
-                name='type'
-                rules={[
-                  { required: true, message: 'Please select scheme type' }
-                ]}
-              >
-                <Select
-                  placeholder='Select Scheme Type'
-                  className='h-fit'
-                  defaultValue={""}
-                  onChange={value => {
-                    setSelectedPricingType(value)
-                    pricingSchemeForm.setFieldsValue({ pricingRules: [] })
-                  }}
-                >
-                  <Option selected value={""}>
-                    <div>
-                      <div className='font-semibold'>
-                        -- Select Scheme Type --
-                      </div>
-                      <div className='text-xs text-gray-500'>
-                        Choose a Scheme Type to define how quotes are
-                        calculated
-                      </div>
-                    </div>
-                  </Option>
-
-                  <Option value='sqft_turnkey'>
-                    <div>
-                      <div className='font-semibold'>
-                        Square Foot (Turnkey, All-In)
-                      </div>
-                      <div className='text-xs text-gray-500'>
-                        Best for whole-house projects, simple one-number quotes
-                      </div>
-                    </div>
-                  </Option>
-                  <Option value='sqft_labor_paint'>
-                    <div>
-                      <div className='font-semibold'>
-                        Square Foot (Labor + Paint Separated)
-                      </div>
-                      <div className='text-xs text-gray-500'>
-                        Transparent pricing with Good/Better/Best paint options
-                      </div>
-                    </div>
-                  </Option>
-                  <Option value='hourly_time_materials'>
-                    <div>
-                      <div className='font-semibold'>
-                        Hourly Rate (Time & Materials)
-                      </div>
-                      <div className='text-xs text-gray-500'>
-                        Best for small jobs or uncertain scope
-                      </div>
-                    </div>
-                  </Option>
-                  <Option value='unit_pricing'>
-                    <div>
-                      <div className='font-semibold'>Unit Pricing</div>
-                      <div className='text-xs text-gray-500'>
-                        Quote by doors, windows, trim, cabinets, shutters
-                      </div>
-                    </div>
-                  </Option>
-                  <Option value='room_flat_rate'>
-                    <div>
-                      <div className='font-semibold'>
-                        Room-Based / Flat Rate
-                      </div>
-                      <div className='text-xs text-gray-500'>
-                        Flat rates by room size - simple for homeowners
-                      </div>
-                    </div>
-                  </Option>
-                </Select>
-              </Form.Item>
-            </div>
-
-            <Form.Item label='Description' name='description'>
-              <Input.TextArea
-                rows={2}
-                placeholder='Optional description of this pricing scheme'
-              />
-            </Form.Item>
-
-            {selectedPricingType && (
-              <div className='mb-4 p-4 bg-blue-50 border border-blue-200 rounded'>
-                <div className='font-semibold text-blue-900 mb-2'>
-                  {selectedPricingType === 'sqft_turnkey' &&
-                    '📐 Square Foot (Turnkey) - All-Inclusive Pricing'}
-                  {selectedPricingType === 'sqft_labor_paint' &&
-                    '🎨 Square Foot (Labor + Paint) - Transparent Pricing'}
-                  {selectedPricingType === 'hourly_time_materials' &&
-                    '⏱️ Hourly Rate - Time & Materials'}
-                  {selectedPricingType === 'unit_pricing' &&
-                    '🔢 Unit Pricing - Per Item Pricing'}
-                  {selectedPricingType === 'room_flat_rate' &&
-                    '🏠 Room-Based - Flat Rate by Room'}
-                </div>
-                <div className='text-sm text-blue-800'>
-                  {selectedPricingType === 'sqft_turnkey' && (
-                    <>
-                      <p className='mb-1'>
-                        <strong>Formula:</strong> Total Paintable Sqft × Price
-                        per Sqft
-                      </p>
-                      <p className='mb-1'>
-                        <strong>Example:</strong> 10,500 sqft × $1.15 = $12,075
-                      </p>
-                      <p className='text-xs text-blue-600 mt-2'>
-                        Best for whole-house projects and customers who want one
-                        simple number.
-                      </p>
-                    </>
-                  )}
-                  {selectedPricingType === 'sqft_labor_paint' && (
-                    <>
-                      <p className='mb-1'>
-                        <strong>Formula:</strong> (Sqft × Labor Rate) + (Gallons
-                        × Paint Price)
-                      </p>
-                      <p className='mb-1'>
-                        <strong>Example:</strong> (10,500 × $0.55) + (30 × $40)
-                        = $6,975
-                      </p>
-                      <p className='text-xs text-blue-600 mt-2'>
-                        Great for transparency and upselling Good/Better/Best
-                        paint quality.
-                      </p>
-                    </>
-                  )}
-                  {selectedPricingType === 'hourly_time_materials' && (
-                    <>
-                      <p className='mb-1'>
-                        <strong>Formula:</strong> (Crew Size × Hours × Rate) +
-                        Paint Cost
-                      </p>
-                      <p className='mb-1'>
-                        <strong>Example:</strong> (3 painters × 40 hrs × $50) +
-                        $1,200 = $7,200
-                      </p>
-                      <p className='text-xs text-blue-600 mt-2'>
-                        Perfect for small jobs or when scope is uncertain.
-                      </p>
-                    </>
-                  )}
-                  {selectedPricingType === 'unit_pricing' && (
-                    <>
-                      <p className='mb-1'>
-                        <strong>Formula:</strong> Σ(Quantity × Unit Price)
-                      </p>
-                      <p className='mb-1'>
-                        <strong>Example:</strong> (20 doors × $85) + (900 lf
-                        trim × $2.50) = $4,100
-                      </p>
-                      <p className='text-xs text-blue-600 mt-2'>
-                        Best for trim-heavy jobs, cabinets, doors, and detailed
-                        work.
-                      </p>
-                    </>
-                  )}
-                  {selectedPricingType === 'room_flat_rate' && (
-                    <>
-                      <p className='mb-1'>
-                        <strong>Formula:</strong> Σ(Room Type × Flat Rate)
-                      </p>
-                      <p className='mb-1'>
-                        <strong>Example:</strong> Bedroom ($350) + Living Room
-                        ($650) = $1,000
-                      </p>
-                      <p className='text-xs text-blue-600 mt-2'>
-                        Simple pricing homeowners love - great for quick quotes!
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <Form.Item label='Active' name='isActive' valuePropName='checked'>
-              <Switch />
-            </Form.Item>
-
-            <div className='border-t pt-4'>
-              <h4 className='font-semibold mb-3'>Pricing Rules</h4>
-              <p className='text-sm text-gray-600 mb-4'>
-                Define pricing rules for different surfaces and work types.
-                These will be used for automatic quote calculations.
-              </p>
-
-              <Form.List name='pricingRules'>
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <div
-                        key={key}
-                        className='flex items-center gap-3 mb-3 p-3 border rounded'
-                      >
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'surface']}
-                          rules={[
-                            { required: true, message: 'Surface required' }
-                          ]}
-                          className='flex-1'
-                        >
-                          <Select placeholder='Surface/Work Type'>
-                            {selectedPricingType &&
-                              getPricingRuleOptions(selectedPricingType).map(
-                                opt => (
-                                  <Option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </Option>
-                                )
-                              )}
-                            {!selectedPricingType && (
-                              <>
-                                <Option value='walls'>Interior Walls</Option>
-                                <Option value='ceilings'>Ceilings</Option>
-                                <Option value='trim'>Trim/Baseboards</Option>
-                                <Option value='doors'>Doors</Option>
-                                <Option value='windows'>Windows</Option>
-                                <Option value='hourly_rate'>Hourly Rate</Option>
-                              </>
-                            )}
-                          </Select>
-                        </Form.Item>
-
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'price']}
-                          rules={[
-                            { required: true, message: 'Price required' }
-                          ]}
-                        >
-                          <InputNumber
-                            placeholder='0.00'
-                            min={0}
-                            precision={2}
-                            style={{ width: 100 }}
-                          />
-                        </Form.Item>
-
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'unit']}
-                          rules={[{ required: true, message: 'Unit required' }]}
-                        >
-                          <Select placeholder='Unit' style={{ width: 120 }}>
-                            <Option value='sqft'>per sqft</Option>
-                            <Option value='linear_ft'>per linear ft</Option>
-                            <Option value='hour'>per hour</Option>
-                            <Option value='unit'>per unit</Option>
-                            <Option value='gallon'>per gallon</Option>
-                          </Select>
-                        </Form.Item>
-
-                        <Button type='link' danger onClick={() => remove(name)}>
-                          Remove
-                        </Button>
-                      </div>
-                    ))}
-
-                    <Button type='dashed' onClick={() => add()} block>
-                      Add Pricing Rule
-                    </Button>
-                  </>
-                )}
-              </Form.List>
-            </div>
-
-            <div className='flex justify-end gap-3 mt-6'>
-              <Button onClick={() => setPricingSchemeModalVisible(false)}>
-                Cancel
-              </Button>
-              <Button type='primary' htmlType='submit'>
-                {editingPricingScheme ? 'Update Scheme' : 'Create Scheme'}
-              </Button>
-            </div>
-          </Form>
-        </Modal>
       </div>
     </div>
   )

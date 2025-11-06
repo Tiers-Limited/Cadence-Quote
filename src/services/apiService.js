@@ -75,7 +75,10 @@ class ApiService {
     try {
       const response = await fetch(`${this.baseURL}${endpoint}`, {
         method: "POST",
-        headers: this.getHeaders(),
+        headers: {
+          ...this.getHeaders(),
+          ...(options.headers || {})
+        },
         body: JSON.stringify(data),
         ...options,
       })
@@ -111,7 +114,10 @@ class ApiService {
     try {
       const response = await fetch(`${this.baseURL}${endpoint}`, {
         method: "PUT",
-        headers: this.getHeaders(),
+        headers: {
+          ...this.getHeaders(),
+          ...(options.headers || {})
+        },
         body: JSON.stringify(data),
         ...options,
       })

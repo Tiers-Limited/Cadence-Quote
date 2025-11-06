@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Space, Tag, message, Card, Row, Col } from 'antd';
+import { Table, Button, Modal, Form, Input, Select, Space, Tag, message, Row, Col } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import {apiService} from '../../services/apiService';
 // Server-side upload used; no client-side XLSX parsing for large files
@@ -15,6 +15,18 @@ const ColorLibrary = () => {
   const [uploadPreviewVisible, setUploadPreviewVisible] = useState(false);
   const [previewData, setPreviewData] = useState([]);
   const fileInputRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile screen
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const fetchColors = async () => {
     setLoading(true);
@@ -25,6 +37,7 @@ const ColorLibrary = () => {
       }
     } catch (error) {
       message.error('Failed to fetch colors');
+      console.error('Fetch colors error:', error);
     } finally {
       setLoading(false);
     }
@@ -57,6 +70,7 @@ const ColorLibrary = () => {
       fetchColors();
     } catch (error) {
       message.error('Failed to save color');
+      console.error('Save color error:', error);
     }
   };
 
@@ -67,6 +81,7 @@ const ColorLibrary = () => {
       fetchColors();
     } catch (error) {
       message.error('Failed to delete color');
+      console.error('Delete color error:', error);
     }
   };
 
@@ -254,19 +269,20 @@ const columns = [
   }
 
   return (
-    <div className="">
-      <div className="flex justify-between mb-4">
-        <h2 className="text-2xl font-semibold">Color Library</h2>
-        <div>
+    <div className="p-2 md:p-0">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+        <h2 className="text-xl md:text-2xl font-semibold">Color Library</h2>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => showModal()}
+            block={isMobile}
           >
             Add Color
           </Button>
           <input ref={fileInputRef} type="file" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onChange={onFileChange} style={{display:'none'}} />
-          <Button style={{marginLeft:8}} onClick={onUploadClick}>Upload Excel/CSV</Button>
+          <Button onClick={onUploadClick} block={isMobile}>Upload Excel/CSV</Button>
         </div>
       </div>
 
@@ -299,151 +315,140 @@ const columns = [
 
       {/* Detailed List View */}
       <Table
-    columns={columns}
-    dataSource={colors}
-    loading={loading}
-    rowKey="id"
-    scroll={{ x: 'max-content' }} // ✅ adds horizontal scroll
-    pagination={{ pageSize: 20 }}
-  />
+        columns={columns}
+        dataSource={colors}
+        loading={loading}
+        rowKey="id"
+        scroll={{ x: 'max-content' }}
+        pagination={{ pageSize: 20 }}
+      />
 
-     <Modal
-  title={editingColor ? 'Edit Color' : 'Add Color'}
-  open={modalVisible}
-  onCancel={() => setModalVisible(false)}
-  footer={null}
->
-  <Form
-    form={form}
-    layout="vertical"
-    onFinish={handleSubmit}
-  >
-    <Form.Item
-      name="name"
-      label="Color Name"
-      rules={[{ required: true, message: 'Please enter color name' }]}
-    >
-      <Input />
-    </Form.Item>
-
-    <Form.Item
-      name="code"
-      label="Color Code"
-      rules={[{ required: true, message: 'Please enter color code' }]}
-    >
-      <Input />
-    </Form.Item>
-
-    {/* <Form.Item
-      name="brand"
-      label="Brand"
-    >
-      <Select allowClear placeholder="Select or leave empty">
-        <Option value="Sherwin-Williams">Sherwin-Williams</Option>
-        <Option value="Benjamin Moore">Benjamin Moore</Option>
-        <Option value="Behr">Behr</Option>
-        <Option value="Other">Other</Option>
-      </Select>
-    </Form.Item>
-
-    <Form.Item
-      name="colorFamily"
-      label="Color Family"
-    >
-      <Select allowClear placeholder="Select color family">
-        <Option value="Whites">Whites</Option>
-        <Option value="Neutrals">Neutrals</Option>
-        <Option value="Blues">Blues</Option>
-        <Option value="Greens">Greens</Option>
-        <Option value="Reds">Reds</Option>
-        <Option value="Yellows">Yellows</Option>
-        <Option value="Other">Other</Option>
-      </Select>
-    </Form.Item> */}
-
-    {/* locator */}
-    <Form.Item
-      name="locator"
-      label="Locator"
-      rules={[{ required: true, message: 'Please enter a locator' }]}
-    >
-      <Input />
-    </Form.Item>
-
-    <Form.Item
-      label="RGB (Red, Green, Blue)"
-      style={{ marginBottom: 0 }}
-    >
-      <Space.Compact block>
-        <Form.Item
-          name="red"
-          noStyle
-          rules={[{ type: 'number', min: 0, max: 255, message: '0–255' }]}
+      <Modal
+        title={editingColor ? 'Edit Color' : 'Add Color'}
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        footer={null}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, paddingBottom: 0, maxWidth: '100vw' } : {}}
+        styles={isMobile ? { body: { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } } : {}}
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSubmit}
         >
-          <Input type="number" placeholder="R" min={0} max={255} />
-        </Form.Item>
-        <Form.Item
-          name="green"
-          noStyle
-          rules={[{ type: 'number', min: 0, max: 255, message: '0–255' }]}
-        >
-          <Input type="number" placeholder="G" min={0} max={255} />
-        </Form.Item>
-        <Form.Item
-          name="blue"
-          noStyle
-          rules={[{ type: 'number', min: 0, max: 255, message: '0–255' }]}
-        >
-          <Input type="number" placeholder="B" min={0} max={255} />
-        </Form.Item>
-      </Space.Compact>
-    </Form.Item>
+          <Row gutter={isMobile ? 0 : 16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="name"
+                label="Color Name"
+                rules={[{ required: true, message: 'Please enter color name' }]}
+              >
+                <Input />
+              </Form.Item>
+            </Col>
 
-    <Form.Item
-      name="hexValue"
-      label="Hex Color Code"
-      rules={[
-        { required: true, message: 'Please enter a hex color code' },
-        { pattern: /^#[0-9A-Fa-f]{6}$/, message: 'Invalid hex color code' },
-      ]}
-    >
-      <Input type="color" />
-    </Form.Item>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="code"
+                label="Color Code"
+                rules={[{ required: true, message: 'Please enter color code' }]}
+              >
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
 
-    <Form.Item
-      name="notes"
-      label="Notes"
-    >
-      <Input.TextArea />
-    </Form.Item>
+          <Form.Item
+            name="locator"
+            label="Locator"
+            rules={[{ required: true, message: 'Please enter a locator' }]}
+          >
+            <Input />
+          </Form.Item>
 
-    <Form.Item className="mb-0">
-      <Space className="w-full justify-end">
-        <Button onClick={() => setModalVisible(false)}>Cancel</Button>
-        <Button type="primary" htmlType="submit">
-          {editingColor ? 'Update' : 'Create'}
-        </Button>
-      </Space>
-    </Form.Item>
-  </Form>
-</Modal>
+          <Form.Item
+            label="RGB (Red, Green, Blue)"
+            style={{ marginBottom: 0 }}
+          >
+            <Space.Compact block>
+              <Form.Item
+                name="red"
+                noStyle
+                rules={[{ type: 'number', min: 0, max: 255, message: '0–255' }]}
+              >
+                <Input type="number" placeholder="R" min={0} max={255} />
+              </Form.Item>
+              <Form.Item
+                name="green"
+                noStyle
+                rules={[{ type: 'number', min: 0, max: 255, message: '0–255' }]}
+              >
+                <Input type="number" placeholder="G" min={0} max={255} />
+              </Form.Item>
+              <Form.Item
+                name="blue"
+                noStyle
+                rules={[{ type: 'number', min: 0, max: 255, message: '0–255' }]}
+              >
+                <Input type="number" placeholder="B" min={0} max={255} />
+              </Form.Item>
+            </Space.Compact>
+          </Form.Item>
 
+          <Row gutter={isMobile ? 0 : 16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="hexValue"
+                label="Hex Color Code"
+                rules={[
+                  { required: true, message: 'Please enter a hex color code' },
+                  { pattern: /^#[0-9A-Fa-f]{6}$/, message: 'Invalid hex color code' },
+                ]}
+              >
+                <Input type="color" />
+              </Form.Item>
+            </Col>
+
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="notes"
+                label="Notes"
+              >
+                <Input.TextArea rows={1} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item className="mb-0">
+            <Space className="w-full justify-end" size={isMobile ? 'small' : 'middle'}>
+              <Button onClick={() => setModalVisible(false)} block={isMobile}>Cancel</Button>
+              <Button type="primary" htmlType="submit" block={isMobile}>
+                {editingColor ? 'Update' : 'Create'}
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* Upload Preview Modal */}
       <Modal
         title="Preview Imported Colors"
         open={uploadPreviewVisible}
         onCancel={() => setUploadPreviewVisible(false)}
-        width={1000}
+        width={isMobile ? '100%' : 1000}
+        style={isMobile ? { top: 0, paddingBottom: 0, maxWidth: '100vw' } : {}}
+        styles={isMobile ? { body: { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } } : {}}
         footer={null}
       >
         <div className="mb-4">
-          <p className="text-sm text-gray-600">Preview the rows extracted from the uploaded file. You can edit values inline before saving.</p>
+          <p className="text-xs md:text-sm text-gray-600">Preview the rows extracted from the uploaded file. You can edit values inline before saving.</p>
         </div>
         <Table
           dataSource={previewData}
           rowKey={(r, idx) => idx}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: isMobile ? 5 : 10 }}
+          scroll={{ x: 'max-content' }}
           columns={[
             {
               title: 'Preview',
@@ -584,12 +589,11 @@ const columns = [
                 }} />
               )
             },
-           
           ]}
         />
-        <div className="mt-4 flex justify-end">
-          <Button onClick={() => { setUploadPreviewVisible(false); setPreviewData([]); }}>Cancel</Button>
-          <Button type="primary" style={{marginLeft:8}} onClick={saveBulk}>Save All</Button>
+        <div className="mt-4 flex flex-col sm:flex-row justify-end gap-2">
+          <Button onClick={() => { setUploadPreviewVisible(false); setPreviewData([]); }} block={isMobile}>Cancel</Button>
+          <Button type="primary" onClick={saveBulk} block={isMobile}>Save All</Button>
         </div>
       </Modal>
     </div>
