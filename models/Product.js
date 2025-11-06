@@ -2,6 +2,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 const Tenant = require('./Tenant');
+const Brand = require('./Brand');
 
 const Product = sequelize.define('Product', {
   id: {
@@ -19,6 +20,15 @@ const Product = sequelize.define('Product', {
     onDelete: 'CASCADE',
     field: 'tenant_id'
   },
+  brandId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'brands',
+      key: 'id'
+    },
+    field: 'brand_id'
+  },
   name: {
     type: DataTypes.STRING(255),
     allowNull: false
@@ -29,7 +39,13 @@ const Product = sequelize.define('Product', {
   },
   brand: {
     type: DataTypes.STRING(100),
-    allowNull: false
+    allowNull: true
+  },
+  sheenOptions: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'sheen_options',
+    comment: 'Comma-separated list of available sheen options'
   },
   category: {
     type: DataTypes.ENUM('wall_paint', 'ceiling_paint', 'trim_paint', 'primer', 'custom'),
@@ -44,7 +60,7 @@ const Product = sequelize.define('Product', {
   },
   sheen: {
     type: DataTypes.ENUM('flat', 'matte', 'eggshell', 'satin', 'semi-gloss', 'gloss'),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 'eggshell'
   },
   pricePerGallon: {
@@ -81,6 +97,9 @@ const Product = sequelize.define('Product', {
       fields: ['brand']
     },
     {
+      fields: ['brand_id']
+    },
+    {
       fields: ['category']
     },
     {
@@ -91,5 +110,9 @@ const Product = sequelize.define('Product', {
 
 Product.belongsTo(Tenant, { foreignKey: 'tenantId' });
 Tenant.hasMany(Product, { foreignKey: 'tenantId' });
+
+// Brand relationship
+Product.belongsTo(Brand, { foreignKey: 'brandId', as: 'brandDetails' });
+Brand.hasMany(Product, { foreignKey: 'brandId', as: 'products' });
 
 module.exports = Product;
