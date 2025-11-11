@@ -1,0 +1,370 @@
+const GlobalProduct = require('../models/GlobalProduct');
+const Brand = require('../models/Brand');
+const UserProduct = require('../models/UserProduct');
+const { Op } = require('sequelize');
+const XLSX = require('xlsx');
+const sequelize  = require('../config/database');
+
+// Get all global products
+exports.getAllGlobalProducts = async (req, res) => {
+  try {
+    const { brandId, category, tier, search, page = 1, limit = 50 } = req.query;
+    
+    const where = { isActive: true };
+    
+    if (brandId) where.brandId = brandId;
+    if (category) where.category = category;
+    if (tier) where.tier = tier;
+    if (search) {
+      where[Op.or] = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { notes: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await GlobalProduct.findAndCountAll({
+      where,
+      include: [{ model: Brand, as: 'brand' }],
+      limit: parseInt(limit),
+      offset,
+      order: [['createdAt', 'DESC']],
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(count / limit),
+      },
+    });
+  } catch (error) {
+    console.error('Get global products error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch global products',
+      error: error.message,
+    });
+  }
+};
+
+// Get global product by ID
+exports.getGlobalProductById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await GlobalProduct.findByPk(id, {
+      include: [
+        { model: Brand, as: 'brand' },
+        { model: UserProduct, foreignKey: 'globalProductId' },
+      ],
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Global product not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: product,
+    });
+  } catch (error) {
+    console.error('Get global product error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch global product',
+      error: error.message,
+    });
+  }
+};
+
+// Create global product
+exports.createGlobalProduct = async (req, res) => {
+  try {
+    const { brandId, customBrand, name, category, tier, sheenOptions, notes } = req.body;
+
+    // Validation
+    if (!name || !category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name and category are required',
+      });
+    }
+
+    if (!brandId && !customBrand) {
+      return res.status(400).json({
+        success: false,
+        message: 'Either brandId or customBrand is required',
+      });
+    }
+
+    const product = await GlobalProduct.create({
+      brandId: brandId || null,
+      customBrand: customBrand || null,
+      name,
+      category,
+      tier: tier || null,
+      sheenOptions: sheenOptions || null,
+      notes: notes || null,
+      isActive: true,
+    });
+
+    const productWithBrand = await GlobalProduct.findByPk(product.id, {
+      include: [{ model: Brand, as: 'brand' }],
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Global product created successfully',
+      data: productWithBrand,
+    });
+  } catch (error) {
+    console.error('Create global product error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create global product',
+      error: error.message,
+    });
+  }
+};
+
+// Update global product
+exports.updateGlobalProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { brandId, customBrand, name, category, tier, sheenOptions, notes, isActive } = req.body;
+
+    const product = await GlobalProduct.findByPk(id);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Global product not found',
+      });
+    }
+
+    await product.update({
+      brandId: brandId !== undefined ? brandId : product.brandId,
+      customBrand: customBrand !== undefined ? customBrand : product.customBrand,
+      name: name || product.name,
+      category: category || product.category,
+      tier: tier !== undefined ? tier : product.tier,
+      sheenOptions: sheenOptions !== undefined ? sheenOptions : product.sheenOptions,
+      notes: notes !== undefined ? notes : product.notes,
+      isActive: isActive !== undefined ? isActive : product.isActive,
+    });
+
+    const updatedProduct = await GlobalProduct.findByPk(id, {
+      include: [{ model: Brand, as: 'brand' }],
+    });
+
+    res.json({
+      success: true,
+      message: 'Global product updated successfully',
+      data: updatedProduct,
+    });
+  } catch (error) {
+    console.error('Update global product error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update global product',
+      error: error.message,
+    });
+  }
+};
+
+// Delete global product (soft delete)
+exports.deleteGlobalProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await GlobalProduct.findByPk(id);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Global product not found',
+      });
+    }
+
+    await product.update({ isActive: false });
+
+    res.json({
+      success: true,
+      message: 'Global product deleted successfully',
+    });
+  } catch (error) {
+    console.error('Delete global product error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete global product',
+      error: error.message,
+    });
+  }
+};
+
+// Bulk import global products
+exports.bulkImportGlobalProducts = async (req, res) => {
+  try {
+    const { products } = req.body;
+
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Products array is required',
+      });
+    }
+
+    const created = [];
+    const errors = [];
+
+    for (const productData of products) {
+      try {
+        const product = await GlobalProduct.create({
+          brandId: productData.brandId || null,
+          customBrand: productData.customBrand || null,
+          name: productData.name,
+          category: productData.category,
+          tier: productData.tier || null,
+          sheenOptions: productData.sheenOptions || null,
+          notes: productData.notes || null,
+          isActive: true,
+        });
+        created.push(product);
+      } catch (err) {
+        errors.push({
+          product: productData.name,
+          error: err.message,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Imported ${created.length} products`,
+      data: {
+        created: created.length,
+        errors: errors.length,
+        errorDetails: errors,
+      },
+    });
+  } catch (error) {
+    console.error('Bulk import error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to import products',
+      error: error.message,
+    });
+  }
+};
+
+// Bulk upload global products from Excel/CSV file
+exports.bulkUploadGlobalProducts = async (req, res) => {
+  const t = await sequelize.transaction();
+  
+  try {
+    const { brandId } = req.body;
+    
+    if (!brandId) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Brand ID is required'
+      });
+    }
+
+    if (!req.file) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'File is required'
+      });
+    }
+
+    // Verify brand exists
+    const brand = await Brand.findByPk(brandId);
+    if (!brand) {
+      await t.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Brand not found'
+      });
+    }
+
+    // Parse Excel/CSV file
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    if (data.length === 0) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'File is empty'
+      });
+    }
+
+    const createdProducts = [];
+    const errors = [];
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      
+      try {
+        const productName = row['Product Name'] || row['product_name'] || row['name'];
+        const category = row['Category'] || row['category'];
+        const tier = row['Tier'] || row['tier'];
+        const sheenOptions = row['Sheen Options'] || row['sheen_options'] || row['Sheens'] || '';
+        const notes = row['Notes'] || row['notes'] || '';
+        
+        if (!productName) {
+          errors.push(`Row ${i + 2}: Product name is missing`);
+          continue;
+        }
+
+        // Create global product
+        const product = await GlobalProduct.create({
+          brandId,
+          name: productName.trim(),
+          category: category? category?.trim() : "Interior",
+          tier: tier ? tier?.trim() : null,
+          sheenOptions: sheenOptions?.trim(),
+          notes: notes?.trim(),
+          isActive: true
+        }, { transaction: t });
+
+        createdProducts.push(product);
+      } catch (error) {
+        errors.push(`Row ${i + 2}: ${error.message}`);
+      }
+    }
+
+    await t.commit();
+
+    res.json({
+      success: true,
+      data: {
+        created: createdProducts.length,
+        products: createdProducts,
+        errors: errors.length > 0 ? errors : undefined
+      },
+      message: `${createdProducts.length} products uploaded successfully${errors.length > 0 ? ` with ${errors.length} errors` : ''}`
+    });
+  } catch (error) {
+    await t.rollback();
+    console.error('Bulk upload global products error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload products',
+      error: error.message
+    });
+  }
+};

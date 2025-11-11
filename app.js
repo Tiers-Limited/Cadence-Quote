@@ -21,6 +21,7 @@ const apiRouter = require('./routes/api');
 const paymentsRouter = require('./routes/payments');
 const brandsRouter = require('./routes/brands');
 const productsRouter = require('./routes/products');
+const adminRouter = require('./routes/admin');
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 const User = require('./models/User');
@@ -71,6 +72,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/payments', paymentsRouter);
 app.use('/api/v1/brands', brandsRouter);
 app.use('/api/v1/products', productsRouter);
+app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler

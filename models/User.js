@@ -3,6 +3,7 @@ const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const sequelize = require('../config/database');
 const Tenant = require('./Tenant');
+const Role = require('./Role');
 
 const User = sequelize.define('User', {
   id: {
@@ -55,9 +56,18 @@ const User = sequelize.define('User', {
     field: 'auth_provider'
   },
   role: {
-    type: DataTypes.ENUM('business_admin', 'contractor_admin', 'customer'),
+    type: DataTypes.ENUM('business_admin', 'contractor_admin', 'customer', 'admin'),
     defaultValue: 'contractor_admin',
     allowNull: false
+  },
+  roleId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: Role,
+      key: 'id'
+    },
+    field: 'role_id'
   },
   tenantId: {
     type: DataTypes.INTEGER,
@@ -120,5 +130,8 @@ User.prototype.comparePassword = async function (candidatePassword) {
 
 User.belongsTo(Tenant, { foreignKey: 'tenantId' });
 Tenant.hasMany(User, { foreignKey: 'tenantId' });
+
+User.belongsTo(Role, { foreignKey: 'roleId', as: 'userRole' });
+Role.hasMany(User, { foreignKey: 'roleId' });
 
 module.exports = User;

@@ -56,12 +56,39 @@ const Tenant = sequelize.define('Tenant', {
   paymentStatus: {
     type: DataTypes.ENUM('trial', 'pending', 'active', 'past_due', 'cancelled'),
     defaultValue: 'trial',
-    comment: 'Current payment/subscription status'
+    comment: 'Current payment/subscription status',
+    
   },
   subscriptionExpiresAt: {
     type: DataTypes.DATE,
     allowNull: true,
     comment: 'Subscription expiration date'
+    
+  },
+  seatLimit: {
+    type: DataTypes.INTEGER,
+    defaultValue: 5,
+    allowNull: false,
+    comment: 'Maximum number of users allowed for this tenant',
+    field: 'seat_limit'
+  },
+  status: {
+    type: DataTypes.ENUM('active', 'suspended', 'trial', 'cancelled'),
+    defaultValue: 'active',
+    allowNull: false,
+    comment: 'Tenant account status'
+  },
+  trialEndsAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Trial period end date',
+    field: 'trial_ends_at'
+  },
+  subscriptionId: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Stripe subscription ID',
+    field: 'subscription_id'
   }
 }, {
   timestamps: true,
@@ -72,6 +99,12 @@ const Tenant = sequelize.define('Tenant', {
     },
     {
       fields: ['stripeCustomerId']
+    },
+    {
+      fields: ['status']
+    },
+    {
+      fields: ['subscription_id']
     }
   ]
 });
