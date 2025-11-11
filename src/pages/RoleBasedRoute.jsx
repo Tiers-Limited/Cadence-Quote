@@ -5,8 +5,6 @@ import { useAuth } from '../hooks/useAuth';
 const RoleBasedRoute = ({ allowedRoles = ['contractor_admin'], children }) => {
   const { isAuthenticated, user } = useAuth();
 
-  console.log('User Role:', user?.role, isAuthenticated);
-
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
@@ -14,11 +12,14 @@ const RoleBasedRoute = ({ allowedRoles = ['contractor_admin'], children }) => {
   const userRole = user?.role;
 
   if (!userRole || !allowedRoles.includes(userRole)) {
-    return userRole === 'business_admin' ? (
-      <Navigate to="/coming-soon" replace />
-    ) : (
-      <Navigate to="/login" replace />
-    );
+    // Redirect based on user role
+    if (userRole === 'business_admin') {
+      return <Navigate to="/coming-soon" replace />;
+    }
+    if (userRole === 'admin') {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
+    return <Navigate to="/login" replace />;
   }
 
   return children ? children : <Outlet />;

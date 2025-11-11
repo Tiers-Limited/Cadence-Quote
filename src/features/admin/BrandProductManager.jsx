@@ -1,64 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Space,
-  Card, message, Upload, Spin, Tag, Tabs
+  Table, Button, Modal, Form, Select, Space, message, Spin, Tag, InputNumber
 } from 'antd';
 import {
-  PlusOutlined, UploadOutlined, DeleteOutlined,
-  EditOutlined, DollarOutlined, EyeOutlined
+  PlusOutlined, DeleteOutlined, EditOutlined
 } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 
-const { TabPane } = Tabs;
-
 const BrandProductManager = () => {
-  const [brands, setBrands] = useState([]);
   const [products, setProducts] = useState([]);
-  const [selectedBrand, setSelectedBrand] = useState(null);
+  const [globalProducts, setGlobalProducts] = useState([]);
+  const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [brandModalVisible, setBrandModalVisible] = useState(false);
-  const [productModalVisible, setProductModalVisible] = useState(false);
-  const [priceModalVisible, setPriceModalVisible] = useState(false);
-  const [uploadModalVisible, setUploadModalVisible] = useState(false);
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [selectedGlobalProduct, setSelectedGlobalProduct] = useState(null);
+  const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
   const [form] = Form.useForm();
-  const [priceForm] = Form.useForm();
-
-  const sheenOptions = ['Flat', 'Matte', 'Eggshell', 'Satin', 'Semi-Gloss', 'Gloss'];
 
   useEffect(() => {
     fetchBrands();
+    fetchProducts();
+    fetchGlobalProducts();
   }, []);
 
-  useEffect(() => {
-    if (selectedBrand) {
-      fetchProducts(selectedBrand);
-    }
-  }, [selectedBrand]);
-
   const fetchBrands = async () => {
-    setLoading(true);
     try {
-      const response = await apiService.get('/brands');
-      if (response.success) {
-        setBrands(response.data);
-        if (response.data.length > 0 && !selectedBrand) {
-          setSelectedBrand(response.data[0].id);
-        }
-      }
+      const response = await apiService.getAdminBrands();
+      setBrands(response.data || []);
     } catch (error) {
+      console.error('Error fetching brands:', error);
       message.error('Failed to fetch brands');
-      console.error('Fetch brands error:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const fetchProducts = async (brandId) => {
+  const fetchProducts = async () => {
     setLoading(true);
     try {
-      const response = await apiService.get(`/products/by-brand?brandId=${brandId}`);
+      const response = await apiService.get('/products');
       if (response.success) {
         setProducts(response.data);
       }
@@ -70,153 +50,141 @@ const BrandProductManager = () => {
     }
   };
 
-  const seedBrands = async () => {
-    setLoading(true);
+  const fetchGlobalProducts = async () => {
     try {
-      const response = await apiService.post('/brands/seed');
-      if (response.success) {
-        message.success(response.message);
-        fetchBrands();
+      const response = await apiService.getGlobalProducts();
+      if (response.success || response.data) {
+        setGlobalProducts(response.data || []);
       }
     } catch (error) {
-      message.error('Failed to seed brands');
-      console.error('Seed brands error:', error);
-    } finally {
-      setLoading(false);
+      message.error('Failed to fetch global products');
+      console.error('Fetch global products error:', error);
     }
   };
 
-  const handleCreateBrand = async (values) => {
-    try {
-      const response = await apiService.post('/brands', values);
-      if (response.success) {
-        message.success('Brand created successfully');
-        setBrandModalVisible(false);
-        form.resetFields();
-        fetchBrands();
-      }
-    } catch (error) {
-      message.error('Failed to create brand');
-      console.error('Create brand error:', error);
+  const showModal = (product = null) => {
+    // Check if brands exist
+    if (!product && brands.length === 0) {
+      message.warning('Please add at least one brand before creating products');
+      return;
     }
-  };
 
-  const handleDeleteBrand = async (id) => {
-    Modal.confirm({
-      title: 'Delete Brand',
-      content: 'Are you sure you want to delete this brand?',
-      onOk: async () => {
-        try {
-          const response = await apiService.delete(`/brands/${id}`);
-          if (response.success) {
-            message.success('Brand deleted successfully');
-            fetchBrands();
-            if (selectedBrand === id) {
-              setSelectedBrand(null);
-              setProducts([]);
-            }
-          }
-        } catch (error) {
-          message.error('Failed to delete brand');
-          console.error('Delete brand error:', error);
-        }
-      }
-    });
-  };
-
-  const handleCreateProduct = async (values) => {
-    try {
-      const { name, sheenOptions: sheens, description } = values;
-      const response = await apiService.post('/products/with-prices', {
-        brandId: selectedBrand,
-        name,
-        sheenOptions: sheens ? sheens.join(', ') : '',
-        description
-      });
-      if (response.success) {
-        message.success('Product created successfully');
-        setProductModalVisible(false);
-        form.resetFields();
-        fetchProducts(selectedBrand);
-      }
-    } catch (error) {
-      message.error('Failed to create product');
-      console.error('Create product error:', error);
+    // Check if a brand is selected for filtering
+    if (!product && !selectedBrandFilter) {
+      message.warning('Please select a brand from the filter dropdown before adding a product');
+      return;
     }
-  };
 
-  const handleUpdatePrices = async (values) => {
-    try {
-      const prices = [];
+    setEditingProduct(product);
+    if (product) {
+      // Find the global product to get sheen options
+      const globalProd = globalProducts.find(gp => gp.id === product.globalProductId);
+      setSelectedGlobalProduct(globalProd);
       
-      // Auto-calculate prices based on Flat price
-      const flatPrice = parseFloat(values.flat);
-      if (flatPrice && !isNaN(flatPrice)) {
-        prices.push({ sheen: 'Flat', price: flatPrice });
-        prices.push({ sheen: 'Matte', price: flatPrice }); // Same as Flat
-        prices.push({ sheen: 'Satin', price: flatPrice + 2 }); // +$2
-        prices.push({ sheen: 'Semi-Gloss', price: flatPrice + 4 }); // +$4
-        
-        // If Eggshell or Gloss are provided, use those values
-        if (values.eggshell) {
-          prices.push({ sheen: 'Eggshell', price: parseFloat(values.eggshell) });
-        }
-        if (values.gloss) {
-          prices.push({ sheen: 'Gloss', price: parseFloat(values.gloss) });
-        }
-      }
-
-      const response = await apiService.put(`/products/${selectedProduct.id}/prices`, {
-        prices
+      const sheenOpts = globalProd?.sheenOptions ? globalProd.sheenOptions.split(',').map(s => s.trim()) : [];
+      
+      // Build sheen pricing object
+      const sheenPricing = {};
+      sheenOpts.forEach(sheen => {
+        const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+        sheenPricing[`${sheenKey}_price`] = product[`${sheenKey}_price`] || 0;
+        sheenPricing[`${sheenKey}_coverage`] = product[`${sheenKey}_coverage`] || 400;
       });
       
-      if (response.success) {
-        message.success('Prices updated successfully');
-        setPriceModalVisible(false);
-        priceForm.resetFields();
-        setSelectedProduct(null);
-        fetchProducts(selectedBrand);
-      }
-    } catch (error) {
-      message.error('Failed to update prices');
-      console.error('Update prices error:', error);
+      form.setFieldsValue({
+        globalProductId: product.globalProductId,
+        isActive: product.isActive ?? true,
+        ...sheenPricing
+      });
+    } else {
+      form.resetFields();
+      form.setFieldsValue({
+        isActive: true,
+      });
+      setSelectedGlobalProduct(null);
     }
+    setModalVisible(true);
   };
 
-  const handleBulkUpload = async ( file ) => {
-    console.log("Uploading file:", file);   
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('brandId', selectedBrand);
-
-    try {
-      const response = await apiService.postFile('/products/bulk-upload', formData);
-      
-      if (response.success) {
-        message.success(response.message);
-        setUploadModalVisible(false);
-        fetchProducts(selectedBrand);
-      }
-    } catch (error) {
-      message.error('Failed to upload products');
-      console.error('Bulk upload error:', error);
+  const handleGlobalProductChange = (globalProductId) => {
+    const globalProd = globalProducts.find(gp => gp.id === globalProductId);
+    setSelectedGlobalProduct(globalProd);
+    
+    // Filter global products by selected brand
+    if (selectedBrandFilter && globalProd && globalProd.brandId !== selectedBrandFilter) {
+      message.warning('This product belongs to a different brand. Please select a product from the filtered brand.');
+      return;
     }
     
-    return false; // Prevent default upload behavior
+    // Reset sheen pricing fields when product changes
+    const sheenOpts = globalProd?.sheenOptions ? globalProd.sheenOptions.split(',').map(s => s.trim()) : [];
+    const resetFields = {};
+    sheenOpts.forEach(sheen => {
+      const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+      resetFields[`${sheenKey}_price`] = undefined;
+      resetFields[`${sheenKey}_coverage`] = undefined;
+    });
+    form.setFieldsValue(resetFields);
   };
 
-  const handleDeleteProduct = async (id) => {
+  const handleSubmit = async (values) => {
+    try {
+      if (!selectedGlobalProduct) {
+        message.error('Please select a product');
+        return;
+      }
+
+      // Build sheen pricing data
+      const sheenOpts = selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
+      const sheenPricing = {};
+      
+      sheenOpts.forEach(sheen => {
+        const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+        sheenPricing[`${sheenKey}_price`] = Number(values[`${sheenKey}_price`] || 0);
+        sheenPricing[`${sheenKey}_coverage`] = Number(values[`${sheenKey}_coverage`] || 400);
+      });
+
+      const payload = {
+        globalProductId: values.globalProductId,
+        brandId: selectedGlobalProduct.brandId,
+        customBrand: selectedGlobalProduct.customBrand,
+        line: selectedGlobalProduct.line || '',
+        name: selectedGlobalProduct.name,
+        category: selectedGlobalProduct.category,
+        tier: selectedGlobalProduct.tier,
+        sheenOptions: selectedGlobalProduct.sheenOptions,
+        sheen: sheenOpts[0].toLowerCase(), // Default to first sheen
+        isActive: values.isActive ?? true,
+        ...sheenPricing
+      };
+
+      if (editingProduct) {
+        await apiService.put(`/products/${editingProduct.id}`, payload);
+        message.success('Product updated successfully');
+      } else {
+        await apiService.post('/products', payload);
+        message.success('Product added successfully');
+      }
+      
+      setModalVisible(false);
+      setSelectedGlobalProduct(null);
+      form.resetFields();
+      fetchProducts();
+    } catch (error) {
+      message.error('Failed to save product');
+      console.error('Save product error:', error);
+    }
+  };
+
+  const handleDelete = async (id) => {
     Modal.confirm({
       title: 'Delete Product',
       content: 'Are you sure you want to delete this product?',
       onOk: async () => {
         try {
-          const response = await apiService.delete(`/products/${id}`);
-          if (response.success) {
-            message.success('Product deleted successfully');
-            fetchProducts(selectedBrand);
-          }
+          await apiService.delete(`/products/${id}`);
+          message.success('Product deleted successfully');
+          fetchProducts();
         } catch (error) {
           message.error('Failed to delete product');
           console.error('Delete product error:', error);
@@ -225,76 +193,19 @@ const BrandProductManager = () => {
     });
   };
 
-  const showPriceModal = (product) => {
-    setSelectedProduct(product);
-    
-    // Pre-fill existing prices
-    const priceValues = {};
-    if (product.prices && product.prices.length > 0) {
-      product.prices.forEach(p => {
-        priceValues[p.sheen.toLowerCase().replace('-', '')] = p.price;
-      });
-    }
-    
-    priceForm.setFieldsValue(priceValues);
-    setPriceModalVisible(true);
-  };
-
-  const showDetailModal = async (product) => {
-    setLoading(true);
-    try {
-      const response = await apiService.get(`/products/${product.id}/with-prices`);
-      if (response.success) {
-        setSelectedProduct(response.data);
-        setDetailModalVisible(true);
-      }
-    } catch (error) {
-      message.error('Failed to fetch product details');
-      console.error('Fetch product details error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const brandColumns = [
-    {
-      title: 'Brand Name',
-      dataIndex: 'name',
-      key: 'name',
-      width: 200,
-    },
-    {
-      title: 'Description',
-      dataIndex: 'description',
-      key: 'description',
-    },
-    {
-      title: 'Products',
-      key: 'products',
-      width: 100,
-      render: (_, record) => (
-        <Tag color="blue">{record.products?.length || 0}</Tag>
-      ),
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      width: 100,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space size="small">
-          <Button
-            size="small"
-            icon={<DeleteOutlined />}
-            danger
-            onClick={() => handleDeleteBrand(record.id)}
-          />
-        </Space>
-      ),
-    },
-  ];
-
   const productColumns = [
+    {
+      title: 'Brand',
+      key: 'brand',
+      width: 150,
+      render: (_, record) => {
+        const globalProd = globalProducts.find(gp => gp.id === record.globalProductId);
+        if (globalProd) {
+          return globalProd.brand?.name || globalProd.customBrand || 'N/A';
+        }
+        return record.brand || 'N/A';
+      },
+    },
     {
       title: 'Product Name',
       dataIndex: 'name',
@@ -302,476 +213,256 @@ const BrandProductManager = () => {
       width: 250,
     },
     {
-      title: 'Sheen Options',
-      dataIndex: 'sheenOptions',
-      key: 'sheenOptions',
-      width: 250,
-      render: (sheenOptions) => (
-        <div>
-          {sheenOptions ? sheenOptions.split(',').map((sheen, index) => (
-            <Tag key={index} color="green" className="mb-1">
-              {sheen.trim()}
-            </Tag>
-          )) : '-'}
-        </div>
-      ),
-    },
-    {
-      title: 'Prices Set',
-      key: 'prices',
-      width: 100,
-      render: (_, record) => (
-        <Tag color={record.prices?.length > 0 ? 'green' : 'orange'}>
-          {record.prices?.length || 0} sheens
+      title: 'Category',
+      dataIndex: 'category',
+      key: 'category',
+      width: 120,
+      render: (category) => (
+        <Tag color={category === 'Interior' ? 'blue' : 'green'}>
+          {category}
         </Tag>
       ),
     },
     {
+      title: 'Sheen Pricing',
+      dataIndex: 'sheenOptions',
+      key: 'sheenPricing',
+      width: 300,
+      render: (sheenOptions, record) => {
+        if (!sheenOptions) return '-';
+        
+        const sheens = sheenOptions.split(',').map(s => s.trim());
+        return (
+          <div>
+            {sheens.map((sheen) => {
+              const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+              const price = record[`${sheenKey}_price`];
+              const coverage = record[`${sheenKey}_coverage`];
+              
+              return (
+                <div key={sheen} className='mb-1'>
+                  <Tag color='green'>{sheen}</Tag>
+                  {price !== undefined && (
+                    <span className='text-xs'>
+                      ${Number(price).toFixed(2)}/gal • {coverage} sq ft/gal
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      },
+    },
+    {
       title: 'Actions',
       key: 'actions',
-      width: 200,
+      width: 150,
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
           <Button
             size="small"
-            icon={<EyeOutlined />}
-            onClick={() => showDetailModal(record)}
+            icon={<EditOutlined />}
+            onClick={() => showModal(record)}
           >
-            View
-          </Button>
-          <Button
-            size="small"
-            icon={<DollarOutlined />}
-            type="primary"
-            onClick={() => showPriceModal(record)}
-          >
-            Set Prices
+            Edit
           </Button>
           <Button
             size="small"
             icon={<DeleteOutlined />}
             danger
-            onClick={() => handleDeleteProduct(record.id)}
+            onClick={() => handleDelete(record.id)}
           />
         </Space>
       ),
     },
   ];
 
+  // Filter products based on selected brand and category
+  const filteredProducts = products.filter(p => {
+    const globalProd = globalProducts.find(gp => gp.id === p.globalProductId);
+    
+    // Filter by brand
+    const brandMatch = !selectedBrandFilter
+      ? true
+      : globalProd?.brandId === selectedBrandFilter || p.brandId === selectedBrandFilter;
+    
+    // Filter by category
+    const categoryMatch = !selectedCategoryFilter
+      ? true
+      : p.category === selectedCategoryFilter || globalProd?.category === selectedCategoryFilter;
+    
+    return brandMatch && categoryMatch;
+  });
+
+  // Filter global products based on selected brand and category
+  const filteredGlobalProducts = globalProducts.filter(gp => {
+    // Filter by brand
+    const brandMatch = !selectedBrandFilter
+      ? true
+      : gp.brandId === selectedBrandFilter;
+    
+    // Filter by category
+    const categoryMatch = !selectedCategoryFilter
+      ? true
+      : gp.category === selectedCategoryFilter;
+    
+    return brandMatch && categoryMatch;
+  });
+
   return (
     <div className="p-6">
-      <div className="flex justify-between mb-4">
-        <h2 className="text-2xl font-semibold">Brand & Product Management</h2>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+        <h2 className="text-2xl font-semibold">Product Catalog</h2>
+        <Space>
+          <Select
+            placeholder="Filter by Brand"
+            style={{ width: 200 }}
+            value={selectedBrandFilter}
+            onChange={setSelectedBrandFilter}
+            allowClear
+            onClear={() => setSelectedBrandFilter(null)}
+          >
+            {brands.map((brand) => (
+              <Select.Option key={brand.id} value={brand.id}>
+                {brand.name}
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            placeholder="Filter by Category"
+            style={{ width: 200 }}
+            value={selectedCategoryFilter}
+            onChange={setSelectedCategoryFilter}
+            allowClear
+            onClear={() => setSelectedCategoryFilter(null)}
+          >
+            <Select.Option value="Interior">Interior</Select.Option>
+            <Select.Option value="Exterior">Exterior</Select.Option>
+          </Select>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => showModal()}
+          >
+            Add Product
+          </Button>
+        </Space>
       </div>
 
-      <Tabs defaultValue="products">
-        <TabPane tab="Products" key="products">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-            <div className="flex items-center gap-4">
-              <span className="font-medium">Brand:</span>
-              <Select
-                value={selectedBrand}
-                onChange={setSelectedBrand}
-                style={{ width: 200 }}
-                placeholder="Select a brand"
-              >
-                {brands.map(brand => (
-                  <Select.Option key={brand.id} value={brand.id}>
-                    {brand.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </div>
+      <Spin spinning={loading}>
+        <Table
+          columns={productColumns}
+          dataSource={filteredProducts}
+          rowKey="id"
+          scroll={{ x: 'max-content' }}
+          pagination={{ pageSize: 20 }}
+        />
+      </Spin>
 
-            <Space>
-              <Button
-                icon={<UploadOutlined />}
-                onClick={() => setUploadModalVisible(true)}
-                disabled={!selectedBrand}
-              >
-                Bulk Upload
-              </Button>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setProductModalVisible(true)}
-                disabled={!selectedBrand}
-              >
-                Add Product
-              </Button>
-            </Space>
-          </div>
-
-          <Spin spinning={loading}>
-            <Table
-              columns={productColumns}
-              dataSource={products}
-              rowKey="id"
-              scroll={{ x: 'max-content' }}
-            />
-          </Spin>
-        </TabPane>
-
-        <TabPane tab="Brands" key="brands">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium">Manage Brands</h3>
-            <Space>
-              {/* <Button onClick={seedBrands}>Seed Default Brands</Button> */}
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setBrandModalVisible(true)}
-              >
-                Add Brand
-              </Button>
-            </Space>
-          </div>
-
-          <Spin spinning={loading}>
-            <Table
-              columns={brandColumns}
-              dataSource={brands}
-              rowKey="id"
-              scroll={{ x: 'max-content' }}
-            />
-          </Spin>
-        </TabPane>
-      </Tabs>
-
-      {/* Add Brand Modal */}
+      {/* Add/Edit Product Modal */}
       <Modal
-        title="Add New Brand"
-        open={brandModalVisible}
+        title={editingProduct ? 'Edit Product' : 'Add Product'}
+        open={modalVisible}
         onCancel={() => {
-          setBrandModalVisible(false);
+          setModalVisible(false);
+          setSelectedGlobalProduct(null);
           form.resetFields();
         }}
         footer={null}
-      >
-        <Form form={form} layout="vertical" onFinish={handleCreateBrand}>
-          <Form.Item
-            name="name"
-            label="Brand Name"
-            rules={[{ required: true, message: 'Please enter brand name' }]}
-          >
-            <Input placeholder="e.g., Sherwin-Williams" />
-          </Form.Item>
-
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={3} placeholder="Brand description" />
-          </Form.Item>
-
-          <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setBrandModalVisible(false);
-                form.resetFields();
-              }}>
-                Cancel
-              </Button>
-              <Button type="primary" htmlType="submit">
-                Create Brand
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Add Product Modal */}
-      <Modal
-        title="Add New Product"
-        open={productModalVisible}
-        onCancel={() => {
-          setProductModalVisible(false);
-          form.resetFields();
-        }}
-        footer={null}
-      >
-        <Form form={form} layout="vertical" onFinish={handleCreateProduct}>
-          <Form.Item
-            name="name"
-            label="Product Name"
-            rules={[{ required: true, message: 'Please enter product name' }]}
-          >
-            <Input placeholder="e.g., ProMar 200" />
-          </Form.Item>
-
-          <Form.Item
-            name="sheenOptions"
-            label="Available Sheen Options"
-            rules={[{ required: true, message: 'Please select sheen options' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="Select available sheens"
-              options={sheenOptions.map(s => ({ label: s, value: s }))}
-            />
-          </Form.Item>
-
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={3} placeholder="Product description" />
-          </Form.Item>
-
-          <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setProductModalVisible(false);
-                form.resetFields();
-              }}>
-                Cancel
-              </Button>
-              <Button type="primary" htmlType="submit">
-                Create Product
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Set Prices Modal */}
-      <Modal
-        title={`Set Prices - ${selectedProduct?.name}`}
-        open={priceModalVisible}
-        onCancel={() => {
-          setPriceModalVisible(false);
-          priceForm.resetFields();
-          setSelectedProduct(null);
-        }}
-        footer={null}
-        width={600}
-      >
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
-          <p className="text-sm text-blue-800">
-            <strong>Auto-calculation:</strong> Enter the Flat price and Matte, Satin, and Semi-Gloss will be calculated automatically.
-          </p>
-          <ul className="text-xs text-blue-700 mt-2 ml-4 list-disc">
-            <li>Flat & Matte: Same price</li>
-            <li>Satin: Flat + $2</li>
-            <li>Semi-Gloss: Flat + $4</li>
-          </ul>
-        </div>
-
-        <Form form={priceForm} layout="vertical" onFinish={handleUpdatePrices}>
-          <div className="grid grid-cols-2 gap-4">
-            <Form.Item
-              name="flat"
-              label="Flat"
-              rules={[{ required: true, message: 'Enter Flat price' }]}
-            >
-              <Input
-                prefix="$"
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                onChange={(e) => {
-                  const flatPrice = parseFloat(e.target.value);
-                  if (!isNaN(flatPrice)) {
-                    priceForm.setFieldsValue({
-                      matte: flatPrice.toFixed(2),
-                      satin: (flatPrice + 2).toFixed(2),
-                      semigloss: (flatPrice + 4).toFixed(2)
-                    });
-                  }
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item name="matte" label="Matte">
-              <Input prefix="$" type="number" step="0.01" placeholder="0.00" disabled />
-            </Form.Item>
-
-            <Form.Item name="eggshell" label="Eggshell (Optional)">
-              <Input prefix="$" type="number" step="0.01" placeholder="0.00" />
-            </Form.Item>
-
-            <Form.Item name="satin" label="Satin">
-              <Input prefix="$" type="number" step="0.01" placeholder="0.00" disabled />
-            </Form.Item>
-
-            <Form.Item name="semigloss" label="Semi-Gloss">
-              <Input prefix="$" type="number" step="0.01" placeholder="0.00" disabled />
-            </Form.Item>
-
-            <Form.Item name="gloss" label="Gloss (Optional)">
-              <Input prefix="$" type="number" step="0.01" placeholder="0.00" />
-            </Form.Item>
-          </div>
-
-          <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setPriceModalVisible(false);
-                priceForm.resetFields();
-                setSelectedProduct(null);
-              }}>
-                Cancel
-              </Button>
-              <Button type="primary" htmlType="submit">
-                Save Prices
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Bulk Upload Modal */}
-      <Modal
-        title="Bulk Upload Products"
-        open={uploadModalVisible}
-        onCancel={() => setUploadModalVisible(false)}
-        footer={null}
-      >
-        <div className="space-y-4">
-          <div className="p-4 bg-gray-50 rounded">
-            <p className="text-sm mb-2"><strong>File Format:</strong></p>
-            <ul className="text-sm list-disc ml-4 space-y-1">
-              <li>Excel (.xlsx) or CSV file</li>
-              <li>Columns: "Product Name", "Sheen Options / Finish Type"</li>
-              <li>Example: ProMar 200, "Flat, Eggshell, Satin"</li>
-            </ul>
-          </div>
-
-          <Upload
-            beforeUpload={handleBulkUpload}
-            maxCount={1}
-            accept=".xlsx,.xls,.csv"
-          >
-            <Button icon={<UploadOutlined />} block>
-              Select File to Upload
-            </Button>
-          </Upload>
-        </div>
-      </Modal>
-
-      {/* Product Detail Modal */}
-      <Modal
-        title="Product Details"
-        open={detailModalVisible}
-        onCancel={() => {
-          setDetailModalVisible(false);
-          setSelectedProduct(null);
-        }}
-        footer={[
-          <Button
-            key="close"
-            onClick={() => {
-              setDetailModalVisible(false);
-              setSelectedProduct(null);
-            }}
-          >
-            Close
-          </Button>,
-          <Button
-            key="edit"
-            type="primary"
-            icon={<DollarOutlined />}
-            onClick={() => {
-              setDetailModalVisible(false);
-              showPriceModal(selectedProduct);
-            }}
-          >
-            Edit Prices
-          </Button>
-        ]}
         width={700}
       >
-        {selectedProduct && (
-          <div className="space-y-4">
-            {/* Product Info */}
-            <Card size="small" title="Product Information">
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="font-medium text-gray-600">Product Name:</span>
-                  <span className="font-semibold">{selectedProduct.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-medium text-gray-600">Brand:</span>
-                  <span>{selectedProduct.brandDetails?.name || 'N/A'}</span>
-                </div>
-                {selectedProduct.description && (
-                  <div className="pt-2 border-t">
-                    <span className="font-medium text-gray-600">Description:</span>
-                    <p className="mt-1 text-gray-700">{selectedProduct.description}</p>
-                  </div>
-                )}
-              </div>
-            </Card>
+        <Form form={form} layout='vertical' onFinish={handleSubmit}>
+          <Form.Item
+            name='globalProductId'
+            label='Select Product'
+            rules={[{ required: true, message: 'Please select a product' }]}
+          >
+            <Select
+              placeholder='Select a product from global catalog'
+              showSearch
+              onChange={handleGlobalProductChange}
+              disabled={editingProduct !== null}
+              filterOption={(input, option) =>
+                option.children.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {filteredGlobalProducts.map(gp => (
+                <Select.Option key={gp.id} value={gp.id}>
+                  {gp.brand?.name || gp.customBrand || 'Unknown Brand'} - {gp.name} ({gp.category})
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
 
-            {/* Sheen Options */}
-            <Card size="small" title="Available Sheen Options">
-              <div className="flex flex-wrap gap-2">
-                {selectedProduct.sheenOptions ? (
-                  selectedProduct.sheenOptions.split(',').map((sheen, index) => (
-                    <Tag key={index} color="green" className="text-base px-3 py-1">
-                      {sheen.trim()}
-                    </Tag>
-                  ))
-                ) : (
-                  <span className="text-gray-400">No sheen options specified</span>
-                )}
+          {selectedGlobalProduct && (
+            <>
+              <div className="mb-4 p-4 bg-blue-50 rounded">
+                <h4 className="font-semibold mb-2">Product Details:</h4>
+                <p><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
+                <p><strong>Category:</strong> {selectedGlobalProduct.category}</p>
+                <p><strong>Tier:</strong> {selectedGlobalProduct.tier || 'N/A'}</p>
+                <p><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
               </div>
-            </Card>
 
-            {/* Prices */}
-            <Card size="small" title="Price Details">
-              {selectedProduct.prices && selectedProduct.prices.length > 0 ? (
-                <div className="space-y-2">
-                  {selectedProduct.prices.map((price, index) => (
-                    <div key={index} className="flex justify-between items-center py-2 border-b last:border-b-0">
-                      <span className="font-medium text-gray-700">{price.sheen}</span>
-                      <span className="text-lg font-semibold text-green-600">
-                        ${parseFloat(price.price).toFixed(2)}
-                      </span>
+              <h4 className="font-semibold mb-3">Pricing & Coverage by Sheen:</h4>
+              
+              {selectedGlobalProduct.sheenOptions.split(',').map((sheen) => {
+                const sheenTrim = sheen.trim();
+                const sheenKey = sheenTrim.toLowerCase().replace(/[^a-z]/g, '');
+                
+                return (
+                  <div key={sheenKey} className="mb-4 p-3 border rounded">
+                    <h5 className="font-medium mb-2">{sheenTrim}</h5>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Form.Item
+                        name={`${sheenKey}_price`}
+                        label='Price per Gallon'
+                        rules={[{ required: true, message: `Please enter price for ${sheenTrim}` }]}
+                      >
+                        <InputNumber
+                          prefix='$'
+                          min={0}
+                          precision={2}
+                          style={{ width: '100%' }}
+                          placeholder={`Price for ${sheenTrim}`}
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        name={`${sheenKey}_coverage`}
+                        label='Coverage (sq ft/gallon)'
+                        rules={[{ required: true, message: `Please enter coverage for ${sheenTrim}` }]}
+                      >
+                        <InputNumber
+                          min={0}
+                          style={{ width: '100%' }}
+                          placeholder={`Coverage for ${sheenTrim}`}
+                        />
+                      </Form.Item>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-gray-400 mb-3">No prices set yet</p>
-                  <Button
-                    type="primary"
-                    icon={<DollarOutlined />}
-                    onClick={() => {
-                      setDetailModalVisible(false);
-                      showPriceModal(selectedProduct);
-                    }}
-                  >
-                    Set Prices Now
-                  </Button>
-                </div>
-              )}
-            </Card>
+                  </div>
+                );
+              })}
+            </>
+          )}
 
-            {/* Metadata */}
-            <Card size="small" title="Additional Information">
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Product ID:</span>
-                  <span className="font-mono">{selectedProduct.id}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Status:</span>
-                  <Tag color={selectedProduct.isActive ? 'green' : 'red'}>
-                    {selectedProduct.isActive ? 'Active' : 'Inactive'}
-                  </Tag>
-                </div>
-                {selectedProduct.createdAt && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Created:</span>
-                    <span>{new Date(selectedProduct.createdAt).toLocaleDateString()}</span>
-                  </div>
-                )}
-                {selectedProduct.updatedAt && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Last Updated:</span>
-                    <span>{new Date(selectedProduct.updatedAt).toLocaleDateString()}</span>
-                  </div>
-                )}
-              </div>
-            </Card>
-          </div>
-        )}
+          <Form.Item className='mb-0'>
+            <Space className='w-full justify-end'>
+              <Button onClick={() => {
+                setModalVisible(false);
+                setSelectedGlobalProduct(null);
+                form.resetFields();
+              }}>
+                Cancel
+              </Button>
+              <Button type='primary' htmlType='submit' disabled={!selectedGlobalProduct}>
+                {editingProduct ? 'Update' : 'Create'}
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

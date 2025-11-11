@@ -1,156 +1,132 @@
-import { useNavigate, useLocation } from 'react-router-dom'
-import { FiLogOut, FiHome, FiSettings, FiUsers, FiPackage, FiSidebar, FiMenu, FiX, FiDroplet, FiDollarSign, FiFileText, FiToggleLeft, FiCreditCard } from 'react-icons/fi'
-import { message, Layout, Menu, Button, theme, Drawer, Badge } from 'antd'
-import { useAuth } from '../hooks/useAuth'
-import { useState, useEffect } from 'react'
-import '../styles/sidebar.css'
-import Logo from './Logo'
-import LogoIcon from './LogoIcon'
+import { useNavigate, useLocation } from 'react-router-dom';
+import { FiLogOut, FiHome, FiPackage, FiDroplet, FiDollarSign, FiFileText, FiUsers, FiToggleLeft, FiCreditCard, FiSettings } from 'react-icons/fi';
+import { message, Layout, Menu, Button, theme, Drawer, Badge } from 'antd';
+import { useAuth } from '../hooks/useAuth';
+import { useState, useEffect } from 'react';
+import '../styles/sidebar.css';
+import Logo from './Logo';
+import LogoIcon from './LogoIcon';
 
-function MainLayout({ children }) {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { logout, user } = useAuth()
-  const [collapsed, setCollapsed] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
+function AdminLayout({ children }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { logout, user } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const {
     token: { colorBgContainer, borderRadiusLG },
-  } = theme.useToken()
+  } = theme.useToken();
 
   // Detect mobile screen
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 992)
+      setIsMobile(window.innerWidth < 992);
       if (window.innerWidth >= 992) {
-        setMobileOpen(false)
+        setMobileOpen(false);
       }
-    }
+    };
     
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Redirect if not admin
+  useEffect(() => {
+    if (user && user.role !== 'admin') {
+      message.error('Access denied. Admin privileges required.');
+      navigate('/dashboard');
+    }
+  }, [user, navigate]);
 
   const handleLogout = () => {
-    logout()
-    message.success('Logged out successfully')
-    navigate('/login')
-  }
+    logout();
+    message.success('Logged out successfully');
+    navigate('/login');
+  };
 
   const handleMenuClick = (path) => {
-    navigate(path)
+    navigate(path);
     if (isMobile) {
-      setMobileOpen(false)
+      setMobileOpen(false);
     }
-  }
+  };
 
-  const adminMenuItems = [
+  const menuItems = [
     {
-      key: 'dashboard',
+      key: 'admin-dashboard',
       icon: <FiHome size={20} />,
       label: 'Dashboard',
-      onClick: () => handleMenuClick('/admin/dashboard')
+      onClick: () => handleMenuClick('/admin')
     },
     {
-      key: 'products',
+      key: 'admin-products',
       icon: <FiPackage size={20} />,
       label: 'Product Management',
       onClick: () => handleMenuClick('/admin/products')
     },
     {
-      key: 'colors',
+      key: 'admin-colors',
       icon: <FiDroplet size={20} />,
       label: 'Color Management',
       onClick: () => handleMenuClick('/admin/colors')
     },
     {
-      key: 'pricing-schemes',
+      key: 'admin-pricing',
       icon: <FiDollarSign size={20} />,
       label: 'Pricing Schemes',
       onClick: () => handleMenuClick('/admin/pricing-schemes')
     },
     {
-      key: 'audit-logs',
+      key: 'admin-audit',
       icon: <FiFileText size={20} />,
       label: 'Audit Logs',
       onClick: () => handleMenuClick('/admin/audit-logs')
     },
     {
-      key: 'tenants',
+      key: 'admin-tenants',
       icon: <FiUsers size={20} />,
       label: 'Tenant Management',
       onClick: () => handleMenuClick('/admin/tenants')
     },
     {
-      key: 'features',
+      key: 'admin-features',
       icon: <FiToggleLeft size={20} />,
       label: 'Feature Flags / Add-ons',
       onClick: () => handleMenuClick('/admin/features')
     },
     {
-      key: 'billing',
+      key: 'admin-billing',
       icon: <FiCreditCard size={20} />,
       label: 'Stripe Billing',
       onClick: () => handleMenuClick('/admin/billing')
     },
     {
-      key: 'settings',
+      key: 'admin-settings',
       icon: <FiSettings size={20} />,
       label: 'Settings',
       onClick: () => handleMenuClick('/admin/settings')
     },
-  ]
-
-  const normalMenuItems = [
-    {
-      key: 'dashboard',
-      icon: <FiHome size={20} />,
-      label: 'Dashboard',
-      onClick: () => handleMenuClick('/dashboard')
-    },
-    {
-      key: 'products',
-      icon: <FiPackage size={20} />,
-      label: 'Product & Rates',
-      onClick: () => handleMenuClick('/products/catalog')
-    },
-    {
-      key: 'leads',
-      icon: <FiUsers size={20} />,
-      label: 'Leads',
-      onClick: () => handleMenuClick('/leads/forms')
-    },
-    {
-      key: 'settings',
-      icon: <FiSettings size={20} />,
-      label: 'Settings',
-      onClick: () => handleMenuClick('/settings'),
-    },
-  ]
-
-  const menuItems = (user && user.role === 'admin') ? adminMenuItems : normalMenuItems
-  
-  const selectedKey = (user && user.role === 'admin')
-    ? (location.pathname.split('/')[2] || 'dashboard')
-    : (location.pathname.split('/')[1] || 'dashboard')
+  ];
 
   // Sidebar content component (reusable for both desktop and mobile)
   const SidebarContent = () => (
-    <div className="h-full flex flex-col">
+    <>
       <div style={{ background: '#eff0f4' }} className="flex items-center h-32 p-6 border-b flex-shrink-0">
         <div className="flex flex-col">
           <span className="text-[#4a8bff] font-bold text-lg truncate">
-            {collapsed && !isMobile ? <LogoIcon/> : <Logo />}
+            {collapsed && !isMobile ? <LogoIcon /> : <Logo />}
           </span>
-         
+          {(!collapsed || isMobile) && (
+            <Badge count="Admin" style={{ backgroundColor: '#f5222d', marginTop: 8 }} />
+          )}
         </div>
       </div>
-
       <div className="overflow-y-auto flex-1 overflow-x-hidden">
         <Menu
           mode="inline"
-          selectedKeys={[selectedKey]}
+          selectedKeys={[location.pathname.slice(1).replace(/\//g, '-') || 'admin-dashboard']}
           style={{
             background: '#fafafa',
             border: 'none',
@@ -160,8 +136,7 @@ function MainLayout({ children }) {
           rootClassName="custom-menu"
         />
       </div>
-
-      <div className="mt-auto p-4 bg-[#fafafa] border-t">
+      <div className="flex-shrink-0 p-4 bg-[#fafafa] border-t">
         <Button 
           danger 
           type="primary" 
@@ -173,8 +148,12 @@ function MainLayout({ children }) {
           {(!collapsed || isMobile) && 'Logout'}
         </Button>
       </div>
-    </div>
-  )
+    </>
+  );
+
+  if (user && user.role !== 'admin') {
+    return null; // Will redirect via useEffect
+  }
 
   return (
     <Layout hasSider className="min-h-screen">
@@ -241,11 +220,14 @@ function MainLayout({ children }) {
         >
           <Button 
             type="text" 
-            icon={isMobile ? (mobileOpen ? <FiX size={22} /> : <FiMenu size={22} />) : <FiSidebar size={20} />} 
+            icon={isMobile ? <FiHome size={22} /> : <FiSettings size={20} />} 
             onClick={() => isMobile ? setMobileOpen(!mobileOpen) : setCollapsed(!collapsed)}
             className="text-gray-500 flex items-center justify-center"
           />
-          <span className="text-base md:text-lg font-semibold">Dashboard</span>
+          <span className="text-base md:text-lg font-semibold">Admin Panel</span>
+          <div className="ml-auto">
+            <Badge count="Admin" style={{ backgroundColor: '#f5222d' }} />
+          </div>
         </Layout.Header>
 
         <Layout.Content
@@ -260,7 +242,7 @@ function MainLayout({ children }) {
         </Layout.Content>
       </Layout>
     </Layout>
-  )
+  );
 }
 
-export default MainLayout
+export default AdminLayout;

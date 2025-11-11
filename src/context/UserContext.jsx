@@ -107,10 +107,7 @@ export const UserProvider = ({ children }) => {
       isAuthenticated,
       googleProfile,
       accessToken,
-      refreshToken,
-      login,
-      logout,
-      updateUser
+      refreshToken
     ]
   )
 

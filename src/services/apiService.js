@@ -201,6 +201,175 @@ class ApiService {
     localStorage.removeItem("registrationData")
     localStorage.removeItem("pendingRegistration")
   }
+
+  // ===== ADMIN API METHODS =====
+  
+  // Global Products
+  async getGlobalProducts(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/products${query ? `?${query}` : ''}`);
+  }
+
+  async getGlobalProductById(id) {
+    return this.get(`/admin/products/${id}`);
+  }
+
+  async createGlobalProduct(data) {
+    return this.post('/admin/products', data);
+  }
+
+  async updateGlobalProduct(id, data) {
+    return this.put(`/admin/products/${id}`, data);
+  }
+
+  async deleteGlobalProduct(id) {
+    return this.delete(`/admin/products/${id}`);
+  }
+
+  async bulkImportGlobalProducts(data) {
+    return this.post('/admin/products/bulk-import', data);
+  }
+
+  // Global Colors
+  async getGlobalColors(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/colors${query ? `?${query}` : ''}`);
+  }
+
+  async getGlobalColorById(id) {
+    return this.get(`/admin/colors/${id}`);
+  }
+
+  async createGlobalColor(data) {
+    return this.post('/admin/colors', data);
+  }
+
+  async updateGlobalColor(id, data) {
+    return this.put(`/admin/colors/${id}`, data);
+  }
+
+  async deleteGlobalColor(id) {
+    return this.delete(`/admin/colors/${id}`);
+  }
+
+  async addCrossBrandMapping(colorId, data) {
+    return this.post(`/admin/colors/${colorId}/cross-brand-mapping`, data);
+  }
+
+  async bulkImportGlobalColors(data) {
+    return this.post('/admin/colors/bulk-import', data);
+  }
+
+  // Admin Brands
+  async getAdminBrands(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/brands${query ? `?${query}` : ''}`);
+  }
+
+  async createAdminBrand(data) {
+    return this.post('/admin/brands', data);
+  }
+
+  async updateAdminBrand(id, data) {
+    return this.put(`/admin/brands/${id}`, data);
+  }
+
+  async deleteAdminBrand(id) {
+    return this.delete(`/admin/brands/${id}`);
+  }
+
+  async seedBrands() {
+    return this.post('/admin/brands/seed');
+  }
+
+  // Audit Logs
+  async getAuditLogs(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/audit-logs${query ? `?${query}` : ''}`);
+  }
+
+  async getAuditLogsByCategory(category, params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/audit-logs/category/${category}${query ? `?${query}` : ''}`);
+  }
+
+  async getTenantAuditLogs(tenantId, params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/audit-logs/tenant/${tenantId}${query ? `?${query}` : ''}`);
+  }
+
+  async getAuditLogStats(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/audit-logs/stats${query ? `?${query}` : ''}`);
+  }
+
+  // Tenant Management
+  async getTenants(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/tenants${query ? `?${query}` : ''}`);
+  }
+
+  async getTenantById(id) {
+    return this.get(`/admin/tenants/${id}`);
+  }
+
+  async updateTenant(id, data) {
+    return this.put(`/admin/tenants/${id}`, data);
+  }
+
+  async activateTenant(id) {
+    return this.post(`/admin/tenants/${id}/activate`);
+  }
+
+  async suspendTenant(id) {
+    return this.post(`/admin/tenants/${id}/suspend`);
+  }
+
+  async assignUsersToTenant(id, userIds) {
+    return this.post(`/admin/tenants/${id}/assign-users`, { userIds });
+  }
+
+  async getTenantStats() {
+    return this.get('/admin/tenants/stats');
+  }
+
+  async impersonateUser(userId) {
+    return this.post(`/admin/tenants/users/${userId}/impersonate`);
+  }
+
+  // Feature Flags
+  async getFeatureFlags(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/admin/feature-flags${query ? `?${query}` : ''}`);
+  }
+
+  async getFeatureFlagById(id) {
+    return this.get(`/admin/feature-flags/${id}`);
+  }
+
+  async createFeatureFlag(data) {
+    return this.post('/admin/feature-flags', data);
+  }
+
+  async updateFeatureFlag(id, data) {
+    return this.put(`/admin/feature-flags/${id}`, data);
+  }
+
+  async deleteFeatureFlag(id) {
+    return this.delete(`/admin/feature-flags/${id}`);
+  }
+
+  async getTenantFeatures(tenantId) {
+    return this.get(`/admin/tenants/${tenantId}/features`);
+  }
+
+  async assignFeatureToTenant(tenantId, featureId, data = {}) {
+    return this.post(`/admin/tenants/${tenantId}/features/${featureId}`, data);
+  }
+
+  async removeFeatureFromTenant(tenantId, featureId) {
+    return this.delete(`/admin/tenants/${tenantId}/features/${featureId}`);
+  }
 }
 
 export const apiService = new ApiService(API_BASE_URL)

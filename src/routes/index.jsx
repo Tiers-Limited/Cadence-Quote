@@ -23,8 +23,19 @@ import PublicLeadFormPage from '../pages/PublicLeadFormPage';
 import { Spin } from 'antd';
 import BrandProductManager from '../features/admin/BrandProductManager';
 
+// Admin Components
+import RoleProtectedRoute from '../components/RoleProtectedRoute';
+import AdminDashboardPage from '../pages/admin/AdminDashboardPage';
+import GlobalProductsPage from '../pages/admin/GlobalProductsPage';
+import GlobalColorsPage from '../pages/admin/GlobalColorsPage';
+import PricingSchemeManagementPage from '../pages/admin/PricingSchemeManagementPage';
+import AuditLogsPage from '../pages/admin/AuditLogsPage';
+import TenantManagementPage from '../pages/admin/TenantManagementPage';
+import FeatureFlagsPage from '../pages/admin/FeatureFlagsPage';
+import StripeBillingPage from '../pages/admin/StripeBillingPage';
+
 const AppRoutes = () => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
 
 
   if (loading) {
@@ -35,7 +46,15 @@ const AppRoutes = () => {
     <Routes>
       {/* Public Routes */}
       <Route path='/login' element={
-        isAuthenticated ? <Navigate to='/dashboard' replace /> : <LoginPage />
+        isAuthenticated ? (
+          user?.role === 'admin' ? (
+            <Navigate to='/admin/dashboard' replace />
+          ) : (
+            <Navigate to='/dashboard' replace />
+          )
+        ) : (
+          <LoginPage />
+        )
       } />
       <Route path='/register' element={<RegistrationPage />} />
       <Route path='/auth/apple/success' element={<AuthSuccess />} />
@@ -50,7 +69,6 @@ const AppRoutes = () => {
       
       {/* Public Lead Form Route - No authentication required */}
       <Route path='/public-form/:publicUrl' element={<PublicLeadFormPage />} />
-      <Route path="/admin/products" element={<BrandProductManager />} />
 
       {/* Protected Routes for contractor_admin with MainLayout */}
       <Route
@@ -86,12 +104,38 @@ const AppRoutes = () => {
         <Route path='/settings' element={<SettingsPage />} />
       </Route>
 
+      {/* Admin Routes - Only accessible to admin role */}
+      <Route
+        path='/admin/*'
+        element={
+          <RoleProtectedRoute allowedRoles={['admin']}>
+            <MainLayout>
+              <Outlet />
+            </MainLayout>
+          </RoleProtectedRoute>
+        }
+      >
+        <Route path='dashboard' element={<AdminDashboardPage />} />
+        <Route path='products' element={<GlobalProductsPage />} />
+        <Route path='colors' element={<GlobalColorsPage />} />
+        <Route path='pricing-schemes' element={<PricingSchemeManagementPage />} />
+        <Route path='audit-logs' element={<AuditLogsPage />} />
+        <Route path='tenants' element={<TenantManagementPage />} />
+        <Route path='features' element={<FeatureFlagsPage />} />
+        <Route path='billing' element={<StripeBillingPage />} />
+        <Route path='settings' element={<ComingSoonPage />} />
+      </Route>
+
       {/* Default Route */}
       <Route
         path='/'
         element={
           isAuthenticated ? (
-            <Navigate to='/dashboard' replace />
+            user?.role === 'admin' ? (
+              <Navigate to='/admin/dashboard' replace />
+            ) : (
+              <Navigate to='/dashboard' replace />
+            )
           ) : (
             <Navigate to='/login' replace />
           )

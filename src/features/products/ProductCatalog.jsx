@@ -4,7 +4,6 @@ import {
   Button,
   Modal,
   Form,
-  Input,
   Select,
   InputNumber,
   Space,
@@ -24,10 +23,12 @@ const { Option } = Select
 const ProductCatalog = () => {
   const { isAuthenticated, user } = useAuth()
   const [products, setProducts] = useState([])
+  const [globalProducts, setGlobalProducts] = useState([])
   const [brands, setBrands] = useState([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [editingProduct, setEditingProduct] = useState(null)
+  const [selectedGlobalProduct, setSelectedGlobalProduct] = useState(null)
   const [form] = Form.useForm()
   const [isMobile, setIsMobile] = useState(false)
 
@@ -43,6 +44,18 @@ const ProductCatalog = () => {
       console.error('Fetch products error:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchGlobalProducts = async () => {
+    try {
+      const response = await apiService.getGlobalProducts()
+      if (response.success || response.data) {
+        setGlobalProducts(response.data || [])
+      }
+    } catch (error) {
+      message.error('Failed to fetch global products')
+      console.error('Fetch global products error:', error)
     }
   }
 
@@ -70,6 +83,7 @@ const ProductCatalog = () => {
 
   useEffect(() => {
     fetchProducts()
+    fetchGlobalProducts()
     fetchBrands()
   }, [])
 
@@ -84,18 +98,25 @@ const ProductCatalog = () => {
   const showModal = (product = null) => {
     setEditingProduct(product)
     if (product) {
+      // Find the global product to get sheen options
+      const globalProd = globalProducts.find(gp => gp.id === product.globalProductId);
+      setSelectedGlobalProduct(globalProd);
+      
+      const sheenOpts = globalProd?.sheenOptions ? globalProd.sheenOptions.split(',').map(s => s.trim()) : [];
+      
+      // Build sheen pricing object
+      const sheenPricing = {};
+      sheenOpts.forEach(sheen => {
+        const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+        sheenPricing[`${sheenKey}_price`] = product[`${sheenKey}_price`] || 0;
+        sheenPricing[`${sheenKey}_coverage`] = product[`${sheenKey}_coverage`] || 400;
+      });
+      
       form.setFieldsValue({
-        brandId: product.brandId,
-        line: product.line,
-        name: product.name,
-        category: product.category,
-        tier: product.tier,
-        sheen: product.sheen,
-        sheenOptions: product.sheenOptions ? product.sheenOptions.split(',').map(s => s.trim()) : [],
-        costPerGallon: product.pricePerGallon || product.costPerGallon,
-        coverageRate: product.coverageRate,
+        globalProductId: product.globalProductId,
         isActive: product.isActive ?? true,
-        isSystemDefault: product.isSystemDefault ?? false
+        isSystemDefault: product.isSystemDefault ?? false,
+        ...sheenPricing
       })
     } else {
       form.resetFields()
@@ -103,27 +124,58 @@ const ProductCatalog = () => {
         isActive: true,
         isSystemDefault: false
       })
+      setSelectedGlobalProduct(null)
     }
     setModalVisible(true)
   }
 
+  const handleGlobalProductChange = (globalProductId) => {
+    const globalProd = globalProducts.find(gp => gp.id === globalProductId);
+    setSelectedGlobalProduct(globalProd);
+    
+    // Reset sheen pricing fields when product changes
+    const sheenOpts = globalProd?.sheenOptions ? globalProd.sheenOptions.split(',').map(s => s.trim()) : [];
+    const resetFields = {};
+    sheenOpts.forEach(sheen => {
+      const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+      resetFields[`${sheenKey}_price`] = undefined;
+      resetFields[`${sheenKey}_coverage`] = undefined;
+    });
+    form.setFieldsValue(resetFields);
+  }
+
   const handleSubmit = async values => {
     try {
-      const payload = {
-        brandId: values.brandId,
-        line: values.line,
-        name: values.name,
-        category: values.category,
-        tier: values.tier,
-        sheen: values.sheen,
-        sheenOptions: Array.isArray(values.sheenOptions) 
-          ? values.sheenOptions.join(', ') 
-          : values.sheenOptions || '',
-        pricePerGallon: Number(values.costPerGallon),
-        coverageRate: Number(values.coverageRate),
-        isActive: values.isActive ?? true,
-        isSystemDefault: values.isSystemDefault ?? false
+      if (!selectedGlobalProduct) {
+        message.error('Please select a product');
+        return;
       }
+
+      // Build sheen pricing data
+      const sheenOpts = selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
+      const sheenPricing = {};
+      
+      sheenOpts.forEach(sheen => {
+        const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+        sheenPricing[`${sheenKey}_price`] = Number(values[`${sheenKey}_price`] || 0);
+        sheenPricing[`${sheenKey}_coverage`] = Number(values[`${sheenKey}_coverage`] || 400);
+      });
+
+      const payload = {
+        globalProductId: values.globalProductId,
+        brandId: selectedGlobalProduct.brandId,
+        customBrand: selectedGlobalProduct.customBrand,
+        line: selectedGlobalProduct.line || '',
+        name: selectedGlobalProduct.name,
+        category: selectedGlobalProduct.category,
+        tier: selectedGlobalProduct.tier,
+        sheenOptions: selectedGlobalProduct.sheenOptions,
+        sheen: sheenOpts[0].toLowerCase(), // Default to first sheen
+        isActive: values.isActive ?? true,
+        isSystemDefault: values.isSystemDefault ?? false,
+        ...sheenPricing
+      }
+
       if (editingProduct) {
         await apiService.put(`/products/${editingProduct.id}`, payload)
         message.success('Product updated successfully')
@@ -131,7 +183,10 @@ const ProductCatalog = () => {
         await apiService.post('/products', payload)
         message.success('Product added successfully')
       }
+      
       setModalVisible(false)
+      setSelectedGlobalProduct(null)
+      form.resetFields()
       fetchProducts()
     } catch (error) {
       message.error('Failed to save product')
@@ -255,58 +310,81 @@ const ProductCatalog = () => {
     //   onFilter: (value, record) => record.sheen === value
     // },
     {
-      title: 'Sheen',
+      title: 'Sheen Pricing',
       dataIndex: 'sheenOptions',
-      key: 'sheenOptions',
-      width: 250,
-      render: sheenOptions => (
-        <div>
-          {sheenOptions
-            ? sheenOptions.split(',').map((sheen, index) => (
-                <Tag key={index} color='green' className='mb-1'>
-                  {sheen.trim()}
-                </Tag>
-              ))
-            : '-'}
-        </div>
-      ),
-      sorter: (a, b) => {
-        const sheenA = a.sheenOptions || ''
-        // complete this function
-        const sheenB = b.sheenOptions || ''
-        return sheenA.localeCompare(sheenB)
-      },
-      filters: [
-        { text: 'Matte', value: 'matte' },
-        { text: 'Eggshell', value: 'eggshell' },
-        { text: 'Satin', value: 'satin' },
-        { text: 'Semi-Gloss', value: 'semi-gloss' },
-        { text: 'Gloss', value: 'gloss' }
-      ],
-      onFilter: (value, record) => {
-        // complete this function
+      key: 'sheenPricing',
+      width: 300,
+      render: (sheenOptions, record) => {
+        if (!sheenOptions) return '-';
+        
+        const sheens = sheenOptions.split(',').map(s => s.trim());
         return (
-          record.sheenOptions &&
-          record.sheenOptions
-            .split(',')
-            .map(s => s.trim().toLowerCase())
-            .includes(value)
-        )
-      }
+          <div>
+            {sheens.map((sheen) => {
+              const sheenKey = sheen.toLowerCase().replace(/[^a-z]/g, '');
+              const price = record[`${sheenKey}_price`];
+              const coverage = record[`${sheenKey}_coverage`];
+              
+              return (
+                <div key={sheen} className='mb-1'>
+                  <Tag color='green'>{sheen}</Tag>
+                  {price !== undefined && (
+                    <span className='text-xs'>
+                      ${Number(price).toFixed(2)}/gal • {coverage} sq ft/gal
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      },
     },
     {
       title: 'Cost/Gallon',
       dataIndex: 'costPerGallon',
       key: 'costPerGallon',
-      render: cost => `$${Number(cost).toFixed(2)}`,
-      sorter: (a, b) => a.costPerGallon - b.costPerGallon
+      render: (cost, record) => {
+        // Try to get first sheen price if costPerGallon not available
+        if (cost) return `$${Number(cost).toFixed(2)}`;
+        
+        const sheenOptions = record.sheenOptions;
+        if (sheenOptions) {
+          const firstSheen = sheenOptions.split(',')[0].trim();
+          const sheenKey = firstSheen.toLowerCase().replace(/[^a-z]/g, '');
+          const price = record[`${sheenKey}_price`];
+          if (price) return `$${Number(price).toFixed(2)} (${firstSheen})`;
+        }
+        return '-';
+      },
+      sorter: (a, b) => {
+        const priceA = a.costPerGallon || 0;
+        const priceB = b.costPerGallon || 0;
+        return priceA - priceB;
+      }
     },
     {
       title: 'Coverage Rate',
       dataIndex: 'coverageRate',
       key: 'coverageRate',
-      render: rate => `${rate} sq ft/gallon`,
-      sorter: (a, b) => a.coverageRate - b.coverageRate
+      render: (rate, record) => {
+        if (rate) return `${rate} sq ft/gallon`;
+        
+        // Try to get first sheen coverage
+        const sheenOptions = record.sheenOptions;
+        if (sheenOptions) {
+          const firstSheen = sheenOptions.split(',')[0].trim();
+          const sheenKey = firstSheen.toLowerCase().replace(/[^a-z]/g, '');
+          const coverage = record[`${sheenKey}_coverage`];
+          if (coverage) return `${coverage} sq ft/gal (${firstSheen})`;
+        }
+        return '-';
+      },
+      sorter: (a, b) => {
+        const rateA = a.coverageRate || 0;
+        const rateB = b.coverageRate || 0;
+        return rateA - rateB;
+      }
     },
     {
       title: 'Active',
@@ -395,7 +473,11 @@ const ProductCatalog = () => {
       <Modal
         title={editingProduct ? 'Edit Product' : 'Add Product'}
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => {
+          setModalVisible(false);
+          setSelectedGlobalProduct(null);
+          form.resetFields();
+        }}
         footer={null}
         width={isMobile ? '100%' : 600}
         style={isMobile ? { top: 0, paddingBottom: 0, maxWidth: '100vw' } : {}}
@@ -406,154 +488,83 @@ const ProductCatalog = () => {
         }
       >
         <Form form={form} layout='vertical' onFinish={handleSubmit}>
-          <Row gutter={isMobile ? 0 : 16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name='brandId'
-                label='Brand'
-                rules={[{ required: true, message: 'Please select a brand' }]}
-              >
-                <Select
-                  placeholder='Select a brand'
-                  showSearch
-                  optionFilterProp='children'
-                  filterOption={(input, option) =>
-                    option.children
-                      .toLowerCase()
-                      .indexOf(input.toLowerCase()) >= 0
-                  }
-                >
-                  {brands.map(brand => (
-                    <Option key={brand.id} value={brand.id}>
-                      {brand.name}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name='line'
-                label='Product Line'
-                rules={[
-                  { required: true, message: 'Please enter product line' }
-                ]}
-              >
-                <Input />
-              </Form.Item>
-            </Col>
-          </Row>
-
           <Form.Item
-            name='name'
-            label='Product Name'
-            rules={[{ required: true, message: 'Please enter product name' }]}
-          >
-            <Input />
-          </Form.Item>
-
-          <Row gutter={isMobile ? 0 : 16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name='category'
-                label='Category'
-                rules={[
-                  { required: true, message: 'Please select a category' }
-                ]}
-              >
-                <Select>
-                  <Option value='interior'>Interior</Option>
-                  <Option value='exterior'>Exterior</Option>
-                  <Option value='primer'>Primer</Option>
-                  <Option value='ceiling'>Ceiling</Option>
-                  <Option value='trim'>Trim</Option>
-                  <Option value='custom'>Custom</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name='tier'
-                label='Quality Tier'
-                rules={[
-                  { required: true, message: 'Please select a quality tier' }
-                ]}
-              >
-                <Select>
-                  <Option value='good'>Good</Option>
-                  <Option value='better'>Better</Option>
-                  <Option value='best'>Best</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item
-            name='sheenOptions'
-            label='Available Sheen Options'
-            rules={[{ required: true, message: 'Please select sheen options' }]}
+            name='globalProductId'
+            label='Select Product'
+            rules={[{ required: true, message: 'Please select a product' }]}
           >
             <Select
-              mode='multiple'
-              placeholder='Select available sheens'
-              options={[
-                { label: 'Flat', value: 'Flat' },
-                { label: 'Matte', value: 'Matte' },
-                { label: 'Eggshell', value: 'Eggshell' },
-                { label: 'Satin', value: 'Satin' },
-                { label: 'Semi-Gloss', value: 'Semi-Gloss' },
-                { label: 'Gloss', value: 'Gloss' }
-              ]}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name='sheen'
-            label='Default Sheen'
-            rules={[{ required: true, message: 'Please select a default sheen' }]}
-          >
-            <Select>
-              <Option value='flat'>Flat</Option>
-              <Option value='matte'>Matte</Option>
-              <Option value='eggshell'>Eggshell</Option>
-              <Option value='satin'>Satin</Option>
-              <Option value='semi-gloss'>Semi-Gloss</Option>
-              <Option value='gloss'>Gloss</Option>
+              placeholder='Select a product from global catalog'
+              showSearch
+              onChange={handleGlobalProductChange}
+              disabled={editingProduct !== null}
+              filterOption={(input, option) =>
+                option.children.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {globalProducts.map(gp => (
+                <Option key={gp.id} value={gp.id}>
+                  {gp.brand?.name || gp.customBrand || 'Unknown Brand'} - {gp.name} ({gp.category})
+                </Option>
+              ))}
             </Select>
           </Form.Item>
 
-          <Row gutter={isMobile ? 0 : 16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name='costPerGallon'
-                label='Cost per Gallon'
-                rules={[
-                  { required: true, message: 'Please enter cost per gallon' }
-                ]}
-              >
-                <InputNumber
-                  prefix='$'
-                  min={0}
-                  precision={2}
-                  style={{ width: '100%' }}
-                />
-              </Form.Item>
-            </Col>
+          {selectedGlobalProduct && (
+            <>
+              <div className="mb-4 p-4 bg-blue-50 rounded">
+                <h4 className="font-semibold mb-2">Product Details:</h4>
+                <p><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
+                <p><strong>Category:</strong> {selectedGlobalProduct.category}</p>
+                <p><strong>Tier:</strong> {selectedGlobalProduct.tier || 'N/A'}</p>
+                <p><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
+              </div>
 
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name='coverageRate'
-                label='Coverage Rate (sq ft/gallon)'
-                rules={[
-                  { required: true, message: 'Please enter coverage rate' }
-                ]}
-              >
-                <InputNumber min={0} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
+              <h4 className="font-semibold mb-3">Pricing & Coverage by Sheen:</h4>
+              
+              {selectedGlobalProduct.sheenOptions.split(',').map((sheen) => {
+                const sheenTrim = sheen.trim();
+                const sheenKey = sheenTrim.toLowerCase().replace(/[^a-z]/g, '');
+                
+                return (
+                  <div key={sheenKey} className="mb-4 p-3 border rounded">
+                    <h5 className="font-medium mb-2">{sheenTrim}</h5>
+                    <Row gutter={isMobile ? 0 : 16}>
+                      <Col xs={24} sm={12}>
+                        <Form.Item
+                          name={`${sheenKey}_price`}
+                          label='Price per Gallon'
+                          rules={[{ required: true, message: `Please enter price for ${sheenTrim}` }]}
+                        >
+                          <InputNumber
+                            prefix='$'
+                            min={0}
+                            precision={2}
+                            style={{ width: '100%' }}
+                            placeholder={`Price for ${sheenTrim}`}
+                          />
+                        </Form.Item>
+                      </Col>
+
+                      <Col xs={24} sm={12}>
+                        <Form.Item
+                          name={`${sheenKey}_coverage`}
+                          label='Coverage (sq ft/gallon)'
+                          rules={[{ required: true, message: `Please enter coverage for ${sheenTrim}` }]}
+                        >
+                          <InputNumber
+                            min={0}
+                            style={{ width: '100%' }}
+                            placeholder={`Coverage for ${sheenTrim}`}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </div>
+                );
+              })}
+            </>
+          )}
 
           <Row gutter={isMobile ? 0 : 16}>
             <Col xs={24} sm={12}>
@@ -584,10 +595,14 @@ const ProductCatalog = () => {
               className='w-full justify-end'
               size={isMobile ? 'small' : 'middle'}
             >
-              <Button onClick={() => setModalVisible(false)} block={isMobile}>
+              <Button onClick={() => {
+                setModalVisible(false);
+                setSelectedGlobalProduct(null);
+                form.resetFields();
+              }} block={isMobile}>
                 Cancel
               </Button>
-              <Button type='primary' htmlType='submit' block={isMobile}>
+              <Button type='primary' htmlType='submit' block={isMobile} disabled={!selectedGlobalProduct}>
                 {editingProduct ? 'Update' : 'Create'}
               </Button>
             </Space>
