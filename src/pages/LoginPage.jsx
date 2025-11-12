@@ -136,12 +136,12 @@ function LoginPage () {
                 />
                 <span className='ml-2 text-sm text-gray-600'>Remember me</span>
               </label>
-              <a
-                href='#'
+              <Link
+                to='/forgot-password'
                 className='text-sm text-blue-600 hover:text-blue-700 font-medium'
               >
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
             {/* Submit Button */}

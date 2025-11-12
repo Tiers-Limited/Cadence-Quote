@@ -14,6 +14,8 @@ import ProductCatalog from '../features/products/ProductCatalog';
 import ColorLibrary from '../features/products/ColorLibrary';
 import PricingSchemes from '../features/pricing/PricingSchemes';
 import LeadFormBuilder from '../features/leads/LeadFormBuilder';
+import ForgotPasswordPage from '../pages/ForgotPasswordPage';
+import ResetPasswordPage from '../pages/ResetPasswordPage';
 
 import EmailVerificationPage from '../pages/EmailVerificationPage';
 import TwoFactorVerificationPage from '../pages/TwoFactorVerificationPage';
@@ -57,6 +59,8 @@ const AppRoutes = () => {
         )
       } />
       <Route path='/register' element={<RegistrationPage />} />
+      <Route path='/forgot-password' element={<ForgotPasswordPage />} />
+      <Route path='/reset-password' element={<ResetPasswordPage />} />
       <Route path='/auth/apple/success' element={<AuthSuccess />} />
       <Route path='/auth/google/success' element={<GoogleAuthSuccessPage />} />
       {/* <Route path='/auth/apple/success' element={<AppleAuthSuccessPage />} /> */}

@@ -16,6 +16,14 @@ const AuditLogsPage = () => {
     pageSize: 50,
     total: 0,
   });
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const categories = [
     { key: 'all', label: 'All Logs' },
@@ -97,31 +105,35 @@ const AuditLogsPage = () => {
       title: 'Timestamp',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 180,
-      render: (date) => new Date(date).toLocaleString(),
+      width: isMobile ? 120 : 180,
+      render: (date) => {
+        const d = new Date(date);
+        return isMobile ? d.toLocaleDateString() : d.toLocaleString();
+      },
       sorter: (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
     },
     {
       title: 'Category',
       dataIndex: 'category',
       key: 'category',
-      width: 120,
+      width: isMobile ? 80 : 120,
       render: (category) => (
         <Tag color={getCategoryColor(category)}>{category}</Tag>
       ),
     },
-    {
+    ...(!isMobile ? [{
       title: 'User',
       key: 'user',
       width: 150,
       render: (_, record) => record.user?.fullName || 'System',
-    },
+    }] : []),
     {
       title: 'Action',
       dataIndex: 'action',
       key: 'action',
+      ellipsis: true,
     },
-    {
+    ...(!isMobile ? [{
       title: 'Entity',
       key: 'entity',
       width: 150,
@@ -153,13 +165,13 @@ const AuditLogsPage = () => {
         }
         return '-';
       },
-    },
+    }] : []),
   ];
 
   const expandedRowRender = (record) => {
     return (
-      <div className="bg-gray-50 p-4 rounded">
-        <div className="grid grid-cols-2 gap-4">
+      <div className="bg-gray-50 p-3 sm:p-4 rounded">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
             <div className="text-gray-600 text-sm mb-1">User Agent</div>
             <div className="text-sm">{record.userAgent || 'N/A'}</div>
@@ -177,9 +189,9 @@ const AuditLogsPage = () => {
             </div>
           )}
           {record.metadata && (
-            <div className="col-span-2">
-              <div className="text-gray-600 text-sm mb-1">Metadata</div>
-              <pre className="text-xs bg-gray-100 p-2 rounded overflow-auto">
+            <div className="col-span-1 sm:col-span-2">
+              <div className="text-gray-600 text-xs sm:text-sm mb-1">Metadata</div>
+              <pre className="text-[10px] sm:text-xs bg-gray-100 p-2 rounded overflow-auto">
                 {JSON.stringify(record.metadata, null, 2)}
               </pre>
             </div>
@@ -190,21 +202,22 @@ const AuditLogsPage = () => {
   };
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Audit Logs</h1>
-        <Space>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Audit Logs</h1>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <RangePicker
             onChange={handleDateRangeChange}
-            style={{ width: 300 }}
+            className="w-full sm:w-[300px]"
           />
           <Button
             icon={<ReloadOutlined />}
             onClick={fetchLogs}
+            block={isMobile}
           >
             Refresh
           </Button>
-        </Space>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg p-4 shadow-sm">
@@ -223,8 +236,12 @@ const AuditLogsPage = () => {
           dataSource={logs}
           loading={loading}
           rowKey="id"
-          scroll={{ x: 'max-content' }}
-          pagination={pagination}
+          scroll={{ x: isMobile ? 500 : 'max-content' }}
+          pagination={{
+            ...pagination,
+            simple: isMobile,
+            pageSize: isMobile ? 20 : 50,
+          }}
           onChange={handleTableChange}
           expandable={{
             expandedRowRender,

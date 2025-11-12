@@ -18,7 +18,18 @@ const BrandProductManager = () => {
   const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
   const [form] = Form.useForm();
+ const [isMobile, setIsMobile] = useState(false);
 
+  // Detect mobile screen
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   useEffect(() => {
     fetchBrands();
     fetchProducts();
@@ -197,7 +208,7 @@ const BrandProductManager = () => {
     {
       title: 'Brand',
       key: 'brand',
-      width: 150,
+      width: isMobile ? 100 : 150,
       render: (_, record) => {
         const globalProd = globalProducts.find(gp => gp.id === record.globalProductId);
         if (globalProd) {
@@ -210,13 +221,14 @@ const BrandProductManager = () => {
       title: 'Product Name',
       dataIndex: 'name',
       key: 'name',
-      width: 250,
+      width: isMobile ? 150 : 250,
+      ellipsis: true,
     },
     {
       title: 'Category',
       dataIndex: 'category',
       key: 'category',
-      width: 120,
+      width: isMobile ? 80 : 120,
       render: (category) => (
         <Tag color={category === 'Interior' ? 'blue' : 'green'}>
           {category}
@@ -227,7 +239,7 @@ const BrandProductManager = () => {
       title: 'Sheen Pricing',
       dataIndex: 'sheenOptions',
       key: 'sheenPricing',
-      width: 300,
+      width: isMobile ? 200 : 300,
       render: (sheenOptions, record) => {
         if (!sheenOptions) return '-';
         
@@ -241,10 +253,10 @@ const BrandProductManager = () => {
               
               return (
                 <div key={sheen} className='mb-1'>
-                  <Tag color='green'>{sheen}</Tag>
+                  <Tag color='green' className={isMobile ? 'text-xs' : ''}>{sheen}</Tag>
                   {price !== undefined && (
-                    <span className='text-xs'>
-                      ${Number(price).toFixed(2)}/gal • {coverage} sq ft/gal
+                    <span className={isMobile ? 'text-[10px]' : 'text-xs'}>
+                      ${Number(price).toFixed(2)}/gal{!isMobile && ` • ${coverage} sq ft/gal`}
                     </span>
                   )}
                 </div>
@@ -257,22 +269,24 @@ const BrandProductManager = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 150,
-      fixed: 'right',
+      width: isMobile ? 100 : 150,
+      fixed: isMobile ? undefined : 'right',
       render: (_, record) => (
-        <Space size="small">
+        <Space size="small" direction={isMobile ? 'vertical' : 'horizontal'}>
           <Button
             size="small"
             icon={<EditOutlined />}
             onClick={() => showModal(record)}
+            block={isMobile}
           >
-            Edit
+            {isMobile ? 'Edit' : 'Edit'}
           </Button>
           <Button
             size="small"
             icon={<DeleteOutlined />}
             danger
             onClick={() => handleDelete(record.id)}
+            block={isMobile}
           />
         </Space>
       ),
@@ -312,13 +326,13 @@ const BrandProductManager = () => {
   });
 
   return (
-    <div className="p-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-        <h2 className="text-2xl font-semibold">Product Catalog</h2>
-        <Space>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col gap-3 mb-4">
+        <h2 className="text-xl sm:text-2xl font-semibold">Product Catalog</h2>
+        <div className='flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap'>
           <Select
             placeholder="Filter by Brand"
-            style={{ width: 200 }}
+            className="w-full sm:w-[200px]"
             value={selectedBrandFilter}
             onChange={setSelectedBrandFilter}
             allowClear
@@ -332,7 +346,7 @@ const BrandProductManager = () => {
           </Select>
           <Select
             placeholder="Filter by Category"
-            style={{ width: 200 }}
+            className="w-full sm:w-[200px]"
             value={selectedCategoryFilter}
             onChange={setSelectedCategoryFilter}
             allowClear
@@ -345,10 +359,11 @@ const BrandProductManager = () => {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => showModal()}
+            className="w-full sm:w-auto"
           >
             Add Product
           </Button>
-        </Space>
+        </div>
       </div>
 
       <Spin spinning={loading}>
@@ -356,8 +371,12 @@ const BrandProductManager = () => {
           columns={productColumns}
           dataSource={filteredProducts}
           rowKey="id"
-          scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 20 }}
+          scroll={{ x: isMobile ? 700 : 'max-content' }}
+          pagination={{ 
+            pageSize: isMobile ? 10 : 20,
+            simple: isMobile,
+            showSizeChanger: !isMobile
+          }}
         />
       </Spin>
 
@@ -371,7 +390,9 @@ const BrandProductManager = () => {
           form.resetFields();
         }}
         footer={null}
-        width={700}
+        width={isMobile ? '100%' : 700}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form form={form} layout='vertical' onFinish={handleSubmit}>
           <Form.Item
@@ -398,28 +419,29 @@ const BrandProductManager = () => {
 
           {selectedGlobalProduct && (
             <>
-              <div className="mb-4 p-4 bg-blue-50 rounded">
-                <h4 className="font-semibold mb-2">Product Details:</h4>
-                <p><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
-                <p><strong>Category:</strong> {selectedGlobalProduct.category}</p>
-                <p><strong>Tier:</strong> {selectedGlobalProduct.tier || 'N/A'}</p>
-                <p><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
+              <div className="mb-4 p-3 sm:p-4 bg-blue-50 rounded">
+                <h4 className="font-semibold mb-2 text-sm sm:text-base">Product Details:</h4>
+                <p className="text-xs sm:text-sm"><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
+                <p className="text-xs sm:text-sm"><strong>Category:</strong> {selectedGlobalProduct.category}</p>
+                <p className="text-xs sm:text-sm"><strong>Tier:</strong> {selectedGlobalProduct.tier || 'N/A'}</p>
+                <p className="text-xs sm:text-sm"><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
               </div>
 
-              <h4 className="font-semibold mb-3">Pricing & Coverage by Sheen:</h4>
+              <h4 className="font-semibold mb-3 text-sm sm:text-base">Pricing & Coverage by Sheen:</h4>
               
-              {selectedGlobalProduct.sheenOptions.split(',').map((sheen) => {
-                const sheenTrim = sheen.trim();
-                const sheenKey = sheenTrim.toLowerCase().replace(/[^a-z]/g, '');
+              {selectedGlobalProduct.sheenOptions?.split(',')?.map((sheen) => {
+                const sheenTrim = sheen?.trim();
+                const sheenKey = sheenTrim?.toLowerCase()?.replace(/[^a-z]/g, '');
                 
                 return (
-                  <div key={sheenKey} className="mb-4 p-3 border rounded">
-                    <h5 className="font-medium mb-2">{sheenTrim}</h5>
-                    <div className="grid grid-cols-2 gap-4">
+                  <div key={sheenKey} className="mb-4 p-2 sm:p-3 border rounded">
+                    <h5 className="font-medium mb-2 text-sm">{sheenTrim}</h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <Form.Item
                         name={`${sheenKey}_price`}
                         label='Price per Gallon'
                         rules={[{ required: true, message: `Please enter price for ${sheenTrim}` }]}
+                        className="mb-2 sm:mb-0"
                       >
                         <InputNumber
                           prefix='$'
@@ -434,6 +456,7 @@ const BrandProductManager = () => {
                         name={`${sheenKey}_coverage`}
                         label='Coverage (sq ft/gallon)'
                         rules={[{ required: true, message: `Please enter coverage for ${sheenTrim}` }]}
+                        className="mb-2 sm:mb-0"
                       >
                         <InputNumber
                           min={0}
@@ -449,18 +472,28 @@ const BrandProductManager = () => {
           )}
 
           <Form.Item className='mb-0'>
-            <Space className='w-full justify-end'>
-              <Button onClick={() => {
-                setModalVisible(false);
-                setSelectedGlobalProduct(null);
-                form.resetFields();
-              }}>
+            <div className='flex flex-col sm:flex-row gap-2 sm:gap-0 w-full sm:justify-end'>
+              <Button 
+                onClick={() => {
+                  setModalVisible(false);
+                  setSelectedGlobalProduct(null);
+                  form.resetFields();
+                }}
+                block={isMobile}
+                className="order-2 sm:order-1"
+              >
                 Cancel
               </Button>
-              <Button type='primary' htmlType='submit' disabled={!selectedGlobalProduct}>
+              <Button 
+                type='primary' 
+                htmlType='submit' 
+                disabled={!selectedGlobalProduct}
+                block={isMobile}
+                className="order-1 sm:order-2 sm:ml-2"
+              >
                 {editingProduct ? 'Update' : 'Create'}
               </Button>
-            </Space>
+            </div>
           </Form.Item>
         </Form>
       </Modal>

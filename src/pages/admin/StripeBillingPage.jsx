@@ -7,6 +7,14 @@ const StripeBillingPage = () => {
   const [subscriptions, setSubscriptions] = useState([]);
   const [payments, setPayments] = useState([]);
   const [activeTab, setActiveTab] = useState('subscriptions');
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Mock data for demonstration
   useEffect(() => {
@@ -111,24 +119,28 @@ const StripeBillingPage = () => {
       title: 'Tenant',
       dataIndex: 'tenantName',
       key: 'tenantName',
+      width: isMobile ? 150 : undefined,
       sorter: (a, b) => a.tenantName.localeCompare(b.tenantName),
+      ellipsis: true,
     },
     {
       title: 'Plan',
       dataIndex: 'plan',
       key: 'plan',
-      render: (plan) => <strong style={{ color: '#1890ff' }}>{plan}</strong>,
+      width: isMobile ? 120 : undefined,
+      render: (plan) => <strong style={{ color: '#1890ff', fontSize: isMobile ? '12px' : '14px' }}>{plan}</strong>,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      filters: [
+      width: isMobile ? 80 : undefined,
+      filters: !isMobile ? [
         { text: 'Active', value: 'active' },
         { text: 'Trialing', value: 'trialing' },
         { text: 'Past Due', value: 'past_due' },
         { text: 'Canceled', value: 'canceled' },
-      ],
+      ] : undefined,
       onFilter: (value, record) => record.status === value,
       render: (status) => {
         const colors = {
@@ -143,13 +155,14 @@ const StripeBillingPage = () => {
     {
       title: 'Amount',
       key: 'amount',
+      width: isMobile ? 90 : undefined,
       render: (_, record) => (
-        <span style={{ color: '#52c41a', fontWeight: 'bold' }}>
+        <span style={{ color: '#52c41a', fontWeight: 'bold', fontSize: isMobile ? '11px' : '14px' }}>
           ${record.amount.toFixed(2)}/{record.interval}
         </span>
       ),
     },
-    {
+    ...(!isMobile ? [{
       title: 'Seats',
       dataIndex: 'seats',
       key: 'seats',
@@ -184,17 +197,18 @@ const StripeBillingPage = () => {
           {new Date(record.currentPeriodEnd).toLocaleDateString()}
         </div>
       ),
-    },
+    }] : []),
     {
       title: 'Actions',
       key: 'actions',
-      fixed: 'right',
-      width: 120,
+      fixed: isMobile ? undefined : 'right',
+      width: isMobile ? 80 : 120,
       render: (_, record) => (
         <Space>
           <Button
             size="small"
             onClick={() => message.info('View subscription details (Stripe Dashboard)')}
+            block={isMobile}
           >
             View
           </Button>
@@ -208,25 +222,33 @@ const StripeBillingPage = () => {
       title: 'Date',
       dataIndex: 'created',
       key: 'created',
+      width: isMobile ? 120 : undefined,
       sorter: (a, b) => new Date(a.created) - new Date(b.created),
-      render: (created) => new Date(created).toLocaleString(),
+      render: (created) => {
+        const d = new Date(created);
+        return isMobile ? d.toLocaleDateString() : d.toLocaleString();
+      },
     },
     {
       title: 'Tenant',
       dataIndex: 'tenantName',
       key: 'tenantName',
+      width: isMobile ? 150 : undefined,
+      ellipsis: true,
     },
-    {
+    ...(!isMobile ? [{
       title: 'Description',
       dataIndex: 'description',
       key: 'description',
-    },
+      ellipsis: true,
+    }] : []),
     {
       title: 'Amount',
       dataIndex: 'amount',
       key: 'amount',
+      width: isMobile ? 80 : undefined,
       render: (amount) => (
-        <span style={{ color: '#52c41a', fontWeight: 'bold' }}>
+        <span style={{ color: '#52c41a', fontWeight: 'bold', fontSize: isMobile ? '11px' : '14px' }}>
           ${amount.toFixed(2)}
         </span>
       ),
@@ -235,6 +257,7 @@ const StripeBillingPage = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
+      width: isMobile ? 90 : undefined,
       render: (status) => {
         const colors = {
           succeeded: 'green',
@@ -260,25 +283,26 @@ const StripeBillingPage = () => {
   };
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Stripe Billing</h1>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Stripe Billing</h1>
         <Button
           type="primary"
           icon={<CreditCardOutlined />}
           onClick={() => window.open('https://dashboard.stripe.com', '_blank')}
+          block={isMobile}
         >
           Open Stripe Dashboard
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <Card>
           <div className="flex items-center">
-            <DollarOutlined className="text-3xl text-green-500 mr-3" />
+            <DollarOutlined className={`${isMobile ? 'text-2xl' : 'text-3xl'} text-green-500 mr-2 sm:mr-3`} />
             <div>
-              <div className="text-gray-600 text-sm">Annual Revenue</div>
-              <div className="text-2xl font-bold text-green-500">
+              <div className="text-gray-600 text-xs sm:text-sm">Annual Revenue</div>
+              <div className={`${isMobile ? 'text-lg' : 'text-2xl'} font-bold text-green-500`}>
                 ${stats.totalRevenue.toFixed(2)}
               </div>
             </div>
@@ -287,10 +311,10 @@ const StripeBillingPage = () => {
 
         <Card>
           <div className="flex items-center">
-            <CreditCardOutlined className="text-3xl text-blue-500 mr-3" />
+            <CreditCardOutlined className={`${isMobile ? 'text-2xl' : 'text-3xl'} text-blue-500 mr-2 sm:mr-3`} />
             <div>
-              <div className="text-gray-600 text-sm">Active Subscriptions</div>
-              <div className="text-2xl font-bold">
+              <div className="text-gray-600 text-xs sm:text-sm">Active Subscriptions</div>
+              <div className={`${isMobile ? 'text-lg' : 'text-2xl'} font-bold`}>
                 {stats.activeSubscriptions}
               </div>
             </div>
@@ -299,10 +323,10 @@ const StripeBillingPage = () => {
 
         <Card>
           <div className="flex items-center">
-            <HistoryOutlined className="text-3xl text-orange-500 mr-3" />
+            <HistoryOutlined className={`${isMobile ? 'text-2xl' : 'text-3xl'} text-orange-500 mr-2 sm:mr-3`} />
             <div>
-              <div className="text-gray-600 text-sm">Trialing</div>
-              <div className="text-2xl font-bold">
+              <div className="text-gray-600 text-xs sm:text-sm">Trialing</div>
+              <div className={`${isMobile ? 'text-lg' : 'text-2xl'} font-bold`}>
                 {stats.trialingSubscriptions}
               </div>
             </div>
@@ -311,10 +335,10 @@ const StripeBillingPage = () => {
 
         <Card>
           <div className="flex items-center">
-            <TeamOutlined className="text-3xl text-purple-500 mr-3" />
+            <TeamOutlined className={`${isMobile ? 'text-2xl' : 'text-3xl'} text-purple-500 mr-2 sm:mr-3`} />
             <div>
-              <div className="text-gray-600 text-sm">Total Seats</div>
-              <div className="text-2xl font-bold">
+              <div className="text-gray-600 text-xs sm:text-sm">Total Seats</div>
+              <div className={`${isMobile ? 'text-lg' : 'text-2xl'} font-bold`}>
                 {stats.totalSeats}
               </div>
             </div>
@@ -322,8 +346,8 @@ const StripeBillingPage = () => {
         </Card>
       </div>
 
-      <div className="mb-6 p-4 bg-gray-50 rounded border border-gray-200">
-        <h3 className="mb-2 font-semibold">Stripe Integration Status</h3>
+      <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-gray-50 rounded border border-gray-200">
+        <h3 className="mb-2 text-sm sm:text-base font-semibold">Stripe Integration Status</h3>
         <Descriptions column={1} size="small">
           <Descriptions.Item label="Mode">
             <Tag color="orange">Test Mode</Tag>
@@ -350,8 +374,8 @@ const StripeBillingPage = () => {
                 dataSource={subscriptions}
                 loading={loading}
                 rowKey="id"
-                scroll={{ x: 'max-content' }}
-                pagination={{ pageSize: 20 }}
+                scroll={{ x: isMobile ? 800 : 'max-content' }}
+                pagination={{ pageSize: isMobile ? 10 : 20, simple: isMobile }}
               />
             ),
           },
@@ -364,7 +388,8 @@ const StripeBillingPage = () => {
                 dataSource={payments}
                 loading={loading}
                 rowKey="id"
-                pagination={{ pageSize: 20 }}
+                scroll={{ x: isMobile ? 600 : 'max-content' }}
+                pagination={{ pageSize: isMobile ? 10 : 20, simple: isMobile }}
               />
             ),
           },

@@ -165,7 +165,7 @@ class ApiService {
         } catch (refreshError) {
           // this.isRefreshing = false
           // this.logout()
-          throw new Error("Session expired. Please login again.")
+          throw new Error("Invalid Credentials. Please Login Again.")
         }
       } else {
         // Wait for token refresh

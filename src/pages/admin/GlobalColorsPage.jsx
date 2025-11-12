@@ -16,17 +16,46 @@ const GlobalColorsPage = () => {
   const [selectedColorForMapping, setSelectedColorForMapping] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 20,
+    total: 0,
+  });
   const [form] = Form.useForm();
   const [mappingForm] = Form.useForm();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     fetchBrands();
-    fetchColors();
   }, []);
+
+  useEffect(() => {
+    fetchColors();
+  }, [pagination.current, selectedBrandFilter]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (pagination.current === 1) {
+        fetchColors();
+      } else {
+        setPagination(prev => ({ ...prev, current: 1 }));
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchText]);
 
   const fetchBrands = async () => {
     try {
-      const response = await apiService.getAdminBrands();
+      const response = await apiService.getAdminBrands({ includeProducts: 'false' });
       setBrands(response.data || []);
     } catch (error) {
       console.error('Error fetching brands:', error);
@@ -34,12 +63,30 @@ const GlobalColorsPage = () => {
     }
   };
 
-  const fetchColors = async (search = '') => {
+  const fetchColors = async () => {
     try {
       setLoading(true);
-      const params = search ? { search } : {};
+      const params = {
+        page: pagination.current,
+        limit: pagination.pageSize,
+        sortBy: 'name',
+        sortOrder: 'ASC',
+      };
+
+      if (selectedBrandFilter && selectedBrandFilter !== 'all') {
+        params.brandId = selectedBrandFilter;
+      }
+
+      if (searchText) {
+        params.search = searchText;
+      }
+
       const response = await apiService.getGlobalColors(params);
       setColors(response.data || []);
+      setPagination(prev => ({
+        ...prev,
+        total: response.pagination?.total || 0,
+      }));
     } catch (error) {
       console.error('Error fetching colors:', error);
       message.error('Failed to fetch colors');
@@ -48,9 +95,21 @@ const GlobalColorsPage = () => {
     }
   };
 
-  const handleSearch = (value) => {
-    setSearchText(value);
-    fetchColors(value);
+  const handleSearchChange = (e) => {
+    setSearchText(e.target.value);
+  };
+
+  const handleBrandFilterChange = (value) => {
+    setSelectedBrandFilter(value);
+    setPagination(prev => ({ ...prev, current: 1 }));
+  };
+
+  const handleTableChange = (newPagination) => {
+    setPagination({
+      ...pagination,
+      current: newPagination.current,
+      pageSize: newPagination.pageSize,
+    });
   };
 
   const showModal = (color = null) => {
@@ -102,7 +161,7 @@ const GlobalColorsPage = () => {
 
       setModalVisible(false);
       form.resetFields();
-      fetchColors(searchText);
+      fetchColors();
     } catch (error) {
       console.error('Error saving color:', error);
       message.error(error.message || 'Failed to save color');
@@ -118,7 +177,7 @@ const GlobalColorsPage = () => {
       message.success('Cross-brand mapping added successfully');
       setMappingModalVisible(false);
       mappingForm.resetFields();
-      fetchColors(searchText);
+      fetchColors();
     } catch (error) {
       console.error('Error adding mapping:', error);
       message.error('Failed to add mapping');
@@ -129,7 +188,7 @@ const GlobalColorsPage = () => {
     try {
       await apiService.deleteGlobalColor(id);
       message.success('Color deleted successfully');
-      fetchColors(searchText);
+      fetchColors();
     } catch (error) {
       console.error('Error deleting color:', error);
       message.error('Failed to delete color');
@@ -166,7 +225,7 @@ const GlobalColorsPage = () => {
           console.error('Upload errors:', response.data.errorDetails);
         }
         setBulkUploadModalVisible(false);
-        fetchColors(searchText);
+        fetchColors();
       }
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -197,22 +256,16 @@ const GlobalColorsPage = () => {
     maxCount: 1,
   };
 
-  // Filter colors based on selected brand
-  const filteredColors = colors.filter(c => {
-    if (!selectedBrandFilter || selectedBrandFilter === 'all') return true;
-    return c.brandId === selectedBrandFilter;
-  });
-
   const columns = [
     {
       title: 'Preview',
       key: 'preview',
-      width: 80,
+      width: isMobile ? 60 : 80,
       render: (_, record) => (
         <div
           style={{
-            width: 40,
-            height: 40,
+            width: isMobile ? 30 : 40,
+            height: isMobile ? 30 : 40,
             borderRadius: 4,
             backgroundColor: record.hexValue || '#FFFFFF',
             border: '2px solid #303030',
@@ -224,27 +277,28 @@ const GlobalColorsPage = () => {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      width: isMobile ? 120 : undefined,
+      ellipsis: true,
     },
     {
       title: 'Code',
       dataIndex: 'code',
       key: 'code',
+      width: isMobile ? 80 : undefined,
     },
-    {
+    ...(!isMobile ? [{
       title: 'Brand',
       key: 'brand',
       render: (_, record) => record.brand?.name || '-',
-      filters: brands.map(b => ({ text: b.name, value: b.id })),
-      onFilter: (value, record) => record.brandId === value,
-    },
+    }] : []),
     {
       title: 'Hex Value',
       dataIndex: 'hexValue',
       key: 'hexValue',
-      render: (hex) => <code style={{ color: '#52c41a' }}>{hex}</code>,
+      width: isMobile ? 80 : undefined,
+      render: (hex) => <code style={{ color: '#52c41a', fontSize: isMobile ? '10px' : '12px' }}>{hex}</code>,
     },
-    {
+    ...(!isMobile ? [{
       title: 'RGB',
       key: 'rgb',
       render: (_, record) => {
@@ -265,25 +319,31 @@ const GlobalColorsPage = () => {
           <Tag>No mappings</Tag>
         );
       },
-    },
+    }] : []),
     {
       title: 'Actions',
       key: 'actions',
-      fixed: 'right',
-      width: 160,
+      fixed: isMobile ? undefined : 'right',
+      width: isMobile ? 100 : 160,
       render: (_, record) => (
-        <Space>
+        <Space size="small" direction={isMobile ? 'vertical' : 'horizontal'}>
           <Button
             icon={<LinkOutlined />}
             onClick={() => showMappingModal(record)}
             size="small"
             title="Add Cross-Brand Mapping"
-          />
+            block={isMobile}
+          >
+            {isMobile && 'Map'}
+          </Button>
           <Button
             icon={<EditOutlined />}
             onClick={() => showModal(record)}
             size="small"
-          />
+            block={isMobile}
+          >
+            {isMobile && 'Edit'}
+          </Button>
           <Popconfirm
             title="Delete color"
             description="Are you sure you want to delete this color?"
@@ -291,7 +351,7 @@ const GlobalColorsPage = () => {
             okText="Yes"
             cancelText="No"
           >
-            <Button icon={<DeleteOutlined />} danger size="small" />
+            <Button icon={<DeleteOutlined />} danger size="small" block={isMobile} />
           </Popconfirm>
         </Space>
       ),
@@ -299,13 +359,14 @@ const GlobalColorsPage = () => {
   ];
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Global Colors Management</h1>
-        <Space>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Global Colors Management</h1>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <Button
             icon={<UploadOutlined />}
             onClick={showBulkUploadModal}
+            block={isMobile}
           >
             Bulk Upload
           </Button>
@@ -313,17 +374,18 @@ const GlobalColorsPage = () => {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => showModal()}
+            block={isMobile}
           >
             Add Color
           </Button>
-        </Space>
+        </div>
       </div>
 
-      <div className="mb-4 flex gap-4">
+      <div className="mb-4 flex flex-col sm:flex-row gap-2 sm:gap-4">
         <Select
           placeholder="Filter by Brand"
-          style={{ width: 200 }}
-          onChange={(value) => setSelectedBrandFilter(value)}
+          className="w-full sm:w-[200px]"
+          onChange={handleBrandFilterChange}
           value={selectedBrandFilter}
           allowClear
         >
@@ -337,19 +399,27 @@ const GlobalColorsPage = () => {
         <Input
           placeholder="Search by color name or code..."
           prefix={<SearchOutlined />}
-          onChange={(e) => handleSearch(e.target.value)}
-          style={{ maxWidth: 400 }}
+          onChange={handleSearchChange}
+          value={searchText}
+          className="w-full sm:max-w-[400px]"
           allowClear
         />
       </div>
 
       <Table
         columns={columns}
-        dataSource={filteredColors}
+        dataSource={colors}
         loading={loading}
         rowKey="id"
-        scroll={{ x: 'max-content' }}
-        pagination={{ pageSize: 20 }}
+        scroll={{ x: isMobile ? 600 : 'max-content' }}
+        pagination={{
+          ...pagination,
+          showSizeChanger: true,
+          showTotal: (total) => `Total ${total} colors`,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          simple: isMobile,
+        }}
+        onChange={handleTableChange}
       />
 
       {/* Add/Edit Color Modal */}
@@ -361,7 +431,9 @@ const GlobalColorsPage = () => {
           form.resetFields();
         }}
         footer={null}
-        width={600}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={form}
@@ -409,7 +481,7 @@ const GlobalColorsPage = () => {
             <Input type="color" style={{ width: 100, height: 40 }} />
           </Form.Item>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <Form.Item name="red" label="Red (0-255)">
               <Input type="number" min={0} max={255} placeholder="R" />
             </Form.Item>
@@ -426,17 +498,26 @@ const GlobalColorsPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setModalVisible(false);
-                form.resetFields();
-              }}>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-0 w-full sm:justify-end">
+              <Button 
+                onClick={() => {
+                  setModalVisible(false);
+                  form.resetFields();
+                }}
+                block={isMobile}
+                className="order-2 sm:order-1"
+              >
                 Cancel
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                block={isMobile}
+                className="order-1 sm:order-2 sm:ml-2"
+              >
                 {editingColor ? 'Update' : 'Create'}
               </Button>
-            </Space>
+            </div>
           </Form.Item>
         </Form>
       </Modal>
@@ -450,23 +531,25 @@ const GlobalColorsPage = () => {
           mappingForm.resetFields();
         }}
         footer={null}
-        width={500}
+        width={isMobile ? '100%' : 500}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         {selectedColorForMapping && (
-          <div className="mb-4 p-3 bg-gray-100 rounded">
-            <div className="flex items-center gap-3">
+          <div className="mb-4 p-2 sm:p-3 bg-gray-100 rounded">
+            <div className="flex items-center gap-2 sm:gap-3">
               <div
                 style={{
-                  width: 40,
-                  height: 40,
+                  width: isMobile ? 30 : 40,
+                  height: isMobile ? 30 : 40,
                   borderRadius: 4,
                   backgroundColor: selectedColorForMapping.hexValue,
                   border: '2px solid #e5e7eb',
                 }}
               />
               <div>
-                <div className="font-semibold">{selectedColorForMapping.name}</div>
-                <div className="text-gray-600 text-sm">{selectedColorForMapping.code}</div>
+                <div className="font-semibold text-sm sm:text-base">{selectedColorForMapping.name}</div>
+                <div className="text-gray-600 text-xs sm:text-sm">{selectedColorForMapping.code}</div>
               </div>
             </div>
           </div>
@@ -502,17 +585,26 @@ const GlobalColorsPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setMappingModalVisible(false);
-                mappingForm.resetFields();
-              }}>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-0 w-full sm:justify-end">
+              <Button 
+                onClick={() => {
+                  setMappingModalVisible(false);
+                  mappingForm.resetFields();
+                }}
+                block={isMobile}
+                className="order-2 sm:order-1"
+              >
                 Cancel
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                block={isMobile}
+                className="order-1 sm:order-2 sm:ml-2"
+              >
                 Add Mapping
               </Button>
-            </Space>
+            </div>
           </Form.Item>
         </Form>
       </Modal>
@@ -523,20 +615,23 @@ const GlobalColorsPage = () => {
         open={bulkUploadModalVisible}
         onCancel={() => setBulkUploadModalVisible(false)}
         footer={null}
-        width={600}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <div className="mb-4">
-          <p className="text-sm text-gray-600 mb-2">
+          <p className="text-xs sm:text-sm text-gray-600 mb-2">
             Upload an Excel or CSV file with colors for{' '}
             <strong>{brands.find(b => b.id === selectedBrandFilter)?.name}</strong>
           </p>
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-xs sm:text-sm text-gray-600 mb-4">
             The file should contain the following columns: Color Name, Color Code, Hex Value, Red, Green, Blue, Sample Image
           </p>
           <Button
             icon={<DownloadOutlined />}
             onClick={downloadTemplate}
             className="mb-4"
+            block={isMobile}
           >
             Download Template
           </Button>
@@ -548,7 +643,7 @@ const GlobalColorsPage = () => {
           </Button>
         </Upload>
 
-        <div className="mt-4 text-xs text-gray-500">
+        <div className="mt-4 text-[10px] sm:text-xs text-gray-500">
           <p>Supported formats: .csv, .xlsx, .xls</p>
           <p>Maximum file size: 5MB</p>
         </div>

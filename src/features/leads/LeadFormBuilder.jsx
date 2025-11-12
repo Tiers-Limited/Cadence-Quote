@@ -163,7 +163,7 @@ const LeadFormBuilder = () => {
             icon={<LinkOutlined />}
             onClick={() => {
               // Copy public URL to clipboard
-              navigator.clipboard.writeText("/public-form/"+record.publicUrl);
+              navigator.clipboard.writeText(globalThis.location.origin+"/public-form/"+record.publicUrl);
               message.success('Public URL copied to clipboard');
             }}
           />

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Space, Tag, Popconfirm, Tabs, Upload } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 
 const { Option } = Select;
@@ -10,6 +10,7 @@ const GlobalProductsPage = () => {
   const [products, setProducts] = useState([]);
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [brandsLoading, setBrandsLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [brandModalVisible, setBrandModalVisible] = useState(false);
   const [bulkUploadModalVisible, setBulkUploadModalVisible] = useState(false);
@@ -19,29 +20,135 @@ const GlobalProductsPage = () => {
   const [activeTab, setActiveTab] = useState('products');
   const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
+  const [searchText, setSearchText] = useState('');
+  const [brandSearchText, setBrandSearchText] = useState('');
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 20,
+    total: 0,
+  });
+  const [brandPagination, setBrandPagination] = useState({
+    current: 1,
+    pageSize: 20,
+    total: 0,
+  });
   const [form] = Form.useForm();
   const [brandForm] = Form.useForm();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     fetchBrands();
-    fetchProducts();
   }, []);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [pagination.current, selectedBrandFilter, selectedCategoryFilter, searchText]);
+
+  useEffect(() => {
+    fetchBrands();
+  }, [brandPagination.current, brandSearchText]);
+
+  // Debounced search for products
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (pagination.current === 1) {
+        fetchProducts();
+      } else {
+        setPagination(prev => ({ ...prev, current: 1 }));
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  // Debounced search for brands
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (brandPagination.current === 1) {
+        fetchBrands();
+      } else {
+        setBrandPagination(prev => ({ ...prev, current: 1 }));
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [brandSearchText]);
 
   const fetchBrands = async () => {
     try {
-      const response = await apiService.getAdminBrands();
-      setBrands(response.data || []);
+      setBrandsLoading(true);
+      const params = {
+        includeProducts: 'false', // Don't load products for performance
+        sortBy: 'name',
+        sortOrder: 'ASC',
+      };
+
+      // Only add search if there's text (for dropdown loading)
+      if (brandSearchText) {
+        params.search = brandSearchText;
+      }
+
+      // Add pagination only when viewing brands tab
+      if (activeTab === 'brands') {
+        params.page = brandPagination.current;
+        params.limit = brandPagination.pageSize;
+      }
+
+      const response = await apiService.getAdminBrands(params);
+      
+      if (response.pagination) {
+        setBrands(response.data || []);
+        setBrandPagination(prev => ({
+          ...prev,
+          total: response.pagination.total,
+        }));
+      } else {
+        // No pagination - all brands returned (for dropdown)
+        setBrands(response.data || []);
+      }
     } catch (error) {
       console.error('Error fetching brands:', error);
       message.error('Failed to fetch brands');
+    } finally {
+      setBrandsLoading(false);
     }
   };
 
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const response = await apiService.getGlobalProducts();
+      const params = {
+        page: pagination.current,
+        limit: pagination.pageSize,
+        sortBy: 'createdAt',
+        sortOrder: 'DESC',
+      };
+
+      if (selectedBrandFilter && selectedBrandFilter !== 'all') {
+        params.brandId = selectedBrandFilter;
+      }
+
+      if (selectedCategoryFilter) {
+        params.category = selectedCategoryFilter;
+      }
+
+      if (searchText) {
+        params.search = searchText;
+      }
+
+      const response = await apiService.getGlobalProducts(params);
       setProducts(response.data || []);
+      setPagination(prev => ({
+        ...prev,
+        total: response.pagination?.total || 0,
+      }));
     } catch (error) {
       console.error('Error fetching products:', error);
       message.error('Failed to fetch products');
@@ -186,6 +293,40 @@ const GlobalProductsPage = () => {
     }
   };
 
+  const handleTableChange = (newPagination) => {
+    setPagination({
+      ...pagination,
+      current: newPagination.current,
+      pageSize: newPagination.pageSize,
+    });
+  };
+
+  const handleBrandTableChange = (newPagination) => {
+    setBrandPagination({
+      ...brandPagination,
+      current: newPagination.current,
+      pageSize: newPagination.pageSize,
+    });
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchText(e.target.value);
+  };
+
+  const handleBrandSearchChange = (e) => {
+    setBrandSearchText(e.target.value);
+  };
+
+  const handleFilterChange = (filterType, value) => {
+    if (filterType === 'brand') {
+      setSelectedBrandFilter(value);
+    } else if (filterType === 'category') {
+      setSelectedCategoryFilter(value);
+    }
+    // Reset to page 1 when filters change
+    setPagination(prev => ({ ...prev, current: 1 }));
+  };
+
   // Bulk upload handlers
   const showBulkUploadModal = () => {
     // Check if brands exist
@@ -261,11 +402,13 @@ const GlobalProductsPage = () => {
       title: 'Product Name',
       dataIndex: 'name',
       key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      width: isMobile ? 150 : undefined,
+      ellipsis: true,
     },
     {
       title: 'Brand',
       key: 'brand',
+      width: isMobile ? 100 : undefined,
       render: (_, record) => {
         if (record.customBrand) {
           return <Tag color="orange">{record.customBrand}</Tag>;
@@ -277,11 +420,7 @@ const GlobalProductsPage = () => {
       title: 'Category',
       dataIndex: 'category',
       key: 'category',
-      filters: [
-        { text: 'Interior', value: 'Interior' },
-        { text: 'Exterior', value: 'Exterior' },
-      ],
-      onFilter: (value, record) => record.category === value,
+      width: isMobile ? 80 : undefined,
       render: (category) => (
         <Tag color={category === 'Interior' ? 'blue' : 'green'}>{category}</Tag>
       ),
@@ -290,18 +429,13 @@ const GlobalProductsPage = () => {
       title: 'Tier',
       dataIndex: 'tier',
       key: 'tier',
-      filters: [
-        { text: 'Good', value: 'Good' },
-        { text: 'Better', value: 'Better' },
-        { text: 'Best', value: 'Best' },
-      ],
-      onFilter: (value, record) => record.tier === value,
+      width: isMobile ? 70 : undefined,
       render: (tier) => {
         const colors = { Good: 'default', Better: 'blue', Best: 'gold' };
         return tier ? <Tag color={colors[tier]}>{tier}</Tag> : '-';
       },
     },
-    {
+    ...(!isMobile ? [{
       title: 'Sheen Options',
       dataIndex: 'sheenOptions',
       key: 'sheenOptions',
@@ -323,19 +457,22 @@ const GlobalProductsPage = () => {
       dataIndex: 'notes',
       key: 'notes',
       ellipsis: true,
-    },
+    }] : []),
     {
       title: 'Actions',
       key: 'actions',
-      fixed: 'right',
-      width: 120,
+      fixed: isMobile ? undefined : 'right',
+      width: isMobile ? 100 : 120,
       render: (_, record) => (
-        <Space>
+        <Space size="small" direction={isMobile ? 'vertical' : 'horizontal'}>
           <Button
             icon={<EditOutlined />}
             onClick={() => showModal(record)}
             size="small"
-          />
+            block={isMobile}
+          >
+            {isMobile && 'Edit'}
+          </Button>
           <Popconfirm
             title="Delete product"
             description="Are you sure you want to delete this product?"
@@ -355,33 +492,25 @@ const GlobalProductsPage = () => {
       title: 'Brand Name',
       dataIndex: 'name',
       key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      width: isMobile ? 150 : undefined,
     },
-    {
+    ...(!isMobile ? [{
       title: 'Description',
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
-    },
-    {
-      title: 'Products Count',
-      key: 'productsCount',
-      render: (_, record) => {
-        const count = products.filter(p => p.brandId === record.id).length;
-        return <Tag color="blue">{count}</Tag>;
-      },
-    },
-    {
+    }] : []),
+    ...(!isMobile ? [{
       title: 'Created At',
       dataIndex: 'createdAt',
       key: 'createdAt',
       render: (date) => new Date(date).toLocaleDateString(),
-    },
+    }] : []),
     {
       title: 'Actions',
       key: 'actions',
-      fixed: 'right',
-      width: 120,
+      fixed: isMobile ? undefined : 'right',
+      width: isMobile ? 100 : 120,
       render: (_, record) => (
         <Space>
           <Button
@@ -404,26 +533,12 @@ const GlobalProductsPage = () => {
   ];
 
   // Filter products based on selected brand
-  const filteredProducts = products.filter(p => {
-    // Filter by brand
-    const brandMatch = !selectedBrandFilter || selectedBrandFilter === 'all'
-      ? true
-      : selectedBrandFilter === 'custom'
-        ? p.customBrand
-        : p.brandId === selectedBrandFilter;
-    
-    // Filter by category
-    const categoryMatch = !selectedCategoryFilter
-      ? true
-      : p.category === selectedCategoryFilter;
-    
-    return brandMatch && categoryMatch;
-  });
+  const filteredProducts = products;
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Global Products & Brands Management</h1>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Global Products & Brands</h1>
       </div>
 
       <Tabs
@@ -435,51 +550,66 @@ const GlobalProductsPage = () => {
             label: 'Products',
             children: (
               <>
-                <div className="flex justify-between items-center mb-4">
-                  <Space>
-                    <Select
-                      placeholder="Filter by Brand"
-                      style={{ width: 200 }}
-                      value={selectedBrandFilter}
-                      onChange={setSelectedBrandFilter}
-                      allowClear
-                      onClear={() => setSelectedBrandFilter(null)}
-                    >
-                      <Option value="all">All Brands</Option>
-                      {brands.map((brand) => (
-                        <Option key={brand.id} value={brand.id}>
-                          {brand.name}
-                        </Option>
-                      ))}
-                      <Option value="custom">Custom Brands</Option>
-                    </Select>
-                    <Select
-                      placeholder="Filter by Category"
-                      style={{ width: 200 }}
-                      value={selectedCategoryFilter}
-                      onChange={setSelectedCategoryFilter}
-                      allowClear
-                      onClear={() => setSelectedCategoryFilter(null)}
-                    >
-                      <Option value="Interior">Interior</Option>
-                      <Option value="Exterior">Exterior</Option>
-                    </Select>
-                  </Space>
-                  <Space>
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      onClick={() => showModal()}
-                    >
-                      Add Product
-                    </Button>
-                    <Button
-                      icon={<UploadOutlined />}
-                      onClick={showBulkUploadModal}
-                    >
-                      Bulk Upload
-                    </Button>
-                  </Space>
+                <div className="mb-4 space-y-3">
+                  {/* Search Bar */}
+                  <Input
+                    placeholder="Search products by name or notes..."
+                    prefix={<SearchOutlined />}
+                    value={searchText}
+                    onChange={handleSearchChange}
+                    allowClear
+                    className="w-full sm:w-96"
+                  />
+
+                  {/* Filters and Actions */}
+                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-0 justify-between items-stretch sm:items-center">
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Select
+                        placeholder="Filter by Brand"
+                        className="w-full sm:w-[200px]"
+                        value={selectedBrandFilter}
+                        onChange={(value) => handleFilterChange('brand', value)}
+                        allowClear
+                        onClear={() => handleFilterChange('brand', null)}
+                      >
+                        <Option value="all">All Brands</Option>
+                        {brands.map((brand) => (
+                          <Option key={brand.id} value={brand.id}>
+                            {brand.name}
+                          </Option>
+                        ))}
+                        <Option value="custom">Custom Brands</Option>
+                      </Select>
+                      <Select
+                        placeholder="Filter by Category"
+                        className="w-full sm:w-[200px]"
+                        value={selectedCategoryFilter}
+                        onChange={(value) => handleFilterChange('category', value)}
+                        allowClear
+                        onClear={() => handleFilterChange('category', null)}
+                      >
+                        <Option value="Interior">Interior</Option>
+                        <Option value="Exterior">Exterior</Option>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => showModal()}
+                        block={isMobile}
+                      >
+                        Add Product
+                      </Button>
+                      <Button
+                        icon={<UploadOutlined />}
+                        onClick={showBulkUploadModal}
+                        block={isMobile}
+                      >
+                        Bulk Upload
+                      </Button>
+                    </div>
+                  </div>
                 </div>
 
                 <Table
@@ -487,8 +617,15 @@ const GlobalProductsPage = () => {
                   dataSource={filteredProducts}
                   loading={loading}
                   rowKey="id"
-                  scroll={{ x: 'max-content' }}
-                  pagination={{ pageSize: 20 }}
+                  scroll={{ x: isMobile ? 700 : 'max-content' }}
+                  pagination={{
+                    ...pagination,
+                    showSizeChanger: true,
+                    showTotal: (total) => `Total ${total} products`,
+                    pageSizeOptions: ['10', '20', '50', '100'],
+                    simple: isMobile,
+                  }}
+                  onChange={handleTableChange}
                 />
               </>
             ),
@@ -498,23 +635,43 @@ const GlobalProductsPage = () => {
             label: 'Brands',
             children: (
               <>
-                <div className="flex justify-between items-center mb-4">
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => showBrandModal()}
-                  >
-                    Add Brand
-                  </Button>
+                <div className="mb-4 space-y-3">
+                  {/* Search Bar */}
+                  <Input
+                    placeholder="Search brands by name or description..."
+                    prefix={<SearchOutlined />}
+                    value={brandSearchText}
+                    onChange={handleBrandSearchChange}
+                    allowClear
+                    className="w-full sm:w-96"
+                  />
+
+                  <div className="flex justify-between items-center">
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={() => showBrandModal()}
+                      block={isMobile}
+                    >
+                      Add Brand
+                    </Button>
+                  </div>
                 </div>
 
                 <Table
                   columns={brandColumns}
                   dataSource={brands}
-                  loading={loading}
+                  loading={brandsLoading}
                   rowKey="id"
-                  scroll={{ x: 'max-content' }}
-                  pagination={{ pageSize: 20 }}
+                  scroll={{ x: isMobile ? 500 : 'max-content' }}
+                  pagination={{
+                    ...brandPagination,
+                    showSizeChanger: true,
+                    showTotal: (total) => `Total ${total} brands`,
+                    pageSizeOptions: ['10', '20', '50'],
+                    simple: isMobile,
+                  }}
+                  onChange={handleBrandTableChange}
                 />
               </>
             ),
@@ -532,7 +689,9 @@ const GlobalProductsPage = () => {
           setShowCustomBrand(false);
         }}
         footer={null}
-        width={600}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={form}
@@ -628,18 +787,27 @@ const GlobalProductsPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setModalVisible(false);
-                form.resetFields();
-                setShowCustomBrand(false);
-              }}>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-0 w-full sm:justify-end">
+              <Button 
+                onClick={() => {
+                  setModalVisible(false);
+                  form.resetFields();
+                  setShowCustomBrand(false);
+                }}
+                block={isMobile}
+                className="order-2 sm:order-1"
+              >
                 Cancel
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                block={isMobile}
+                className="order-1 sm:order-2 sm:ml-2"
+              >
                 {editingProduct ? 'Update' : 'Create'}
               </Button>
-            </Space>
+            </div>
           </Form.Item>
         </Form>
       </Modal>
@@ -653,7 +821,9 @@ const GlobalProductsPage = () => {
           brandForm.resetFields();
         }}
         footer={null}
-        width={500}
+        width={isMobile ? '100%' : 500}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={brandForm}
@@ -676,17 +846,26 @@ const GlobalProductsPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setBrandModalVisible(false);
-                brandForm.resetFields();
-              }}>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-0 w-full sm:justify-end">
+              <Button 
+                onClick={() => {
+                  setBrandModalVisible(false);
+                  brandForm.resetFields();
+                }}
+                block={isMobile}
+                className="order-2 sm:order-1"
+              >
                 Cancel
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                block={isMobile}
+                className="order-1 sm:order-2 sm:ml-2"
+              >
                 {editingBrand ? 'Update' : 'Create'}
               </Button>
-            </Space>
+            </div>
           </Form.Item>
         </Form>
       </Modal>
@@ -700,7 +879,7 @@ const GlobalProductsPage = () => {
         }}
         footer={[
           <Button key="template" icon={<DownloadOutlined />} onClick={downloadTemplate}>
-            Download Template
+            {!isMobile && 'Download '}Template
           </Button>,
           <Button key="cancel" onClick={() => {
             setBulkUploadModalVisible(false);
@@ -708,19 +887,21 @@ const GlobalProductsPage = () => {
             Cancel
           </Button>,
         ]}
-        width={600}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <div className="mb-4">
-          <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-3">
-            <p className="text-sm font-semibold text-blue-800">
+          <div className="bg-blue-50 border border-blue-200 rounded p-2 sm:p-3 mb-3">
+            <p className="text-xs sm:text-sm font-semibold text-blue-800">
               Selected Brand: {brands.find(b => b.id === selectedBrandFilter)?.name || 'None'}
             </p>
-            <p className="text-xs text-blue-600 mt-1">
+            <p className="text-[10px] sm:text-xs text-blue-600 mt-1">
               All products in the CSV will be added to this brand.
             </p>
           </div>
-          <p className="mb-2">Upload a CSV or Excel file with the following columns:</p>
-          <ul className="list-disc list-inside text-sm text-gray-600">
+          <p className="mb-2 text-sm sm:text-base">Upload a CSV or Excel file with the following columns:</p>
+          <ul className="list-disc list-inside text-xs sm:text-sm text-gray-600">
             <li>Product Name (required)</li>
             <li>Category (required - Interior/Exterior)</li>
             <li>Tier (optional - Good/Better/Best)</li>

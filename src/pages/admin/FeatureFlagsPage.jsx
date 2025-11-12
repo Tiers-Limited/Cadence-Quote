@@ -12,6 +12,14 @@ const FeatureFlagsPage = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingFeature, setEditingFeature] = useState(null);
   const [form] = Form.useForm();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     fetchFeatures();
@@ -96,11 +104,12 @@ const FeatureFlagsPage = () => {
     {
       title: 'Enabled',
       key: 'enabled',
-      width: 80,
+      width: isMobile ? 150 : 100,
       render: (_, record) => (
         <Switch
           checked={record.isEnabled}
           onChange={() => handleToggle(record)}
+          
         />
       ),
     },
@@ -108,23 +117,26 @@ const FeatureFlagsPage = () => {
       title: 'Display Name',
       dataIndex: 'displayName',
       key: 'displayName',
+      width: isMobile ? 150 : undefined,
       sorter: (a, b) => a.displayName.localeCompare(b.displayName),
+      ellipsis: true,
     },
-    {
+    ...(!isMobile ? [{
       title: 'Internal Name',
       dataIndex: 'name',
       key: 'name',
       render: (name) => <code style={{ color: '#52c41a' }}>{name}</code>,
-    },
+    }] : []),
     {
       title: 'Category',
       dataIndex: 'category',
       key: 'category',
-      filters: [
+      width: isMobile ? 80 : undefined,
+      filters: !isMobile ? [
         { text: 'Feature', value: 'feature' },
         { text: 'Add-on', value: 'addon' },
         { text: 'Integration', value: 'integration' },
-      ],
+      ] : undefined,
       onFilter: (value, record) => record.category === value,
       render: (category) => {
         const colors = {
@@ -138,19 +150,20 @@ const FeatureFlagsPage = () => {
     {
       title: 'Pricing',
       key: 'pricing',
+      width: isMobile ? 70 : undefined,
       render: (_, record) => {
         if (!record.isPaid) {
           return <Tag color="green">Free</Tag>;
         }
         return (
-          <div>
+          <div className={isMobile ? 'text-xs' : ''}>
             {record.priceMonthly && (
-              <div className="text-sm text-gray-400">
+              <div className={isMobile ? 'text-xs' : 'text-sm text-gray-400'}>
                 ${record.priceMonthly}/mo
               </div>
             )}
             {record.priceYearly && (
-              <div className="text-sm text-gray-400">
+              <div className={isMobile ? 'text-xs' : 'text-sm text-gray-400'}>
                 ${record.priceYearly}/yr
               </div>
             )}
@@ -158,24 +171,27 @@ const FeatureFlagsPage = () => {
         );
       },
     },
-    {
+    ...(!isMobile ? [{
       title: 'Description',
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
-    },
+    }] : []),
     {
       title: 'Actions',
       key: 'actions',
-      fixed: 'right',
-      width: 120,
+      fixed: isMobile ? undefined : 'right',
+      width: isMobile ? 100 : 120,
       render: (_, record) => (
-        <Space>
+        <Space size="small" direction={isMobile ? 'vertical' : 'horizontal'}>
           <Button
             icon={<EditOutlined />}
             onClick={() => showModal(record)}
             size="small"
-          />
+            block={isMobile}
+          >
+            {isMobile && 'Edit'}
+          </Button>
           <Popconfirm
             title="Delete feature flag"
             description="Are you sure? This will affect all tenants using this feature."
@@ -183,7 +199,7 @@ const FeatureFlagsPage = () => {
             okText="Yes"
             cancelText="No"
           >
-            <Button icon={<DeleteOutlined />} danger size="small" />
+            <Button icon={<DeleteOutlined />} danger size="small" block={isMobile} />
           </Popconfirm>
         </Space>
       ),
@@ -191,21 +207,22 @@ const FeatureFlagsPage = () => {
   ];
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Feature Flags & Add-ons</h1>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Feature Flags & Add-ons</h1>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => showModal()}
+          block={isMobile}
         >
           Add Feature
         </Button>
       </div>
 
-      <div className="mb-4 p-4 bg-blue-50 rounded border border-blue-200">
-        <h3 className="mb-2 font-semibold">Available Add-ons:</h3>
-        <div className="text-sm text-gray-700">
+      <div className="mb-4 p-3 sm:p-4 bg-blue-50 rounded border border-blue-200">
+        <h3 className="mb-2 text-sm sm:text-base font-semibold">Available Add-ons:</h3>
+        <div className="text-xs sm:text-sm text-gray-700">
           • Color Portal - Advanced color management and visualization
           <br />
           • Multi-User Access - Enable multiple users per tenant
@@ -223,8 +240,11 @@ const FeatureFlagsPage = () => {
         dataSource={features}
         loading={loading}
         rowKey="id"
-        scroll={{ x: 'max-content' }}
-        pagination={{ pageSize: 20 }}
+        scroll={{ x: isMobile ? 600 : 'max-content' }}
+        pagination={{ 
+          pageSize: isMobile ? 10 : 20,
+          simple: isMobile 
+        }}
       />
 
       <Modal
@@ -235,7 +255,9 @@ const FeatureFlagsPage = () => {
           form.resetFields();
         }}
         footer={null}
-        width={600}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={form}
