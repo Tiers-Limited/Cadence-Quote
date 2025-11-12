@@ -20,7 +20,10 @@ const {
   verifyTwoFactorCode,
   enableTwoFactor,
   disableTwoFactor,
-  get2FAStatus
+  get2FAStatus,
+  forgotPassword,
+  resetPassword,
+  verifyResetToken
 } = require('../controllers/authController');
 const { auth, refreshAccessToken } = require('../middleware/auth');
 
@@ -208,5 +211,26 @@ router.get('/verify-email', verifyEmail);
  * @access  Private
  */
 router.post('/resend-verification', auth, resendVerificationEmail);
+
+/**
+ * @route   POST /api/auth/forgot-password
+ * @desc    Request password reset email
+ * @access  Public
+ */
+router.post('/forgot-password', forgotPassword);
+
+/**
+ * @route   POST /api/auth/reset-password
+ * @desc    Reset password with token
+ * @access  Public
+ */
+router.post('/reset-password', resetPassword);
+
+/**
+ * @route   GET /api/auth/verify-reset-token
+ * @desc    Verify if reset token is valid
+ * @access  Public
+ */
+router.get('/verify-reset-token', verifyResetToken);
 
 module.exports = router;

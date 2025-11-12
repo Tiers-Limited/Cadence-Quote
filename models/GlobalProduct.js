@@ -56,6 +56,36 @@ const GlobalProduct = sequelize.define('GlobalProduct', {
   tableName: 'global_products',
   timestamps: true,
   underscored: true,
+  indexes: [
+    {
+      name: 'idx_global_products_brand_id',
+      fields: ['brand_id'],
+    },
+    {
+      name: 'idx_global_products_category',
+      fields: ['category'],
+    },
+    {
+      name: 'idx_global_products_tier',
+      fields: ['tier'],
+    },
+    {
+      name: 'idx_global_products_is_active',
+      fields: ['is_active'],
+    },
+    {
+      name: 'idx_global_products_name',
+      fields: ['name'],
+    },
+    {
+      name: 'idx_global_products_custom_brand',
+      fields: ['custom_brand'],
+    },
+    {
+      name: 'idx_global_products_search',
+      fields: ['name', 'custom_brand', 'is_active'],
+    },
+  ],
 });
 
 GlobalProduct.belongsTo(Brand, { foreignKey: 'brandId', as: 'brand' });

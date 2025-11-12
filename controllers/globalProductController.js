@@ -5,32 +5,75 @@ const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const sequelize  = require('../config/database');
 
-// Get all global products
+// Get all global products (optimized with pagination and search)
 exports.getAllGlobalProducts = async (req, res) => {
   try {
-    const { brandId, category, tier, search, page = 1, limit = 50 } = req.query;
+    const { 
+      brandId, 
+      category, 
+      tier, 
+      search, 
+      page = 1, 
+      limit = 20,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = req.query;
     
     const where = { isActive: true };
     
-    if (brandId) where.brandId = brandId;
+    // Apply filters
+    if (brandId && brandId !== 'all') {
+      if (brandId === 'custom') {
+        where.brandId = null;
+        where.customBrand = { [Op.ne]: null };
+      } else {
+        where.brandId = brandId;
+      }
+    }
+    
     if (category) where.category = category;
     if (tier) where.tier = tier;
-    if (search) {
+    
+    // Optimized search - search in name, customBrand, and notes
+    if (search && search.trim()) {
       where[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { notes: { [Op.iLike]: `%${search}%` } },
+        { name: { [Op.iLike]: `%${search.trim()}%` } },
+        { customBrand: { [Op.iLike]: `%${search.trim()}%` } },
+        { notes: { [Op.iLike]: `%${search.trim()}%` } },
       ];
     }
 
-    const offset = (page - 1) * limit;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const { count, rows } = await GlobalProduct.findAndCountAll({
-      where,
-      include: [{ model: Brand, as: 'brand' }],
-      limit: parseInt(limit),
-      offset,
-      order: [['createdAt', 'DESC']],
-    });
+    // Separate count and data queries for better performance
+    // Use Promise.all to run them in parallel
+    const [count, rows] = await Promise.all([
+      GlobalProduct.count({ where }), // Fast count without joins
+      GlobalProduct.findAll({
+        where,
+        include: [{ 
+          model: Brand, 
+          as: 'brand',
+          attributes: ['id', 'name'], // Only fetch needed fields
+          required: false
+        }],
+        attributes: [
+          'id', 
+          'brandId', 
+          'customBrand', 
+          'name', 
+          'category', 
+          'tier', 
+          'sheenOptions', 
+          'notes',
+          'createdAt'
+        ],
+        limit: parseInt(limit),
+        offset,
+        order: [[sortBy, sortOrder.toUpperCase()]],
+        subQuery: false, // Disable subquery for better performance
+      })
+    ]);
 
     res.json({
       success: true,
@@ -39,7 +82,8 @@ exports.getAllGlobalProducts = async (req, res) => {
         total: count,
         page: parseInt(page),
         limit: parseInt(limit),
-        pages: Math.ceil(count / limit),
+        pages: Math.ceil(count / parseInt(limit)),
+        hasMore: offset + rows.length < count,
       },
     });
   } catch (error) {

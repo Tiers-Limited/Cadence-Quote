@@ -11,6 +11,7 @@ const sequelize = new Sequelize(
     port: process.env.DB_PORT,
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    timezone: '+00:00', // Force UTC timezone
     pool: {
       max: 5,
       min: 0,
@@ -28,8 +29,9 @@ const sequelize = new Sequelize(
         // For development/testing, setting this to false works.
         // For production, it's best to configure the proper certificate path.
         rejectUnauthorized: false
-      }
+      },
       // --- END OF ADDED SSL CONFIGURATION ---
+      useUTC: true, // Force UTC
     },
     retry: {
       max: 3 // Retry connection 3 times

@@ -20,7 +20,7 @@ const {
 const sequelize = require("../config/database");
 const { OAuth2Client } = require("google-auth-library");
 const speakeasy = require("speakeasy");
-
+const crypto = require('crypto');
 /**
  * Register new tenant (contractor company) and admin user
  * POST /api/auth/register
@@ -1900,6 +1900,257 @@ const get2FAStatus = async (req, res) => {
   }
 };
 
+/**
+ * Request password reset
+ * POST /api/auth/forgot-password
+ */
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ where: { email: email.toLowerCase() } });
+
+    // Always return success message even if user not found (security best practice)
+    // This prevents email enumeration attacks
+    if (!user) {
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists, a password reset link has been sent.',
+      });
+    }
+
+    // Check if user has OAuth-only account
+    if (!user.password && (user.googleId || user.appleId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account uses OAuth authentication (Google/Apple). Please sign in using your linked account.',
+      });
+    }
+
+    // Generate secure reset token using crypto
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    
+    // Hash token before storing in database
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+
+    // Set token expiry to 1 hour from now (store as milliseconds timestamp)
+    const resetExpiresMs = Date.now() + 60 * 60 * 1000; // 1 hour in milliseconds
+
+    console.log('Setting password reset expiry:', {
+      resetExpiresMs: resetExpiresMs,
+      resetExpiresDate: new Date(resetExpiresMs).toISOString(),
+      currentTimeMs: Date.now(),
+      currentTimeDate: new Date().toISOString(),
+      expiresInMs: resetExpiresMs - Date.now(),
+      expiresInMinutes: (resetExpiresMs - Date.now()) / 1000 / 60
+    });
+
+    // Save hashed token and expiry timestamp to user
+    await user.update({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: resetExpiresMs, // Store as milliseconds
+    });
+
+    // Send reset email with original token (not hashed)
+    await emailService.sendPasswordResetEmail(
+      user.email,
+      resetToken,
+      user.fullName
+    );
+
+    res.json({
+      success: true,
+      message: 'If an account with that email exists, a password reset link has been sent.',
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process password reset request',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Reset password with token
+ * POST /api/auth/reset-password
+ */
+const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token and new password are required',
+      });
+    }
+
+    // Validate password strength
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long',
+      });
+    }
+
+    // Hash the token to compare with stored hash
+    
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+
+    // Find user with valid reset token
+    const user = await User.findOne({
+      where: {
+        passwordResetToken: hashedToken,
+      },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired password reset token',
+      });
+    }
+
+    const currentTimeMs = Date.now();
+    const expiryTimeMs = Number(user.passwordResetExpires); // Convert to number safely
+    
+    // Check if expiry time is valid
+    if (!expiryTimeMs || isNaN(expiryTimeMs)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid password reset token. Please request a new one.',
+      });
+    }
+
+    // Check if token has expired (simple millisecond comparison)
+    if (expiryTimeMs < currentTimeMs) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password reset token has expired. Please request a new one.',
+      });
+    }
+
+    // Update password and clear reset token
+    await user.update({
+      password: newPassword, // Will be hashed by beforeUpdate hook
+      passwordResetToken: null,
+      passwordResetExpires: null,
+    });
+
+    res.json({
+      success: true,
+      message: 'Password has been reset successfully. You can now login with your new password.',
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset password',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Verify reset token validity
+ * GET /api/auth/verify-reset-token
+ */
+const verifyResetToken = async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token is required',
+      });
+    }
+
+    // Hash the token to compare with stored hash
+    
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+
+    // Find user with valid reset token
+    const user = await User.findOne({
+      where: {
+        passwordResetToken: hashedToken,
+      },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid password reset token',
+      });
+    }
+
+    const currentTimeMs = Date.now();
+    const expiryTimeMs = Number(user.passwordResetExpires); // Convert to number safely
+    
+    // Check if expiry time is valid
+    if (!expiryTimeMs || isNaN(expiryTimeMs)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid password reset token. Please request a new one.',
+      });
+    }
+
+    console.log('Token verification:', {
+      expiryTimeMs: expiryTimeMs,
+      expiryTimeDate: new Date(expiryTimeMs).toISOString(),
+      expiryTimeLocal: new Date(expiryTimeMs).toString(),
+      currentTimeMs: currentTimeMs,
+      currentTimeDate: new Date(currentTimeMs).toISOString(),
+      currentTimeLocal: new Date(currentTimeMs).toString(),
+      isExpired: expiryTimeMs < currentTimeMs,
+      timeUntilExpiryMs: expiryTimeMs - currentTimeMs,
+      timeUntilExpiryMinutes: Math.round((expiryTimeMs - currentTimeMs) / 1000 / 60)
+    });
+    
+    // Check if token has expired (simple millisecond comparison)
+    if (expiryTimeMs < currentTimeMs) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password reset token has expired',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Token is valid',
+      data: {
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error('Verify reset token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify token',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -1920,4 +2171,7 @@ module.exports = {
   enableTwoFactor,
   disableTwoFactor,
   get2FAStatus,
+  forgotPassword,
+  resetPassword,
+  verifyResetToken,
 };

@@ -96,6 +96,16 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true,
     field: 'two_factor_secret'
+  },
+  passwordResetToken: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'password_reset_token'
+  },
+  passwordResetExpires: {
+    type: DataTypes.BIGINT, // Store as milliseconds timestamp to avoid timezone issues
+    allowNull: true,
+    field: 'password_reset_expires'
   }
 }, {
   timestamps: true,

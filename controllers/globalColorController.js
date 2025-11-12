@@ -4,30 +4,66 @@ const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const sequelize = require('../config/database');
 
-// Get all global colors
+// Get all global colors (optimized with pagination and search)
 exports.getAllGlobalColors = async (req, res) => {
   try {
-    const { brandId, search, page = 1, limit = 100 } = req.query;
+    const { 
+      brandId, 
+      search, 
+      page = 1, 
+      limit = 20,
+      sortBy = 'name',
+      sortOrder = 'ASC'
+    } = req.query;
     
     const where = { isActive: true };
     
-    if (brandId) where.brandId = brandId;
-    if (search) {
+    // Apply filters
+    if (brandId && brandId !== 'all') {
+      where.brandId = brandId;
+    }
+    
+    // Optimized search - search in name and code
+    if (search && search.trim()) {
       where[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { code: { [Op.iLike]: `%${search}%` } },
+        { name: { [Op.iLike]: `%${search.trim()}%` } },
+        { code: { [Op.iLike]: `%${search.trim()}%` } },
       ];
     }
 
-    const offset = (page - 1) * limit;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const { count, rows } = await GlobalColor.findAndCountAll({
-      where,
-      include: [{ model: Brand, as: 'brand' }],
-      limit: parseInt(limit),
-      offset,
-      order: [['name', 'ASC']],
-    });
+    // Separate count and data queries for better performance
+    // Use Promise.all to run them in parallel
+    const [count, rows] = await Promise.all([
+      GlobalColor.count({ where }), // Fast count without joins
+      GlobalColor.findAll({
+        where,
+        include: [{ 
+          model: Brand, 
+          as: 'brand',
+          attributes: ['id', 'name'], // Only fetch needed fields
+          required: false
+        }],
+        attributes: [
+          'id',
+          'brandId',
+          'name',
+          'code',
+          'hexValue',
+          'red',
+          'green',
+          'blue',
+          'sampleImage',
+          'crossBrandMappings',
+          'createdAt'
+        ],
+        limit: parseInt(limit),
+        offset,
+        order: [[sortBy, sortOrder.toUpperCase()]],
+        subQuery: false, // Disable subquery for better performance
+      })
+    ]);
 
     res.json({
       success: true,
@@ -36,7 +72,8 @@ exports.getAllGlobalColors = async (req, res) => {
         total: count,
         page: parseInt(page),
         limit: parseInt(limit),
-        pages: Math.ceil(count / limit),
+        pages: Math.ceil(count / parseInt(limit)),
+        hasMore: offset + rows.length < count,
       },
     });
   } catch (error) {

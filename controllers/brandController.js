@@ -1,18 +1,70 @@
 const Brand = require('../models/Brand');
 const Product = require('../models/Product');
+const { Op } = require('sequelize');
 
+// Optimized: Get all brands with optional search and pagination
 exports.getAllBrands = async (req, res) => {
   try {
-    const brands = await Brand.findAll({
-      where: { isActive: true },
-      order: [['name', 'ASC']],
-      include: [{
+    const { 
+      search, 
+      page, 
+      limit, 
+      includeProducts = 'false',
+      sortBy = 'name',
+      sortOrder = 'ASC'
+    } = req.query;
+
+    const where = { isActive: true };
+
+    // Search functionality
+    if (search && search.trim()) {
+      where[Op.or] = [
+        { name: { [Op.iLike]: `%${search.trim()}%` } },
+        { description: { [Op.iLike]: `%${search.trim()}%` } },
+      ];
+    }
+
+    const queryOptions = {
+      where,
+      attributes: ['id', 'name', 'description', 'createdAt'],
+      order: [[sortBy, sortOrder.toUpperCase()]],
+    };
+
+    // Only include products if explicitly requested (improves performance)
+    if (includeProducts === 'true') {
+      queryOptions.include = [{
         model: Product,
         as: 'products',
         where: { isActive: true },
-        required: false
-      }]
-    });
+        required: false,
+        attributes: ['id', 'name'], // Only necessary fields
+      }];
+    }
+
+    // Pagination (optional - if not provided, return all)
+    if (page && limit) {
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      queryOptions.limit = parseInt(limit);
+      queryOptions.offset = offset;
+      queryOptions.distinct = true;
+
+      const { count, rows } = await Brand.findAndCountAll(queryOptions);
+
+      return res.json({
+        success: true,
+        data: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(count / parseInt(limit)),
+          hasMore: offset + rows.length < count,
+        },
+      });
+    }
+
+    // No pagination - return all (for dropdowns)
+    const brands = await Brand.findAll(queryOptions);
 
     res.json({
       success: true,

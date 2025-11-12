@@ -68,9 +68,30 @@ const GlobalColor = sequelize.define('GlobalColor', {
   timestamps: true,
   underscored: true,
   indexes: [
-    { fields: ['brand_id'] },
-    { fields: ['code'] },
-    { fields: ['name'] },
+    {
+      name: 'idx_global_colors_brand_id',
+      fields: ['brand_id'],
+    },
+    {
+      name: 'idx_global_colors_code',
+      fields: ['code'],
+    },
+    {
+      name: 'idx_global_colors_name',
+      fields: ['name'],
+    },
+    {
+      name: 'idx_global_colors_is_active',
+      fields: ['is_active'],
+    },
+    {
+      name: 'idx_global_colors_search',
+      fields: ['name', 'code', 'is_active'],
+    },
+    {
+      name: 'idx_global_colors_brand_active',
+      fields: ['brand_id', 'is_active'],
+    },
   ],
 });
 

@@ -22,7 +22,17 @@ const Brand = sequelize.define('Brand', {
   }
 }, {
   tableName: 'brands',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    {
+      name: 'idx_brands_name',
+      fields: ['name'],
+    },
+    {
+      name: 'idx_brands_is_active',
+      fields: ['isActive'],
+    },
+  ],
 });
 
 module.exports = Brand;
