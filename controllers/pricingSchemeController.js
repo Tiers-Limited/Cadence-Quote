@@ -1,5 +1,6 @@
 // controllers/pricingSchemeController.js
 const PricingScheme = require('../models/PricingScheme');
+const { createAuditLog } = require('./auditLogController');
 
 /**
  * Get all pricing schemes for a tenant
@@ -108,6 +109,19 @@ const createPricingScheme = async (req, res) => {
       pricingRules: pricingRules || {}
     });
 
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Create Pricing Scheme',
+      category: 'pricing',
+      entityType: 'PricingScheme',
+      entityId: scheme.id,
+      changes: { name, type, isDefault },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     res.status(201).json({
       success: true,
       message: 'Pricing scheme created successfully',
@@ -171,6 +185,11 @@ const updatePricingScheme = async (req, res) => {
     }
 
     // Update scheme
+    const changes = {};
+    if (name && name !== scheme.name) changes.name = { old: scheme.name, new: name };
+    if (isDefault !== undefined && isDefault !== scheme.isDefault) changes.isDefault = { old: scheme.isDefault, new: isDefault };
+    if (isActive !== undefined && isActive !== scheme.isActive) changes.isActive = { old: scheme.isActive, new: isActive };
+
     await scheme.update({
       name: name || scheme.name,
       type: type || scheme.type,
@@ -178,6 +197,19 @@ const updatePricingScheme = async (req, res) => {
       isDefault: isDefault !== undefined ? isDefault : scheme.isDefault,
       isActive: isActive !== undefined ? isActive : scheme.isActive,
       pricingRules: pricingRules !== undefined ? pricingRules : scheme.pricingRules
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Update Pricing Scheme',
+      category: 'pricing',
+      entityType: 'PricingScheme',
+      entityId: scheme.id,
+      changes,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json({
@@ -224,6 +256,19 @@ const deletePricingScheme = async (req, res) => {
 
     await scheme.destroy();
 
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Delete Pricing Scheme',
+      category: 'pricing',
+      entityType: 'PricingScheme',
+      entityId: scheme.id,
+      changes: { name: scheme.name, type: scheme.type },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     res.json({
       success: true,
       message: 'Pricing scheme deleted successfully'
@@ -265,6 +310,19 @@ const setDefaultScheme = async (req, res) => {
 
     // Set this as default
     await scheme.update({ isDefault: true });
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Set Default Pricing Scheme',
+      category: 'pricing',
+      entityType: 'PricingScheme',
+      entityId: scheme.id,
+      changes: { name: scheme.name, isDefault: true },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,

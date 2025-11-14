@@ -3,6 +3,7 @@ const User = require('../models/User');
 const TenantFeature = require('../models/TenantFeature');
 const FeatureFlag = require('../models/FeatureFlag');
 const { Op } = require('sequelize');
+const { createAuditLog } = require('./auditLogController');
 
 // Get all tenants
 exports.getAllTenants = async (req, res) => {
@@ -116,12 +117,30 @@ exports.updateTenant = async (req, res) => {
       });
     }
 
+    const changes = {};
+    if (name && name !== tenant.name) changes.name = { old: tenant.name, new: name };
+    if (status && status !== tenant.status) changes.status = { old: tenant.status, new: status };
+    if (seatLimit !== undefined && seatLimit !== tenant.seatLimit) changes.seatLimit = { old: tenant.seatLimit, new: seatLimit };
+
     await tenant.update({
       name: name || tenant.name,
       status: status || tenant.status,
       seatLimit: seatLimit !== undefined ? seatLimit : tenant.seatLimit,
       trialEndsAt: trialEndsAt !== undefined ? trialEndsAt : tenant.trialEndsAt,
       subscriptionId: subscriptionId !== undefined ? subscriptionId : tenant.subscriptionId,
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId: tenant.id,
+      userId: req.user?.id,
+      action: 'Update Tenant',
+      category: 'tenant',
+      entityType: 'Tenant',
+      entityId: tenant.id,
+      changes,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json({
@@ -155,6 +174,19 @@ exports.activateTenant = async (req, res) => {
 
     await tenant.update({ status: 'active', isActive: true });
 
+    // Audit log
+    await createAuditLog({
+      tenantId: tenant.id,
+      userId: req.user?.id,
+      action: 'Activate Tenant',
+      category: 'tenant',
+      entityType: 'Tenant',
+      entityId: tenant.id,
+      changes: { status: { old: tenant.status, new: 'active' }, isActive: true },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     res.json({
       success: true,
       message: 'Tenant activated successfully',
@@ -185,6 +217,19 @@ exports.suspendTenant = async (req, res) => {
     }
 
     await tenant.update({ status: 'suspended', isActive: false });
+
+    // Audit log
+    await createAuditLog({
+      tenantId: tenant.id,
+      userId: req.user?.id,
+      action: 'Suspend Tenant',
+      category: 'tenant',
+      entityType: 'Tenant',
+      entityId: tenant.id,
+      changes: { status: { old: tenant.status, new: 'suspended' }, isActive: false },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,

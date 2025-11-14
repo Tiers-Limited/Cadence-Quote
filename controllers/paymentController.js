@@ -4,6 +4,7 @@ const Tenant = require('../models/Tenant');
 const User = require('../models/User');
 const { createCheckoutSession, retrieveSession, SUBSCRIPTION_PLANS } = require('../services/stripeService');
 const sequelize = require('../config/database');
+const { createAuditLog } = require('./auditLogController');
 
 /**
  * Get available subscription plans
@@ -94,6 +95,19 @@ const createPaymentSession = async (req, res) => {
     }, { transaction });
 
     await transaction.commit();
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId,
+      action: 'Create Payment Session',
+      category: 'payment',
+      entityType: 'Payment',
+      entityId: payment.id,
+      changes: { subscriptionPlan, amount: planDetails.price },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,
@@ -212,6 +226,19 @@ const confirmStripePayment = async (req, res) => {
     }
 
     await transaction.commit();
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId,
+      action: 'Payment Confirmed',
+      category: 'payment',
+      entityType: 'Payment',
+      entityId: payment.id,
+      changes: { status: 'paid', subscriptionPlan, amount: payment.amount },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     // Log successful payment
     console.log('Payment successful:', {

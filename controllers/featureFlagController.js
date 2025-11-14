@@ -2,6 +2,7 @@ const FeatureFlag = require('../models/FeatureFlag');
 const TenantFeature = require('../models/TenantFeature');
 const Tenant = require('../models/Tenant');
 const { Op } = require('sequelize');
+const { createAuditLog } = require('./auditLogController');
 
 // Get all feature flags
 exports.getAllFeatureFlags = async (req, res) => {
@@ -111,6 +112,19 @@ exports.createFeatureFlag = async (req, res) => {
       config: config || {},
     });
 
+    // Audit log
+    await createAuditLog({
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      action: 'Create Feature Flag',
+      category: 'system',
+      entityType: 'FeatureFlag',
+      entityId: feature.id,
+      changes: { name, displayName, isEnabled },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     res.status(201).json({
       success: true,
       message: 'Feature flag created successfully',
@@ -141,6 +155,10 @@ exports.updateFeatureFlag = async (req, res) => {
       });
     }
 
+    const changes = {};
+    if (displayName && displayName !== feature.displayName) changes.displayName = { old: feature.displayName, new: displayName };
+    if (isEnabled !== undefined && isEnabled !== feature.isEnabled) changes.isEnabled = { old: feature.isEnabled, new: isEnabled };
+
     await feature.update({
       displayName: displayName || feature.displayName,
       description: description !== undefined ? description : feature.description,
@@ -150,6 +168,19 @@ exports.updateFeatureFlag = async (req, res) => {
       priceMonthly: priceMonthly !== undefined ? priceMonthly : feature.priceMonthly,
       priceYearly: priceYearly !== undefined ? priceYearly : feature.priceYearly,
       config: config !== undefined ? config : feature.config,
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      action: 'Update Feature Flag',
+      category: 'system',
+      entityType: 'FeatureFlag',
+      entityId: feature.id,
+      changes,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json({
@@ -182,6 +213,19 @@ exports.deleteFeatureFlag = async (req, res) => {
     }
 
     await feature.destroy();
+
+    // Audit log
+    await createAuditLog({
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      action: 'Delete Feature Flag',
+      category: 'system',
+      entityType: 'FeatureFlag',
+      entityId: feature.id,
+      changes: { name: feature.name },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,

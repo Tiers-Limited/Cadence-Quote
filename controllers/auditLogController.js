@@ -102,7 +102,7 @@ exports.getAuditLogsByCategory = async (req, res) => {
         page: Number.parseInt(page),
         limit: Number.parseInt(limit),
         pages: Math.ceil(count / limit),
-      },
+      },  
     });
   } catch (error) {
     console.error('Get audit logs by category error:', error);

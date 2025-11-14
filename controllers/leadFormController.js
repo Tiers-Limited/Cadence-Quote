@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const zipCodePricingService = require('../services/zipCodePricingService');
 const emailService = require('../services/emailService');
 const smsService = require('../services/smsService');
+const { createAuditLog } = require('./auditLogController');
 
 /**
  * Get all leads for a tenant
@@ -522,6 +523,19 @@ const createLeadForm = async (req, res) => {
       submissionCount: 0
     });
 
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Create Lead Form',
+      category: 'system',
+      entityType: 'LeadForm',
+      entityId: form.id,
+      changes: { formName, formTitle, publicUrl },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     res.status(201).json({
       success: true,
       message: 'Lead form created successfully',
@@ -576,12 +590,30 @@ const updateLeadForm = async (req, res) => {
     }
 
     // Update form
+    const changes = {};
+    if (formName && formName !== form.formName) changes.formName = { old: form.formName, new: formName };
+    if (formTitle && formTitle !== form.formTitle) changes.formTitle = { old: form.formTitle, new: formTitle };
+    if (isActive !== undefined && isActive !== form.isActive) changes.isActive = { old: form.isActive, new: isActive };
+
     await form.update({
       formName: formName || form.formName,
       formTitle: formTitle || form.formTitle,
       formDescription: formDescription !== undefined ? formDescription : form.formDescription,
       formFields: formFields || form.formFields,
       isActive: isActive !== undefined ? isActive : form.isActive
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Update Lead Form',
+      category: 'system',
+      entityType: 'LeadForm',
+      entityId: form.id,
+      changes,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json({
@@ -621,6 +653,19 @@ const deleteLeadForm = async (req, res) => {
     }
 
     await form.destroy();
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Delete Lead Form',
+      category: 'system',
+      entityType: 'LeadForm',
+      entityId: form.id,
+      changes: { formName: form.formName, formTitle: form.formTitle },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,

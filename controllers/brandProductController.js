@@ -5,6 +5,7 @@ const Brand = require('../models/Brand');
 
 const XLSX = require('xlsx');
 const sequelize = require('../config/database');
+const { createAuditLog } = require('./auditLogController');
 
 // ============ BRAND CONTROLLERS ============
 
@@ -61,6 +62,19 @@ exports.createBrand = async (req, res) => {
       description
     });
 
+    // Audit log
+    await createAuditLog({
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      action: 'Create Brand',
+      category: 'product',
+      entityType: 'Brand',
+      entityId: brand.id,
+      changes: { name, description },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     res.status(201).json({
       success: true,
       data: brand,
@@ -99,10 +113,28 @@ exports.updateBrand = async (req, res) => {
       }
     }
 
+    const changes = {};
+    if (name && name !== brand.name) changes.name = { old: brand.name, new: name };
+    if (description !== undefined && description !== brand.description) changes.description = { old: brand.description, new: description };
+    if (isActive !== undefined && isActive !== brand.isActive) changes.isActive = { old: brand.isActive, new: isActive };
+
     await brand.update({
       name: name || brand.name,
       description: description !== undefined ? description : brand.description,
       isActive: isActive !== undefined ? isActive : brand.isActive
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      action: 'Update Brand',
+      category: 'product',
+      entityType: 'Brand',
+      entityId: brand.id,
+      changes,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json({
@@ -133,6 +165,19 @@ exports.deleteBrand = async (req, res) => {
     }
 
     await brand.update({ isActive: false });
+
+    // Audit log
+    await createAuditLog({
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      action: 'Delete Brand',
+      category: 'product',
+      entityType: 'Brand',
+      entityId: brand.id,
+      changes: { isActive: { old: true, new: false } },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,
@@ -330,6 +375,19 @@ exports.createProductWithPrices = async (req, res) => {
         { model: Brand, as: 'brandDetails' },
         { model: ProductPrice, as: 'prices' }
       ]
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Create Product',
+      category: 'product',
+      entityType: 'Product',
+      entityId: product.id,
+      changes: { name, brandId, sheenOptions, priceCount: priceRecords?.length || 0 },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.status(201).json({
@@ -541,6 +599,19 @@ exports.deleteProduct = async (req, res) => {
 
     // Soft delete
     await product.update({ isActive: false });
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Delete Product',
+      category: 'product',
+      entityType: 'Product',
+      entityId: product.id,
+      changes: { isActive: { old: true, new: false } },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,

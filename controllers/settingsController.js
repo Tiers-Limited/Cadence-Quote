@@ -1,6 +1,7 @@
 // controllers/settingsController.js
 const ContractorSettings = require('../models/ContractorSettings');
 const Tenant = require('../models/Tenant');
+const { createAuditLog } = require('./auditLogController');
 
 /**
  * Get contractor settings
@@ -149,6 +150,19 @@ const updateSettings = async (req, res) => {
       });
     }
 
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Update Settings',
+      category: 'system',
+      entityType: 'ContractorSettings',
+      entityId: settings.id,
+      changes: req.body,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     res.json({
       success: true,
       message: 'Settings updated successfully',
@@ -187,12 +201,30 @@ const updateCompanyInfo = async (req, res) => {
       });
     }
 
+    const changes = {};
+    if (companyName && companyName !== tenant.companyName) changes.companyName = { old: tenant.companyName, new: companyName };
+    if (email && email !== tenant.email) changes.email = { old: tenant.email, new: email };
+    if (phoneNumber && phoneNumber !== tenant.phoneNumber) changes.phoneNumber = { old: tenant.phoneNumber, new: phoneNumber };
+
     await tenant.update({
       companyName: companyName || tenant.companyName,
       email: email || tenant.email,
       phoneNumber: phoneNumber || tenant.phoneNumber,
       businessAddress: businessAddress !== undefined ? businessAddress : tenant.businessAddress,
       tradeType: tradeType || tenant.tradeType
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Update Company Info',
+      category: 'tenant',
+      entityType: 'Tenant',
+      entityId: tenant.id,
+      changes,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json({

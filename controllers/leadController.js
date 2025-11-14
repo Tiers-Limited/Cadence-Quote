@@ -2,6 +2,7 @@
 const { sequelize } = require('../config/database');
 const Lead = require('../models/Lead');
 const LeadForm = require('../models/LeadForm');
+const { createAuditLog } = require('./auditLogController');
 
 /**
  * Get all leads for a tenant
@@ -106,9 +107,26 @@ const updateLead = async (req, res) => {
     }
 
     // Update lead
+    const changes = {};
+    if (status && status !== lead.status) changes.status = { old: lead.status, new: status };
+    if (notes !== undefined && notes !== lead.notes) changes.notes = 'updated';
+
     await lead.update({
       status: status || lead.status,
       notes: notes !== undefined ? notes : lead.notes
+    });
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Update Lead',
+      category: 'user',
+      entityType: 'Lead',
+      entityId: lead.id,
+      changes,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json({
@@ -146,6 +164,19 @@ const deleteLead = async (req, res) => {
     }
 
     await lead.destroy();
+
+    // Audit log
+    await createAuditLog({
+      tenantId,
+      userId: req.user?.id,
+      action: 'Delete Lead',
+      category: 'user',
+      entityType: 'Lead',
+      entityId: lead.id,
+      changes: { status: lead.status },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,

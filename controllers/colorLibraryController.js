@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const fs = require('fs').promises;
 const ColorLibrary = require('../models/ColorLibrary');
+const { createAuditLog } = require('./auditLogController');
 
 const colorLibraryController = {
   // Get colors by brand (case-insensitive match)
@@ -82,6 +83,20 @@ const colorLibraryController = {
         ...req.body,
         tenantId: req.tenant.id
       });
+
+      // Audit log
+      await createAuditLog({
+        tenantId: req.tenant.id,
+        userId: req.user?.id,
+        action: 'Create Color',
+        category: 'color',
+        entityType: 'ColorLibrary',
+        entityId: color.id,
+        changes: { name: color.name, code: color.code, brand: color.brand },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
       res.status(201).json({ success: true, data: color });
     } catch (error) {
       res.status(400).json({ success: false, error: error.message });
@@ -110,6 +125,19 @@ const colorLibraryController = {
       }));
 
       const created = await ColorLibrary.bulkCreate(toCreate, { validate: true });
+
+      // Audit log
+      await createAuditLog({
+        tenantId: req.tenant.id,
+        userId: req.user?.id,
+        action: 'Bulk Create Colors',
+        category: 'color',
+        entityType: 'ColorLibrary',
+        changes: { count: created.length },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
       res.status(201).json({ success: true, data: created });
     } catch (error) {
       console.error('Bulk create error', error);
@@ -132,6 +160,20 @@ const colorLibraryController = {
       }
 
       const color = await ColorLibrary.findOne({ where: { id: req.params.id, tenantId: req.tenant.id } });
+
+      // Audit log
+      await createAuditLog({
+        tenantId: req.tenant.id,
+        userId: req.user?.id,
+        action: 'Update Color',
+        category: 'color',
+        entityType: 'ColorLibrary',
+        entityId: color.id,
+        changes: req.body,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
       res.json({ success: true, data: color });
     } catch (error) {
       res.status(400).json({ success: false, error: error.message });
@@ -141,12 +183,29 @@ const colorLibraryController = {
   // Delete a color
   deleteColor: async (req, res) => {
     try {
+      const color = await ColorLibrary.findOne({ where: { id: req.params.id, tenantId: req.tenant.id } });
+      
       const deleted = await ColorLibrary.destroy({
         where: { 
           id: req.params.id,
           tenantId: req.tenant.id
         }
       });
+
+      if (deleted && color) {
+        // Audit log
+        await createAuditLog({
+          tenantId: req.tenant.id,
+          userId: req.user?.id,
+          action: 'Delete Color',
+          category: 'color',
+          entityType: 'ColorLibrary',
+          entityId: color.id,
+          changes: { name: color.name, code: color.code },
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent'),
+        });
+      }
 
       if (!deleted) {
         return res.status(404).json({ success: false, error: 'Color not found' });

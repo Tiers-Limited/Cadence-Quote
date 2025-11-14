@@ -21,6 +21,7 @@ const sequelize = require("../config/database");
 const { OAuth2Client } = require("google-auth-library");
 const speakeasy = require("speakeasy");
 const crypto = require('crypto');
+const { createAuditLog } = require('./auditLogController');
 /**
  * Register new tenant (contractor company) and admin user
  * POST /api/auth/register
@@ -124,6 +125,19 @@ const register = async (req, res) => {
 
     // Generate JWT token
     const token = generateToken(user.id, tenant.id);
+
+    // Audit log
+    await createAuditLog({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: 'User Registration',
+      category: 'auth',
+      entityType: 'User',
+      entityId: user.id,
+      changes: { email: user.email, role: user.role },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     // Send email verification for non-Google users
     try {
@@ -429,6 +443,19 @@ const login = async (req, res) => {
     // Generate JWT token for local login
     const token = generateToken(user.id, user.tenantId);
     const refreshToken = generateRefreshToken(user.id, user.tenantId);
+
+    // Audit log
+    await createAuditLog({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'User Login',
+      category: 'auth',
+      entityType: 'User',
+      entityId: user.id,
+      metadata: { authProvider: user.authProvider || 'local' },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,
