@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Space, Tag, Popconfirm, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CalculatorOutlined } from '@ant-design/icons';
+import { apiService } from '../../services/apiService';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -11,6 +12,14 @@ const PricingSchemeManagementPage = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingScheme, setEditingScheme] = useState(null);
   const [form] = Form.useForm();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Mock data for now - will be replaced with API calls
   useEffect(() => {
@@ -20,73 +29,12 @@ const PricingSchemeManagementPage = () => {
   const fetchSchemes = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      // const response = await apiService.getPricingSchemes();
-      // setSchemes(response.data || []);
-      
-      // Mock data for demonstration
-      setTimeout(() => {
-        setSchemes([
-          {
-            id: 1,
-            name: 'Standard Residential',
-            displayName: 'Standard Residential Pricing',
-            description: 'Basic pricing for residential projects',
-            category: 'residential',
-            formula: '(sqft * baseRate) + materialCost + laborCost',
-            variables: {
-              sqft: { type: 'number', required: true, description: 'Square footage' },
-              baseRate: { type: 'number', default: 2.5, description: 'Base rate per sqft' },
-              materialCost: { type: 'number', required: true, description: 'Material cost' },
-              laborCost: { type: 'number', required: true, description: 'Labor cost' },
-            },
-            isActive: true,
-            isPinProtected: false,
-            createdAt: '2024-01-15T10:00:00Z',
-          },
-          {
-            id: 2,
-            name: 'Commercial Premium',
-            displayName: 'Commercial Premium Pricing',
-            description: 'Premium pricing for large commercial projects',
-            category: 'commercial',
-            formula: '(sqft * baseRate * multiplier) + materialCost + (laborHours * hourlyRate)',
-            variables: {
-              sqft: { type: 'number', required: true, description: 'Square footage' },
-              baseRate: { type: 'number', default: 3.5, description: 'Base rate per sqft' },
-              multiplier: { type: 'number', default: 1.2, description: 'Commercial multiplier' },
-              materialCost: { type: 'number', required: true, description: 'Material cost' },
-              laborHours: { type: 'number', required: true, description: 'Estimated labor hours' },
-              hourlyRate: { type: 'number', default: 45, description: 'Hourly labor rate' },
-            },
-            isActive: true,
-            isPinProtected: true,
-            createdAt: '2024-01-10T09:00:00Z',
-          },
-          {
-            id: 3,
-            name: 'Exterior Specialty',
-            displayName: 'Exterior Specialty Pricing',
-            description: 'Specialized pricing for exterior work',
-            category: 'exterior',
-            formula: '(sqft * tierRate[tier]) + weatherProtectionCost + materialCost',
-            variables: {
-              sqft: { type: 'number', required: true, description: 'Square footage' },
-              tier: { type: 'select', options: ['Good', 'Better', 'Best'], required: true },
-              tierRate: { type: 'map', values: { Good: 2.0, Better: 2.8, Best: 3.5 } },
-              weatherProtectionCost: { type: 'number', default: 150, description: 'Weather protection' },
-              materialCost: { type: 'number', required: true, description: 'Material cost' },
-            },
-            isActive: true,
-            isPinProtected: true,
-            createdAt: '2024-01-05T08:00:00Z',
-          },
-        ]);
-        setLoading(false);
-      }, 500);
+      const response = await apiService.getPricingSchemes();
+      setSchemes(response.data || []);
     } catch (error) {
       console.error('Error fetching pricing schemes:', error);
       message.error('Failed to fetch pricing schemes');
+    } finally {
       setLoading(false);
     }
   };
@@ -96,11 +44,10 @@ const PricingSchemeManagementPage = () => {
     if (scheme) {
       form.setFieldsValue({
         name: scheme.name,
-        displayName: scheme.displayName,
         description: scheme.description,
-        category: scheme.category,
-        formula: scheme.formula,
-        isPinProtected: scheme.isPinProtected,
+        category: scheme.type, // Backend uses 'type' field
+        formula: scheme.pricingRules?.formula || '',
+        isPinProtected: scheme.pricingRules?.isPinProtected || false,
       });
     } else {
       form.resetFields();
@@ -110,94 +57,115 @@ const PricingSchemeManagementPage = () => {
 
   const handleSubmit = async (values) => {
     try {
-      // TODO: Implement actual API calls
-      // if (editingScheme) {
-      //   await apiService.updatePricingScheme(editingScheme.id, values);
-      //   message.success('Pricing scheme updated successfully');
-      // } else {
-      //   await apiService.createPricingScheme(values);
-      //   message.success('Pricing scheme created successfully');
-      // }
+      const data = {
+        name: values.name,
+        type: values.category, // Backend uses 'type' field
+        description: values.description || '',
+        isActive: true,
+        pricingRules: {
+          formula: values.formula,
+          isPinProtected: values.isPinProtected || false,
+        },
+      };
 
-      message.success(editingScheme ? 'Pricing scheme updated' : 'Pricing scheme created');
+      if (editingScheme) {
+        await apiService.updatePricingScheme(editingScheme.id, data);
+        message.success('Pricing scheme updated successfully');
+      } else {
+        await apiService.createPricingScheme(data);
+        message.success('Pricing scheme created successfully');
+      }
+
       setModalVisible(false);
       form.resetFields();
       fetchSchemes();
     } catch (error) {
       console.error('Error saving scheme:', error);
-      message.error('Failed to save pricing scheme');
+      message.error(error.message || 'Failed to save pricing scheme');
     }
   };
 
   const handleDelete = async (id) => {
     try {
-      // TODO: await apiService.deletePricingScheme(id);
+      await apiService.deletePricingScheme(id);
       message.success('Pricing scheme deleted successfully');
       fetchSchemes();
     } catch (error) {
       console.error('Error deleting scheme:', error);
-      message.error('Failed to delete pricing scheme');
+      message.error(error.message || 'Failed to delete pricing scheme');
+    }
+  };
+
+  const handleSetDefault = async (id) => {
+    try {
+      await apiService.setDefaultPricingScheme(id);
+      message.success('Default pricing scheme updated');
+      fetchSchemes();
+    } catch (error) {
+      console.error('Error setting default scheme:', error);
+      message.error('Failed to set default scheme');
     }
   };
 
   const columns = [
     {
-      title: 'Display Name',
-      dataIndex: 'displayName',
-      key: 'displayName',
-      sorter: (a, b) => a.displayName.localeCompare(b.displayName),
-    },
-    {
-      title: 'Internal Name',
+      title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      render: (name) => <code style={{ color: '#52c41a' }}>{name}</code>,
+      width: isMobile ? 150 : undefined,
+      render: (name, record) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{name}</div>
+          {record.isDefault && (
+            <Tag color="gold" style={{ marginTop: 4 }}>Default</Tag>
+          )}
+        </div>
+      ),
     },
     {
-      title: 'Category',
-      dataIndex: 'category',
-      key: 'category',
-      filters: [
-        { text: 'Residential', value: 'residential' },
-        { text: 'Commercial', value: 'commercial' },
-        { text: 'Exterior', value: 'exterior' },
-        { text: 'Interior', value: 'interior' },
-      ],
-      onFilter: (value, record) => record.category === value,
-      render: (category) => {
-        const colors = {
-          residential: 'blue',
-          commercial: 'purple',
-          exterior: 'orange',
-          interior: 'green',
+      title: 'Type',
+      dataIndex: 'type',
+      key: 'type',
+      width: isMobile ? 100 : undefined,
+      render: (type) => {
+        const typeLabels = {
+          sqft_turnkey: 'Sq Ft (Turnkey)',
+          sqft_labor_paint: 'Sq Ft (Labor + Paint)',
+          hourly_time_materials: 'Hourly (T&M)',
+          unit_pricing: 'Unit Pricing',
+          room_flat_rate: 'Room/Flat Rate',
         };
-        return <Tag color={colors[category]}>{category}</Tag>;
+        const colors = {
+          sqft_turnkey: 'blue',
+          sqft_labor_paint: 'cyan',
+          hourly_time_materials: 'purple',
+          unit_pricing: 'orange',
+          room_flat_rate: 'green',
+        };
+        return <Tag color={colors[type] || 'default'}>{typeLabels[type] || type}</Tag>;
       },
     },
-    {
+    ...(!isMobile ? [{
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      ellipsis: true,
+    }] : []),
+    ...(!isMobile ? [{
       title: 'Formula',
-      dataIndex: 'formula',
       key: 'formula',
       ellipsis: true,
-      render: (formula) => (
-        <code style={{ color: '#faad14', fontSize: '12px' }}>{formula}</code>
-      ),
-    },
-    {
-      title: 'Protection',
-      key: 'protection',
       render: (_, record) => (
-        record.isPinProtected ? (
-          <Tag color="red">PIN Protected</Tag>
-        ) : (
-          <Tag color="green">Open</Tag>
-        )
+        <code style={{ color: '#faad14', fontSize: '11px' }}>
+          {record.pricingRules?.formula || 'N/A'}
+        </code>
       ),
-    },
+    }] : []),
     {
       title: 'Status',
       dataIndex: 'isActive',
       key: 'isActive',
+      width: isMobile ? 80 : undefined,
       render: (isActive) => (
         <Tag color={isActive ? 'green' : 'red'}>
           {isActive ? 'Active' : 'Inactive'}
@@ -207,23 +175,35 @@ const PricingSchemeManagementPage = () => {
     {
       title: 'Actions',
       key: 'actions',
-      fixed: 'right',
-      width: 120,
+      fixed: isMobile ? undefined : 'right',
+      width: isMobile ? 100 : 120,
       render: (_, record) => (
-        <Space>
+        <Space size="small" direction={isMobile ? 'vertical' : 'horizontal'}>
+          {!record.isDefault && (
+            <Button
+              size="small"
+              onClick={() => handleSetDefault(record.id)}
+              title="Set as default"
+            >
+              Set Default
+            </Button>
+          )}
           <Button
             icon={<EditOutlined />}
             onClick={() => showModal(record)}
             size="small"
-          />
+            block={isMobile}
+          >
+            {isMobile && 'Edit'}
+          </Button>
           <Popconfirm
             title="Delete pricing scheme"
-            description="Are you sure? Tenants using this scheme will need reassignment."
+            description="Are you sure?"
             onConfirm={() => handleDelete(record.id)}
             okText="Yes"
             cancelText="No"
           >
-            <Button icon={<DeleteOutlined />} danger size="small" />
+            <Button icon={<DeleteOutlined />} danger size="small" block={isMobile} />
           </Popconfirm>
         </Space>
       ),
@@ -231,35 +211,36 @@ const PricingSchemeManagementPage = () => {
   ];
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Pricing Scheme Management</h1>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Pricing Scheme Management</h1>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => showModal()}
+          block={isMobile}
         >
           Add Scheme
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <Card>
-          <div className="text-gray-600 text-sm mb-1">Total Schemes</div>
-          <div className="text-3xl font-bold">{schemes.length}</div>
+          <div className="text-gray-600 text-xs sm:text-sm mb-1">Total Schemes</div>
+          <div className="text-2xl sm:text-3xl font-bold">{schemes.length}</div>
         </Card>
 
         <Card>
-          <div className="text-gray-600 text-sm mb-1">Active Schemes</div>
-          <div className="text-3xl font-bold text-green-500">
+          <div className="text-gray-600 text-xs sm:text-sm mb-1">Active Schemes</div>
+          <div className="text-2xl sm:text-3xl font-bold text-green-500">
             {schemes.filter(s => s.isActive).length}
           </div>
         </Card>
 
         <Card>
-          <div className="text-gray-600 text-sm mb-1">PIN Protected</div>
-          <div className="text-3xl font-bold text-red-500">
-            {schemes.filter(s => s.isPinProtected).length}
+          <div className="text-gray-600 text-xs sm:text-sm mb-1">Default Scheme</div>
+          <div className="text-2xl sm:text-3xl font-bold text-blue-500">
+            {schemes.find(s => s.isDefault)?.name || 'None'}
           </div>
         </Card>
       </div>
@@ -291,8 +272,11 @@ const PricingSchemeManagementPage = () => {
         dataSource={schemes}
         loading={loading}
         rowKey="id"
-        scroll={{ x: 'max-content' }}
-        pagination={{ pageSize: 20 }}
+        scroll={{ x: isMobile ? 700 : 'max-content' }}
+        pagination={{ 
+          pageSize: isMobile ? 10 : 20,
+          simple: isMobile 
+        }}
       />
 
       <Modal
@@ -303,34 +287,28 @@ const PricingSchemeManagementPage = () => {
           form.resetFields();
         }}
         footer={null}
-        width={700}
+        width={isMobile ? '100%' : 700}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
           initialValues={{
-            category: 'residential',
+            category: 'sqft_turnkey',
             isPinProtected: false,
           }}
         >
           <Form.Item
-            name="displayName"
-            label="Display Name"
-            rules={[{ required: true, message: 'Please enter display name' }]}
-          >
-            <Input placeholder="e.g., Standard Residential Pricing" />
-          </Form.Item>
-
-          <Form.Item
             name="name"
-            label="Internal Name (Unique Key)"
+            label="Scheme Name"
             rules={[
-              { required: true, message: 'Please enter internal name' },
-              { pattern: /^[a-z_]+$/, message: 'Use lowercase letters and underscores only' }
+              { required: true, message: 'Please enter scheme name' },
+              { max: 100, message: 'Name must be less than 100 characters' }
             ]}
           >
-            <Input placeholder="e.g., standard_residential" disabled={!!editingScheme} />
+            <Input placeholder="e.g., Standard Residential Pricing" />
           </Form.Item>
 
           <Form.Item
@@ -342,14 +320,15 @@ const PricingSchemeManagementPage = () => {
 
           <Form.Item
             name="category"
-            label="Category"
+            label="Pricing Type"
             rules={[{ required: true }]}
           >
             <Select>
-              <Option value="residential">Residential</Option>
-              <Option value="commercial">Commercial</Option>
-              <Option value="exterior">Exterior</Option>
-              <Option value="interior">Interior</Option>
+              <Option value="sqft_turnkey">Square Foot (Turnkey, All-In)</Option>
+              <Option value="sqft_labor_paint">Square Foot (Labor + Paint Separated)</Option>
+              <Option value="hourly_time_materials">Hourly Rate (Time & Materials)</Option>
+              <Option value="unit_pricing">Unit Pricing (Doors, Windows, Trim, etc.)</Option>
+              <Option value="room_flat_rate">Room-Based / Flat Rate</Option>
             </Select>
           </Form.Item>
 
@@ -378,17 +357,26 @@ const PricingSchemeManagementPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
-              <Button onClick={() => {
-                setModalVisible(false);
-                form.resetFields();
-              }}>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-0 w-full sm:justify-end">
+              <Button 
+                onClick={() => {
+                  setModalVisible(false);
+                  form.resetFields();
+                }}
+                block={isMobile}
+                className="order-2 sm:order-1"
+              >
                 Cancel
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                block={isMobile}
+                className="order-1 sm:order-2 sm:ml-2"
+              >
                 {editingScheme ? 'Update' : 'Create'}
               </Button>
-            </Space>
+            </div>
           </Form.Item>
         </Form>
       </Modal>

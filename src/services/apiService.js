@@ -370,6 +370,40 @@ class ApiService {
   async removeFeatureFromTenant(tenantId, featureId) {
     return this.delete(`/admin/tenants/${tenantId}/features/${featureId}`);
   }
+
+  // Pricing Schemes
+  async getPricingSchemes(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.get(`/pricing-schemes${query ? `?${query}` : ''}`);
+  }
+
+  async getPricingSchemeById(id) {
+    return this.get(`/pricing-schemes/${id}`);
+  }
+
+  async createPricingScheme(data) {
+    return this.post('/pricing-schemes', data);
+  }
+
+  async updatePricingScheme(id, data) {
+    return this.put(`/pricing-schemes/${id}`, data);
+  }
+
+  async deletePricingScheme(id) {
+    return this.delete(`/pricing-schemes/${id}`);
+  }
+
+  async setDefaultPricingScheme(id) {
+    return this.put(`/pricing-schemes/${id}/set-default`);
+  }
+
+  async getPricingSchemeWithRules(id) {
+    return this.get(`/pricing-schemes/${id}/rules`);
+  }
+
+  async calculateQuote(id, data) {
+    return this.post(`/pricing-schemes/${id}/calculate`, data);
+  }
 }
 
 export const apiService = new ApiService(API_BASE_URL)
