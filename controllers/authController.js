@@ -75,11 +75,11 @@ const register = async (req, res) => {
     }
 
     // Validate subscription plan
-    const validPlans = ["starter", "pro"];
+    const validPlans = ["basic", "pro", "enterprise"];
     if (subscriptionPlan && !validPlans.includes(subscriptionPlan)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid subscription plan. Must be "starter" or "pro"',
+        message: 'Invalid subscription plan. Must be "basic", "pro", or "enterprise"',
       });
     }
 
@@ -100,7 +100,7 @@ const register = async (req, res) => {
         phoneNumber,
         businessAddress: businessAddress || null,
         tradeType,
-        subscriptionPlan: subscriptionPlan || "starter",
+        subscriptionPlan: subscriptionPlan || "basic",
         isActive: true,
       },
       { transaction }
@@ -812,12 +812,12 @@ const registerWithPayment = async (req, res) => {
       });
     }
 
-    const validPlans = ["starter", "pro"];
+    const validPlans = ["basic", "pro", "enterprise"];
     if (!validPlans.includes(subscriptionPlan)) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Invalid subscription plan. Must be "starter" or "pro"',
+        message: 'Invalid subscription plan. Must be "basic", "pro", or "enterprise"',
       });
     }
 
@@ -1200,6 +1200,15 @@ const completeGoogleSignup = async (req, res) => {
       });
     }
 
+    // Validate subscription plan
+    const validPlans = ["basic", "pro", "enterprise"];
+    if (!validPlans.includes(subscriptionPlan)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid subscription plan. Must be "basic", "pro", or "enterprise"',
+      });
+    }
+
     // Check if email already exists
     const existingUser = await User.findOne({
       where: { email: googleInfo.email },
@@ -1483,6 +1492,15 @@ const completeAppleSignup = async (req, res) => {
           "tradeType",
           "subscriptionPlan",
         ],
+      });
+    }
+
+    // Validate subscription plan
+    const validPlans = ["basic", "pro", "enterprise"];
+    if (!validPlans.includes(subscriptionPlan)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid subscription plan. Must be "basic", "pro", or "enterprise"',
       });
     }
 

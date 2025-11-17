@@ -2,8 +2,6 @@
 const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const sequelize = require('../config/database');
-const Tenant = require('./Tenant');
-const Role = require('./Role');
 
 const User = sequelize.define('User', {
   id: {
@@ -64,7 +62,7 @@ const User = sequelize.define('User', {
     type: DataTypes.INTEGER,
     allowNull: true,
     references: {
-      model: Role,
+      model: 'roles',
       key: 'id'
     },
     field: 'role_id'
@@ -73,7 +71,7 @@ const User = sequelize.define('User', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: Tenant,
+      model: 'Tenants',
       key: 'id'
     },
     onDelete: 'CASCADE'
@@ -138,10 +136,11 @@ User.prototype.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-User.belongsTo(Tenant, { foreignKey: 'tenantId' });
-Tenant.hasMany(User, { foreignKey: 'tenantId' });
-
-User.belongsTo(Role, { foreignKey: 'roleId', as: 'userRole' });
-Role.hasMany(User, { foreignKey: 'roleId' });
+// Associations will be set up in models/index.js
+User.associate = (models) => {
+  User.belongsTo(models.Tenant, { foreignKey: 'tenantId' });
+  User.belongsTo(models.Role, { foreignKey: 'roleId', as: 'userRole' });
+  User.hasMany(models.Payment, { foreignKey: 'userId' });
+};
 
 module.exports = User;

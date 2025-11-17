@@ -22,9 +22,12 @@ const paymentsRouter = require('./routes/payments');
 const brandsRouter = require('./routes/brands');
 const productsRouter = require('./routes/products');
 const adminRouter = require('./routes/admin');
+const subscriptionsRouter = require('./routes/subscriptions');
+const webhooksRouter = require('./routes/webhooks');
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
-const User = require('./models/User');
+// Load all models and associations
+const { User, Tenant, Subscription, Payment } = require('./models');
 
 const app = express();
 
@@ -35,6 +38,10 @@ app.use(passport.initialize());
 // Middleware
 app.use(helmet());  // Security headers
 app.use(cors());  // Enable CORS for frontend
+
+// Webhook routes MUST come before JSON parser (needs raw body)
+app.use('/api/v1/webhooks', webhooksRouter);
+
 // Increase allowed request body size to handle larger imports/uploads.
 // Make this configurable via the BODY_PARSER_LIMIT environment variable (e.g. '10mb', '50mb').
 const bodyParserLimit = process.env.BODY_PARSER_LIMIT || '10mb';
@@ -73,6 +80,7 @@ app.use('/api/v1/payments', paymentsRouter);
 app.use('/api/v1/brands', brandsRouter);
 app.use('/api/v1/products', productsRouter);
 app.use('/api/v1/admin', adminRouter);
+app.use('/api/v1/subscriptions', subscriptionsRouter);
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler
@@ -98,7 +106,7 @@ app.use(function(err, req, res, next) {
     // In development, alter existing tables instead of dropping them
     
     const syncOptions = process.env.NODE_ENV === 'development' 
-      ? { alter: false } // Don't alter - we use migrations now
+      ? { alter: true } // Don't alter - schema is now stable
       : { force: false }; // In production, don't sync at all
     
     await sequelize.sync(syncOptions);

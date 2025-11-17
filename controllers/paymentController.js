@@ -2,6 +2,7 @@
 const Payment = require('../models/Payment');
 const Tenant = require('../models/Tenant');
 const User = require('../models/User');
+const Subscription = require('../models/Subscription');
 const { createCheckoutSession, retrieveSession, SUBSCRIPTION_PLANS } = require('../services/stripeService');
 const sequelize = require('../config/database');
 const { createAuditLog } = require('./auditLogController');
@@ -40,10 +41,10 @@ const createPaymentSession = async (req, res) => {
     const tenantId = req.user.tenantId;
 
     // Validation
-    if (!subscriptionPlan || !['starter', 'pro'].includes(subscriptionPlan)) {
+    if (!subscriptionPlan || !['basic', 'pro', 'enterprise'].includes(subscriptionPlan)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid subscription plan. Must be "starter" or "pro"'
+        message: 'Invalid subscription plan. Must be "basic", "pro", or "enterprise"'
       });
     }
 
@@ -202,17 +203,50 @@ const confirmStripePayment = async (req, res) => {
       }
     }, { transaction });
 
+    // Get plan details for MRR calculation
+    const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
+    const currentDate = new Date();
+    const trialEndDate = new Date(currentDate);
+    trialEndDate.setDate(currentDate.getDate() + planDetails.trialDays);
+    const currentPeriodEnd = new Date(currentDate);
+    currentPeriodEnd.setMonth(currentDate.getMonth() + 1); // 1 month from now
+
+    // Create Subscription record
+    const subscription = await Subscription.create({
+      tenantId,
+      stripeSubscriptionId: session.subscription || `session_${session.id}`,
+      stripePriceId: planDetails.priceId,
+      stripeCustomerId: session.customer,
+      tier: subscriptionPlan,
+      status: 'trialing',
+      currentPeriodStart: currentDate,
+      currentPeriodEnd: currentPeriodEnd,
+      trialStart: currentDate,
+      trialEnd: trialEndDate,
+      mrr: planDetails.price,
+      quantity: 1,
+      cancelAtPeriodEnd: false,
+      metadata: {
+        createdFrom: 'payment_confirmation',
+        sessionId: session.id,
+        paymentIntentId: session.payment_intent,
+        registrationFlow: registration === 'true'
+      }
+    }, { transaction });
+
+    // Link payment to subscription
+    await payment.update({
+      subscriptionId: subscription.id
+    }, { transaction });
+
     // Update tenant subscription
     const tenant = await Tenant.findByPk(tenantId);
     if (tenant) {
-      const subscriptionExpiry = new Date();
-      subscriptionExpiry.setMonth(subscriptionExpiry.getMonth() + 1); // 1 month from now
-
       await tenant.update({
         subscriptionPlan,
         stripeCustomerId: session.customer,
         paymentStatus: 'active',
-        subscriptionExpiresAt: subscriptionExpiry,
+        subscriptionExpiresAt: currentPeriodEnd,
         isActive: true // Activate tenant for registration flow
       }, { transaction });
     }
@@ -231,11 +265,18 @@ const confirmStripePayment = async (req, res) => {
     await createAuditLog({
       tenantId,
       userId,
-      action: 'Payment Confirmed',
+      action: 'Payment Confirmed & Subscription Created',
       category: 'payment',
       entityType: 'Payment',
       entityId: payment.id,
-      changes: { status: 'paid', subscriptionPlan, amount: payment.amount },
+      changes: { 
+        status: 'paid', 
+        subscriptionPlan, 
+        amount: payment.amount,
+        subscriptionId: subscription.id,
+        tier: subscription.tier,
+        mrr: subscription.mrr
+      },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
     });
@@ -243,10 +284,13 @@ const confirmStripePayment = async (req, res) => {
     // Log successful payment
     console.log('Payment successful:', {
       paymentId: payment.id,
+      subscriptionId: subscription.id,
       userId,
       tenantId,
       subscriptionPlan,
       amount: payment.amount,
+      mrr: subscription.mrr,
+      trialEnd: subscription.trialEnd,
       registrationFlow: registration === 'true',
       timestamp: new Date().toISOString()
     });

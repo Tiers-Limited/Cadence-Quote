@@ -3,30 +3,53 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 /**
  * Subscription plan pricing configuration
+ * NOTE: Replace price IDs with actual Stripe Price IDs from your Stripe Dashboard
  */
 const SUBSCRIPTION_PLANS = {
-  starter: {
-    name: 'Starter Plan',
+  basic: {
+    name: 'Basic Plan',
     description: 'Perfect for small contractors getting started',
+    priceId: process.env.STRIPE_BASIC_PRICE_ID || 'price_basic', // Replace with actual price ID
     price: 29.99, // USD per month
+    trialDays: 14,
     features: [
       'Up to 10 projects',
       'Basic proposal templates',
       'Customer management',
-      'Email support'
+      'Email support',
+      '5 team seats'
     ]
   },
   pro: {
     name: 'Pro Plan',
     description: 'Advanced features for growing businesses',
+    priceId: process.env.STRIPE_PRO_PRICE_ID || 'price_pro', // Replace with actual price ID
     price: 79.99, // USD per month
+    trialDays: 14,
     features: [
       'Unlimited projects',
       'Advanced proposal templates',
       'Team collaboration',
       'Priority support',
       'Custom branding',
-      'Analytics dashboard'
+      'Analytics dashboard',
+      '20 team seats'
+    ]
+  },
+  enterprise: {
+    name: 'Enterprise Plan',
+    description: 'Full-featured solution for large teams',
+    priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || 'price_enterprise', // Replace with actual price ID
+    price: 199.99, // USD per month
+    trialDays: 30,
+    features: [
+      'Everything in Pro',
+      'Dedicated account manager',
+      '24/7 phone support',
+      'Custom integrations',
+      'Advanced analytics',
+      'SLA guarantees',
+      'Unlimited team seats'
     ]
   }
 };
@@ -43,7 +66,7 @@ const getSubscriptionPlan = (planType) => {
  * @param {Object} params - Session parameters
  * @param {string} params.userId - User ID
  * @param {string} params.tenantId - Tenant ID
- * @param {string} params.subscriptionPlan - Subscription plan (starter/pro)
+ * @param {string} params.subscriptionPlan - Subscription plan (basic/pro/enterprise)
  * @param {string} params.email - Customer email
  * @param {string} params.successUrl - Success redirect URL
  * @param {string} params.cancelUrl - Cancel redirect URL
@@ -182,5 +205,145 @@ module.exports = {
   createOrGetCustomer,
   refundPayment,
   getSubscriptionPlan,
+  createSubscription,
+  updateSubscription,
+  cancelSubscription,
+  retrieveSubscription,
+  listSubscriptions,
+  calculateMRR,
   SUBSCRIPTION_PLANS
 };
+
+/**
+ * Create a new Stripe subscription
+ * @param {Object} params - Subscription parameters
+ * @param {string} params.customerId - Stripe Customer ID
+ * @param {string} params.tier - Subscription tier (basic/pro/enterprise)
+ * @param {number} params.quantity - Number of seats (default: 1)
+ * @param {boolean} params.trialEnabled - Enable trial period (default: true)
+ * @param {Object} params.metadata - Additional metadata
+ */
+async function createSubscription({ customerId, tier, quantity = 1, trialEnabled = true, metadata = {} }) {
+  try {
+    const plan = getSubscriptionPlan(tier);
+    
+    if (!plan) {
+      throw new Error(`Invalid subscription tier: ${tier}`);
+    }
+
+    const subscriptionParams = {
+      customer: customerId,
+      items: [
+        {
+          price: plan.priceId,
+          quantity
+        }
+      ],
+      metadata: {
+        tier,
+        ...metadata
+      },
+      expand: ['latest_invoice.payment_intent']
+    };
+
+    // Add trial period if enabled
+    if (trialEnabled && plan.trialDays) {
+      subscriptionParams.trial_period_days = plan.trialDays;
+    }
+
+    const subscription = await stripe.subscriptions.create(subscriptionParams);
+
+    // Calculate MRR
+    const mrr = (plan.price * quantity).toFixed(2);
+
+    return {
+      success: true,
+      subscription,
+      mrr: Number.parseFloat(mrr)
+    };
+  } catch (error) {
+    console.error('Stripe subscription creation error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update an existing subscription
+ * @param {string} subscriptionId - Stripe Subscription ID
+ * @param {Object} updates - Updates to apply
+ */
+async function updateSubscription(subscriptionId, updates) {
+  try {
+    const subscription = await stripe.subscriptions.update(subscriptionId, updates);
+    return subscription;
+  } catch (error) {
+    console.error('Stripe subscription update error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Cancel a subscription
+ * @param {string} subscriptionId - Stripe Subscription ID
+ * @param {boolean} atPeriodEnd - Cancel at period end (default: false)
+ */
+async function cancelSubscription(subscriptionId, atPeriodEnd = false) {
+  try {
+    if (atPeriodEnd) {
+      const subscription = await stripe.subscriptions.update(subscriptionId, {
+        cancel_at_period_end: true
+      });
+      return subscription;
+    } else {
+      const subscription = await stripe.subscriptions.cancel(subscriptionId);
+      return subscription;
+    }
+  } catch (error) {
+    console.error('Stripe subscription cancellation error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Retrieve a subscription
+ * @param {string} subscriptionId - Stripe Subscription ID
+ */
+async function retrieveSubscription(subscriptionId) {
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return subscription;
+  } catch (error) {
+    console.error('Stripe subscription retrieval error:', error);
+    throw error;
+  }
+}
+
+/**
+ * List subscriptions with filters
+ * @param {Object} params - Filter parameters
+ */
+async function listSubscriptions(params = {}) {
+  try {
+    const subscriptions = await stripe.subscriptions.list({
+      limit: params.limit || 100,
+      ...params
+    });
+    return subscriptions;
+  } catch (error) {
+    console.error('Stripe subscriptions list error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Calculate total MRR from active subscriptions
+ * @param {Array} subscriptions - Array of subscription objects from database
+ */
+function calculateMRR(subscriptions) {
+  return subscriptions.reduce((total, sub) => {
+    if (sub.status === 'active' || sub.status === 'trialing') {
+      return total + Number.parseFloat(sub.mrr || 0);
+    }
+    return total;
+  }, 0);
+}

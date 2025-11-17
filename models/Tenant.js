@@ -39,9 +39,14 @@ const Tenant = sequelize.define('Tenant', {
     allowNull: false
   },
   subscriptionPlan: {
-    type: DataTypes.ENUM('starter', 'pro'),
-    defaultValue: 'starter',
+    type: DataTypes.ENUM('basic', 'pro', 'enterprise'),
+    defaultValue: 'basic',
     allowNull: false
+  },
+  mrr: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0
   },
   isActive: {
     type: DataTypes.BOOLEAN,
@@ -49,45 +54,35 @@ const Tenant = sequelize.define('Tenant', {
   },
   stripeCustomerId: {
     type: DataTypes.STRING,
-    allowNull: true,
-    unique: true,
-    comment: 'Stripe Customer ID for payment processing'
+    allowNull: true
   },
   paymentStatus: {
     type: DataTypes.ENUM('trial', 'pending', 'active', 'past_due', 'cancelled'),
-    defaultValue: 'trial',
-    comment: 'Current payment/subscription status',
-    
+    defaultValue: 'trial'
   },
   subscriptionExpiresAt: {
     type: DataTypes.DATE,
-    allowNull: true,
-    comment: 'Subscription expiration date'
-    
+    allowNull: true
   },
   seatLimit: {
     type: DataTypes.INTEGER,
     defaultValue: 5,
     allowNull: false,
-    comment: 'Maximum number of users allowed for this tenant',
     field: 'seat_limit'
   },
   status: {
     type: DataTypes.ENUM('active', 'suspended', 'trial', 'cancelled'),
     defaultValue: 'active',
-    allowNull: false,
-    comment: 'Tenant account status'
+    allowNull: false
   },
   trialEndsAt: {
     type: DataTypes.DATE,
     allowNull: true,
-    comment: 'Trial period end date',
     field: 'trial_ends_at'
   },
   subscriptionId: {
     type: DataTypes.STRING,
     allowNull: true,
-    comment: 'Stripe subscription ID',
     field: 'subscription_id'
   }
 }, {
@@ -98,6 +93,7 @@ const Tenant = sequelize.define('Tenant', {
       fields: ['email']
     },
     {
+      unique: true,
       fields: ['stripeCustomerId']
     },
     {
@@ -108,5 +104,19 @@ const Tenant = sequelize.define('Tenant', {
     }
   ]
 });
+
+// Associations will be set up in a separate file
+Tenant.associate = (models) => {
+  Tenant.hasMany(models.Subscription, {
+    foreignKey: 'tenantId',
+    as: 'subscriptions'
+  });
+  Tenant.hasMany(models.User, {
+    foreignKey: 'tenantId'
+  });
+  Tenant.hasMany(models.Payment, {
+    foreignKey: 'tenantId'
+  });
+};
 
 module.exports = Tenant;

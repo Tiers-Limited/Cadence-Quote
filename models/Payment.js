@@ -29,8 +29,18 @@ const Payment = sequelize.define('Payment', {
     onDelete: 'CASCADE'
   },
   subscriptionPlan: {
-    type: DataTypes.ENUM('starter', 'pro'),
+    type: DataTypes.ENUM('basic', 'pro', 'enterprise'),
     allowNull: false
+  },
+  subscriptionId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'subscriptions',
+      key: 'id'
+    },
+    onDelete: 'SET NULL',
+    field: 'subscription_id'
   },
   amount: {
     type: DataTypes.DECIMAL(10, 2),
@@ -101,15 +111,22 @@ const Payment = sequelize.define('Payment', {
       fields: ['status']
     },
     {
+      fields: ['subscription_id']
+    },
+    {
       fields: ['createdAt']
     }
   ]
 });
 
 // Associations
-Payment.belongsTo(Tenant, { foreignKey: 'tenantId' });
-Payment.belongsTo(User, { foreignKey: 'userId' });
-Tenant.hasMany(Payment, { foreignKey: 'tenantId' });
-User.hasMany(Payment, { foreignKey: 'userId' });
+Payment.associate = (models) => {
+  Payment.belongsTo(models.Tenant, { foreignKey: 'tenantId' });
+  Payment.belongsTo(models.User, { foreignKey: 'userId' });
+  Payment.belongsTo(models.Subscription, { 
+    foreignKey: 'subscriptionId',
+    as: 'subscription'
+  });
+};
 
 module.exports = Payment;
