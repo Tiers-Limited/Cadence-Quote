@@ -404,6 +404,69 @@ class ApiService {
   async calculateQuote(id, data) {
     return this.post(`/pricing-schemes/${id}/calculate`, data);
   }
+
+  // ============================================
+  // Subscription & Billing Methods
+  // ============================================
+
+  /**
+   * Get all subscriptions with filters and pagination
+   * @param {Object} params - Query parameters (page, limit, status, tier, search)
+   */
+  async getSubscriptions(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    return this.get(`/subscriptions?${queryString}`);
+  }
+
+  /**
+   * Get subscription statistics (MRR, churn, trials, etc.)
+   */
+  async getSubscriptionStats() {
+    return this.get('/subscriptions/stats');
+  }
+
+  /**
+   * Get Stripe integration status
+   */
+  async getStripeIntegrationStatus() {
+    return this.get('/subscriptions/stripe-status');
+  }
+
+  /**
+   * Update a subscription
+   * @param {number} id - Subscription ID
+   * @param {Object} data - Update data (tier, quantity, cancelAtPeriodEnd)
+   */
+  async updateSubscription(id, data) {
+    return this.put(`/subscriptions/${id}`, data);
+  }
+
+  /**
+   * Cancel a subscription
+   * @param {number} id - Subscription ID
+   * @param {boolean} immediate - Cancel immediately or at period end
+   */
+  async cancelSubscription(id, immediate = false) {
+    return this.post(`/subscriptions/${id}/cancel`, { immediate });
+  }
+
+  /**
+   * Retry a failed payment
+   * @param {number} id - Subscription ID
+   */
+  async retryPayment(id) {
+    return this.post(`/subscriptions/${id}/retry`);
+  }
+
+  /**
+   * Process a refund
+   * @param {number} paymentId - Payment ID
+   * @param {number} amount - Amount to refund (optional, full refund if not provided)
+   * @param {string} reason - Refund reason
+   */
+  async processRefund(paymentId, amount = null, reason = '') {
+    return this.post(`/subscriptions/payments/${paymentId}/refund`, { amount, reason });
+  }
 }
 
 export const apiService = new ApiService(API_BASE_URL)

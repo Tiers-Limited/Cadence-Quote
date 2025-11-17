@@ -14,32 +14,56 @@ function SubscriptionPage({ formData, onSelectPlan, onBack }) {
   const { submitRegistration } = useRegistrationSubmit()
 
   useEffect(() => {
-    // Define subscription plans (you can move this to a separate file or API)
+    // Define subscription plans matching the new tier structure
     const subscriptionPlans = {
-      starter: {
-        name: "Starter",
-        price: 29,
+      basic: {
+        name: "Basic Plan",
+        price: 29.99,
         currency: "USD",
         interval: "month",
+        description: "Perfect for small contractors getting started",
+        trialDays: 14,
         features: [
-          "Up to 5 projects",
-          "Basic reporting",
+          "Up to 10 projects",
+          "Basic proposal templates",
+          "Customer management",
           "Email support",
-          "Mobile app access"
+          "5 team seats"
         ]
       },
       pro: {
-        name: "Professional",
-        price: 79,
+        name: "Pro Plan",
+        price: 79.99,
         currency: "USD",
         interval: "month",
+        description: "Advanced features for growing businesses",
+        trialDays: 14,
+        popular: true,
         features: [
           "Unlimited projects",
-          "Advanced reporting",
-          "Priority support",
+          "Advanced proposal templates",
           "Team collaboration",
-          "API access",
-          "Custom integrations"
+          "Priority support",
+          "Custom branding",
+          "Analytics dashboard",
+          "20 team seats"
+        ]
+      },
+      enterprise: {
+        name: "Enterprise Plan",
+        price: 199.99,
+        currency: "USD",
+        interval: "month",
+        description: "Full-featured solution for large teams",
+        trialDays: 30,
+        features: [
+          "Everything in Pro",
+          "Dedicated account manager",
+          "24/7 phone support",
+          "Custom integrations",
+          "Advanced analytics",
+          "SLA guarantees",
+          "Unlimited team seats"
         ]
       }
     }
@@ -107,7 +131,7 @@ function SubscriptionPage({ formData, onSelectPlan, onBack }) {
           <p className="text-gray-600 mt-4">Loading subscription plans...</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 mb-12">
           {planList.map((plan) => (
             <div
               key={plan.id}

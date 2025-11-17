@@ -14,6 +14,7 @@ const GlobalColorsPage = () => {
   const [bulkUploadModalVisible, setBulkUploadModalVisible] = useState(false);
   const [editingColor, setEditingColor] = useState(null);
   const [selectedColorForMapping, setSelectedColorForMapping] = useState(null);
+  const [showCustomBrand, setShowCustomBrand] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
   const [pagination, setPagination] = useState({
@@ -113,10 +114,17 @@ const GlobalColorsPage = () => {
   };
 
   const showModal = (color = null) => {
+    // Check if a brand is selected for filtering when adding new color
+    if (!color && (!selectedBrandFilter || selectedBrandFilter === 'all')) {
+      message.warning('Please select a brand from the filter dropdown before adding a color');
+      return;
+    }
+
     setEditingColor(color);
     if (color) {
       form.setFieldsValue({
-        brandId: color.brandId,
+        brandId: color.brandId || 'other',
+        customBrand: color.customBrand || '',
         name: color.name,
         code: color.code,
         hexValue: color.hexValue || '#FFFFFF',
@@ -125,9 +133,20 @@ const GlobalColorsPage = () => {
         blue: color.blue,
         sampleImage: color.sampleImage || '',
       });
+      setShowCustomBrand(color.brandId === null || color.brandId === 'other');
     } else {
       form.resetFields();
       form.setFieldsValue({ hexValue: '#FFFFFF' });
+      // Pre-select the filtered brand
+      if (selectedBrandFilter && selectedBrandFilter !== 'all' && selectedBrandFilter !== 'custom') {
+        form.setFieldsValue({ brandId: selectedBrandFilter });
+        setShowCustomBrand(false);
+      } else if (selectedBrandFilter === 'custom') {
+        form.setFieldsValue({ brandId: 'other' });
+        setShowCustomBrand(true);
+      } else {
+        setShowCustomBrand(false);
+      }
     }
     setModalVisible(true);
   };
@@ -138,10 +157,21 @@ const GlobalColorsPage = () => {
     setMappingModalVisible(true);
   };
 
+  const handleBrandChange = (value) => {
+    if (value === 'other') {
+      setShowCustomBrand(true);
+      form.setFieldsValue({ brandId: null });
+    } else {
+      setShowCustomBrand(false);
+      form.setFieldsValue({ customBrand: '' });
+    }
+  };
+
   const handleSubmit = async (values) => {
     try {
       const data = {
-        brandId: values.brandId,
+        brandId: showCustomBrand ? null : values.brandId,
+        customBrand: showCustomBrand ? values.customBrand : null,
         name: values.name,
         code: values.code,
         hexValue: values.hexValue,
@@ -161,6 +191,7 @@ const GlobalColorsPage = () => {
 
       setModalVisible(false);
       form.resetFields();
+      setShowCustomBrand(false);
       fetchColors();
     } catch (error) {
       console.error('Error saving color:', error);
@@ -202,8 +233,8 @@ const GlobalColorsPage = () => {
       return;
     }
 
-    if (!selectedBrandFilter) {
-      message.warning('Please select a brand filter before uploading colors');
+    if (!selectedBrandFilter || selectedBrandFilter === 'all') {
+      message.warning('Please select a specific brand from the filter dropdown before bulk uploading colors');
       return;
     }
 
@@ -289,7 +320,12 @@ const GlobalColorsPage = () => {
     ...(!isMobile ? [{
       title: 'Brand',
       key: 'brand',
-      render: (_, record) => record.brand?.name || '-',
+      render: (_, record) => {
+        if (record.customBrand) {
+          return <Tag color="orange">{record.customBrand}</Tag>;
+        }
+        return record.brand?.name || '-';
+      },
     }] : []),
     {
       title: 'Hex Value',
@@ -395,6 +431,7 @@ const GlobalColorsPage = () => {
               {brand.name}
             </Option>
           ))}
+          <Option value="custom">Custom Brands</Option>
         </Select>
         <Input
           placeholder="Search by color name or code..."
@@ -429,6 +466,7 @@ const GlobalColorsPage = () => {
         onCancel={() => {
           setModalVisible(false);
           form.resetFields();
+          setShowCustomBrand(false);
         }}
         footer={null}
         width={isMobile ? '100%' : 600}
@@ -443,16 +481,34 @@ const GlobalColorsPage = () => {
           <Form.Item
             name="brandId"
             label="Brand"
-            rules={[{ required: true, message: 'Please select a brand' }]}
+            rules={[{ required: !showCustomBrand, message: 'Please select a brand' }]}
           >
-            <Select placeholder="Select a brand" showSearch>
+            <Select
+              placeholder="Select a brand"
+              onChange={handleBrandChange}
+              showSearch
+              filterOption={(input, option) =>
+                option.children.toLowerCase().includes(input.toLowerCase())
+              }
+            >
               {brands.map((brand) => (
                 <Option key={brand.id} value={brand.id}>
                   {brand.name}
                 </Option>
               ))}
+              <Option value="other">Other Brand (Custom)</Option>
             </Select>
           </Form.Item>
+
+          {showCustomBrand && (
+            <Form.Item
+              name="customBrand"
+              label="Custom Brand Name"
+              rules={[{ required: true, message: 'Please enter custom brand name' }]}
+            >
+              <Input placeholder="Enter custom brand name" />
+            </Form.Item>
+          )}
 
           <Form.Item
             name="name"
@@ -503,6 +559,7 @@ const GlobalColorsPage = () => {
                 onClick={() => {
                   setModalVisible(false);
                   form.resetFields();
+                  setShowCustomBrand(false);
                 }}
                 block={isMobile}
                 className="order-2 sm:order-1"
