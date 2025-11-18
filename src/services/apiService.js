@@ -112,14 +112,15 @@ class ApiService {
 
   async put(endpoint, data = {}, options = {}) {
     try {
+      const { headers: customHeaders, ...restOptions } = options;
       const response = await fetch(`${this.baseURL}${endpoint}`, {
         method: "PUT",
         headers: {
           ...this.getHeaders(),
-          ...(options.headers || {})
+          ...customHeaders
         },
         body: JSON.stringify(data),
-        ...options,
+        ...restOptions,
       })
 
       return this.handleResponse(response)
@@ -145,8 +146,13 @@ class ApiService {
   async handleResponse(response, retryCount = 0) {
     const data = await response.json()
 
-    // Handle 401 Unauthorized - try to refresh token
-    if (response.status === 401 && retryCount === 0) {
+    // Handle 401 Unauthorized - try to refresh token (but not for login/register endpoints)
+    const isAuthEndpoint = response.url.includes('/auth/login') || 
+                           response.url.includes('/auth/register') || 
+                           response.url.includes('/auth/google') || 
+                           response.url.includes('/auth/apple');
+    
+    if (response.status === 401 && retryCount === 0 && !isAuthEndpoint) {
       if (!this.isRefreshing) {
         this.isRefreshing = true
         
@@ -184,6 +190,11 @@ class ApiService {
           })
         })
       }
+    }
+
+    // For auth endpoints, return the response even if not ok (they handle their own error responses)
+    if (isAuthEndpoint) {
+      return data;
     }
 
     if (!response.ok) {
@@ -385,8 +396,8 @@ class ApiService {
     return this.post('/pricing-schemes', data);
   }
 
-  async updatePricingScheme(id, data) {
-    return this.put(`/pricing-schemes/${id}`, data);
+  async updatePricingScheme(id, data, customHeaders = {}) {
+    return this.put(`/pricing-schemes/${id}`, data, { headers: customHeaders });
   }
 
   async deletePricingScheme(id) {
@@ -466,6 +477,14 @@ class ApiService {
    */
   async processRefund(paymentId, amount = null, reason = '') {
     return this.post(`/subscriptions/payments/${paymentId}/refund`, { amount, reason });
+  }
+
+  /**
+   * Get payment session details
+   * @param {string} sessionId - Stripe session ID
+   */
+  async getPaymentSession(sessionId) {
+    return this.get(`/payments/session/${sessionId}`);
   }
 }
 

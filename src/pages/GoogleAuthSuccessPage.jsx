@@ -16,7 +16,23 @@ function GoogleAuthSuccessPage() {
         const error = searchParams.get('error');
 
         if (error) {
-          message.error(error);
+          // Handle different error types
+          const errorMessage = decodeURIComponent(error);
+          
+          if (errorMessage.includes('not active')) {
+            message.error({
+              content: errorMessage,
+              duration: 6
+            });
+          } else if (errorMessage.includes('incomplete')) {
+            message.warning({
+              content: errorMessage,
+              duration: 8
+            });
+          } else {
+            message.error(errorMessage);
+          }
+          
           navigate('/login');
           return;
         }

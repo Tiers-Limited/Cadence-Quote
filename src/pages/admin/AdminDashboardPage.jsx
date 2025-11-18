@@ -61,6 +61,7 @@ const AdminDashboardPage = () => {
       key: 'createdAt',
       render: (date) => new Date(date).toLocaleString(),
       width: 180,
+      responsive: ['md'],
     },
     {
       title: 'User',
@@ -72,6 +73,7 @@ const AdminDashboardPage = () => {
       title: 'Action',
       dataIndex: 'action',
       key: 'action',
+      ellipsis: true,
     },
     {
       title: 'Category',
@@ -80,6 +82,7 @@ const AdminDashboardPage = () => {
       render: (category) => (
         <Tag color={getCategoryColor(category)}>{category}</Tag>
       ),
+      responsive: ['sm'],
     },
   ];
 
@@ -106,11 +109,11 @@ const AdminDashboardPage = () => {
   }
 
   return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
+    <div className="p-4 md:p-6">
+      <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">Admin Dashboard</h1>
 
       {/* Statistics Cards */}
-      <Row gutter={[16, 16]} className="mb-6">
+      <Row gutter={[12, 12]} className="mb-4 md:mb-6">
         <Col xs={24} sm={12} lg={8}>
           <Card>
             <Statistic
@@ -118,8 +121,12 @@ const AdminDashboardPage = () => {
               value={stats.tenants.total}
               prefix={<TeamOutlined />}
             />
-            <div className="mt-2 text-sm text-gray-500">
-              Active: {stats.tenants.active} | Trial: {stats.tenants.trial} | Suspended: {stats.tenants.suspended}
+            <div className="mt-2 text-xs md:text-sm text-gray-500">
+              <div className="flex flex-wrap gap-2">
+                <span>Active: {stats.tenants.active}</span>
+                <span>Trial: {stats.tenants.trial}</span>
+                <span>Suspended: {stats.tenants.suspended}</span>
+              </div>
             </div>
           </Card>
         </Col>
@@ -185,7 +192,15 @@ const AdminDashboardPage = () => {
           columns={activityColumns}
           dataSource={recentActivity}
           rowKey="id"
-          pagination={false}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total) => `Total ${total} items`,
+            pageSizeOptions: ['5', '10', '20', '50'],
+            responsive: true,
+          }}
+          scroll={{ x: 768 }}
+          size="small"
         />
       </Card>
     </div>

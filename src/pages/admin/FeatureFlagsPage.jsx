@@ -104,12 +104,12 @@ const FeatureFlagsPage = () => {
     {
       title: 'Enabled',
       key: 'enabled',
-      width: isMobile ? 150 : 100,
+      width: 80,
+      fixed: isMobile ? 'left' : undefined,
       render: (_, record) => (
         <Switch
           checked={record.isEnabled}
           onChange={() => handleToggle(record)}
-          
         />
       ),
     },
@@ -240,10 +240,12 @@ const FeatureFlagsPage = () => {
         dataSource={features}
         loading={loading}
         rowKey="id"
-        scroll={{ x: isMobile ? 600 : 'max-content' }}
+        scroll={{ x: 800 }}
         pagination={{ 
           pageSize: isMobile ? 10 : 20,
-          simple: isMobile 
+          simple: isMobile,
+          showSizeChanger: !isMobile,
+          showTotal: (total) => !isMobile ? `Total ${total} items` : undefined,
         }}
       />
 

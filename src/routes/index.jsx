@@ -10,6 +10,7 @@ import PaymentSuccessPage from '../pages/PaymentSuccessPage';
 import PaymentCancelPage from '../pages/PaymentCancelPage';
 import GoogleAuthSuccessPage from '../pages/GoogleAuthSuccessPage';
 import AppleAuthSuccessPage from '../pages/AppleAuthSuccessPage';
+import ResumePaymentPage from '../pages/ResumePaymentPage';
 import ProductCatalog from '../features/products/ProductCatalog';
 import ColorLibrary from '../features/products/ColorLibrary';
 import PricingSchemes from '../features/pricing/PricingSchemes';
@@ -35,6 +36,7 @@ import AuditLogsPage from '../pages/admin/AuditLogsPage';
 import TenantManagementPage from '../pages/admin/TenantManagementPage';
 import FeatureFlagsPage from '../pages/admin/FeatureFlagsPage';
 import StripeBillingPage from '../pages/admin/StripeBillingPage';
+import AdminSettingsPage from '../pages/admin/AdminSettingsPage';
 
 const AppRoutes = () => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -63,6 +65,7 @@ const AppRoutes = () => {
       <Route path='/reset-password' element={<ResetPasswordPage />} />
       <Route path='/auth/apple/success' element={<AuthSuccess />} />
       <Route path='/auth/google/success' element={<GoogleAuthSuccessPage />} />
+      <Route path='/auth/resume-payment' element={<ResumePaymentPage />} />
       {/* <Route path='/auth/apple/success' element={<AppleAuthSuccessPage />} /> */}
       <Route path="/verify-email" element={<EmailVerificationPage />} />
       <Route path='/verify-2fa' element={<TwoFactorVerificationPage />} />
@@ -127,7 +130,7 @@ const AppRoutes = () => {
         <Route path='tenants' element={<TenantManagementPage />} />
         <Route path='features' element={<FeatureFlagsPage />} />
         <Route path='billing' element={<StripeBillingPage />} />
-        <Route path='settings' element={<ComingSoonPage />} />
+        <Route path='settings' element={<AdminSettingsPage />} />
       </Route>
 
       {/* Default Route */}

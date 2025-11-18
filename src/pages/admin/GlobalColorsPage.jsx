@@ -9,6 +9,10 @@ const GlobalColorsPage = () => {
   const [colors, setColors] = useState([]);
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [mappingSubmitting, setMappingSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [mappingModalVisible, setMappingModalVisible] = useState(false);
   const [bulkUploadModalVisible, setBulkUploadModalVisible] = useState(false);
@@ -168,6 +172,7 @@ const GlobalColorsPage = () => {
   };
 
   const handleSubmit = async (values) => {
+    setSubmitting(true);
     try {
       const data = {
         brandId: showCustomBrand ? null : values.brandId,
@@ -196,10 +201,13 @@ const GlobalColorsPage = () => {
     } catch (error) {
       console.error('Error saving color:', error);
       message.error(error.message || 'Failed to save color');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleAddMapping = async (values) => {
+    setMappingSubmitting(true);
     try {
       await apiService.addCrossBrandMapping(selectedColorForMapping.id, {
         mappedColorId: values.mappedColorId,
@@ -212,10 +220,13 @@ const GlobalColorsPage = () => {
     } catch (error) {
       console.error('Error adding mapping:', error);
       message.error('Failed to add mapping');
+    } finally {
+      setMappingSubmitting(false);
     }
   };
 
   const handleDelete = async (id) => {
+    setDeleting(id);
     try {
       await apiService.deleteGlobalColor(id);
       message.success('Color deleted successfully');
@@ -223,6 +234,8 @@ const GlobalColorsPage = () => {
     } catch (error) {
       console.error('Error deleting color:', error);
       message.error('Failed to delete color');
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -242,6 +255,7 @@ const GlobalColorsPage = () => {
   };
 
   const handleBulkUpload = async (file) => {
+    setUploading(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -261,6 +275,8 @@ const GlobalColorsPage = () => {
     } catch (error) {
       console.error('Error uploading file:', error);
       message.error(error.message || 'Failed to upload colors');
+    } finally {
+      setUploading(false);
     }
     return false; // Prevent default upload behavior
   };
@@ -269,13 +285,13 @@ const GlobalColorsPage = () => {
     const brandName = brands.find(b => b.id === selectedBrandFilter)?.name || 'Brand';
     const csvContent = 'Color Name,Color Code,Hex Value,Red,Green,Blue,Sample Image\n' +
       `Example White,${brandName.substring(0, 2).toUpperCase()}-001,#FFFFFF,255,255,255,\n` +
-      `Example Black,${brandName.substring(0, 2).toUpperCase()}-002,#000000,0,0,0,`;
+      `Example Black,${brandName.substring(0, 2).toUpperCase()}-002,#000000,0,0,0,\n\nNote: All colors will be added to the brand: ${brandName}`;
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${brandName}_colors_template.csv`;
+    a.download = `${brandName.replaceAll(/\s+/g, '_')}_colors_template.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -369,6 +385,7 @@ const GlobalColorsPage = () => {
             size="small"
             title="Add Cross-Brand Mapping"
             block={isMobile}
+            disabled={deleting !== null || submitting || mappingSubmitting}
           >
             {isMobile && 'Map'}
           </Button>
@@ -377,6 +394,7 @@ const GlobalColorsPage = () => {
             onClick={() => showModal(record)}
             size="small"
             block={isMobile}
+            disabled={deleting !== null || submitting || mappingSubmitting}
           >
             {isMobile && 'Edit'}
           </Button>
@@ -386,8 +404,16 @@ const GlobalColorsPage = () => {
             onConfirm={() => handleDelete(record.id)}
             okText="Yes"
             cancelText="No"
+            disabled={deleting !== null || submitting || mappingSubmitting}
           >
-            <Button icon={<DeleteOutlined />} danger size="small" block={isMobile} />
+            <Button 
+              icon={<DeleteOutlined />} 
+              danger 
+              size="small" 
+              block={isMobile} 
+              loading={deleting === record.id}
+              disabled={deleting !== null || submitting || mappingSubmitting}
+            />
           </Popconfirm>
         </Space>
       ),
@@ -431,7 +457,7 @@ const GlobalColorsPage = () => {
               {brand.name}
             </Option>
           ))}
-          <Option value="custom">Custom Brands</Option>
+          {/* <Option value="custom">Custom Brands</Option> */}
         </Select>
         <Input
           placeholder="Search by color name or code..."
@@ -563,6 +589,7 @@ const GlobalColorsPage = () => {
                 }}
                 block={isMobile}
                 className="order-2 sm:order-1"
+                disabled={submitting}
               >
                 Cancel
               </Button>
@@ -571,6 +598,8 @@ const GlobalColorsPage = () => {
                 htmlType="submit"
                 block={isMobile}
                 className="order-1 sm:order-2 sm:ml-2"
+                loading={submitting}
+                disabled={submitting}
               >
                 {editingColor ? 'Update' : 'Create'}
               </Button>
@@ -650,6 +679,7 @@ const GlobalColorsPage = () => {
                 }}
                 block={isMobile}
                 className="order-2 sm:order-1"
+                disabled={mappingSubmitting}
               >
                 Cancel
               </Button>
@@ -658,6 +688,8 @@ const GlobalColorsPage = () => {
                 htmlType="submit"
                 block={isMobile}
                 className="order-1 sm:order-2 sm:ml-2"
+                loading={mappingSubmitting}
+                disabled={mappingSubmitting}
               >
                 Add Mapping
               </Button>

@@ -8,10 +8,10 @@ export const useLogin = () => {
   const [error, setError] = useState(null);
 
   const login = async (email, password, authProvider) => {
-    setLoading(true);
-    setError(null);
-
     try {
+      setLoading(true);
+      setError(null);
+
       const response = await apiService.post("/auth/login", {
         email,
         password,

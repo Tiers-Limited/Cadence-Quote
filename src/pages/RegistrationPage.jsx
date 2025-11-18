@@ -10,10 +10,21 @@ function RegistrationPage() {
   const [currentStep, setCurrentStep] = useState("form")
   const [formData, setFormData] = useState(null)
   const [googleData, setGoogleData] = useState(null)
+  const [appleData, setAppleData] = useState(null)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
   useEffect(() => {
+    // Check if this is a retry after abandoned payment
+    const isRetry = searchParams.get('retry')
+    if (isRetry === 'true') {
+      message.warning({
+        content: 'Your previous registration was incomplete. Complete the form again to continue.',
+        duration: 6,
+        style: { marginTop: '20vh' }
+      })
+    }
+
     // Handle Google OAuth data
     const googleDataParam = searchParams.get('googleData')
     if (googleDataParam) {
@@ -22,10 +33,31 @@ function RegistrationPage() {
         const decoded = JSON.parse(atob(googleDataParam))
         console.log('Google OAuth data received:', decoded)
         setGoogleData(decoded)
-        message.info('Please complete your registration details')
+        
+        if (!isRetry) {
+          message.info('Please complete your registration details')
+        }
       } catch (error) {
         console.error('Error decoding Google data:', error)
         message.error('Failed to process Google authentication data')
+      }
+    }
+
+    // Handle Apple OAuth data
+    const appleDataParam = searchParams.get('appleData')
+    if (appleDataParam) {
+      try {
+        // Decode base64 encoded Apple data
+        const decoded = JSON.parse(atob(appleDataParam))
+        console.log('Apple OAuth data received:', decoded)
+        setAppleData(decoded)
+        
+        if (!isRetry) {
+          message.info('Please complete your registration details')
+        }
+      } catch (error) {
+        console.error('Error decoding Apple data:', error)
+        message.error('Failed to process Apple authentication data')
       }
     }
 
@@ -70,6 +102,7 @@ function RegistrationPage() {
           onSubmit={handleFormSubmit} 
           onNavigateToLogin={handleNavigateToLogin}
           googleData={googleData}
+          appleData={appleData}
         />
       )}
       {currentStep === "subscription" && (

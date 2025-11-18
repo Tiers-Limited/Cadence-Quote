@@ -11,6 +11,11 @@ const GlobalProductsPage = () => {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
   const [brandsLoading, setBrandsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [brandSubmitting, setBrandSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(null);
+  const [brandDeleting, setBrandDeleting] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [brandModalVisible, setBrandModalVisible] = useState(false);
   const [bulkUploadModalVisible, setBulkUploadModalVisible] = useState(false);
@@ -208,6 +213,7 @@ const GlobalProductsPage = () => {
   };
 
   const handleSubmit = async (values) => {
+    setSubmitting(true);
     try {
       const data = {
         brandId: showCustomBrand ? null : values.brandId,
@@ -235,10 +241,13 @@ const GlobalProductsPage = () => {
     } catch (error) {
       console.error('Error saving product:', error);
       message.error(error.message || 'Failed to save product');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleDelete = async (id) => {
+    setDeleting(id);
     try {
       await apiService.deleteGlobalProduct(id);
       message.success('Product deleted successfully');
@@ -246,6 +255,8 @@ const GlobalProductsPage = () => {
     } catch (error) {
       console.error('Error deleting product:', error);
       message.error('Failed to delete product');
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -264,6 +275,7 @@ const GlobalProductsPage = () => {
   };
 
   const handleBrandSubmit = async (values) => {
+    setBrandSubmitting(true);
     try {
       if (editingBrand) {
         await apiService.updateAdminBrand(editingBrand.id, values);
@@ -279,10 +291,13 @@ const GlobalProductsPage = () => {
     } catch (error) {
       console.error('Error saving brand:', error);
       message.error(error.message || 'Failed to save brand');
+    } finally {
+      setBrandSubmitting(false);
     }
   };
 
   const handleBrandDelete = async (id) => {
+    setBrandDeleting(id);
     try {
       await apiService.deleteAdminBrand(id);
       message.success('Brand deleted successfully');
@@ -290,6 +305,8 @@ const GlobalProductsPage = () => {
     } catch (error) {
       console.error('Error deleting brand:', error);
       message.error('Failed to delete brand');
+    } finally {
+      setBrandDeleting(null);
     }
   };
 
@@ -354,6 +371,7 @@ const GlobalProductsPage = () => {
       return false;
     }
 
+    setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('brandId', selectedBrandFilter);
@@ -370,6 +388,8 @@ const GlobalProductsPage = () => {
     } catch (error) {
       message.error('Failed to upload products');
       console.error('Bulk upload error:', error);
+    } finally {
+      setUploading(false);
     }
     
     return false; // Prevent default upload behavior
@@ -378,7 +398,7 @@ const GlobalProductsPage = () => {
     const selectedBrandName = selectedBrandFilter && selectedBrandFilter !== 'all' 
       ? brands.find(b => b.id === selectedBrandFilter)?.name || 'Selected Brand'
       : 'Selected Brand';
-    const template = `Product Name,Category,Tier,Sheen Options,Notes\nPremium Interior Paint,Interior,Best,"Flat, Eggshell, Satin",High quality paint\nEconomy Exterior Paint,Exterior,Good,"Satin, Semi-Gloss",""\n\nNote: All products will be added to the brand: ${selectedBrandName}`;
+    const template = `Product Name,Category,Tier,Sheen Options,Notes\nPremium Interior Paint,Interior,Best,"Flat, Eggshell, Satin",High quality paint\nEconomy Exterior Paint,Exterior,Good,"Satin, Semi-Gloss",\n\nNote: All products will be added to the brand: ${selectedBrandName}`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -470,6 +490,7 @@ const GlobalProductsPage = () => {
             onClick={() => showModal(record)}
             size="small"
             block={isMobile}
+            disabled={deleting !== null || submitting}
           >
             {isMobile && 'Edit'}
           </Button>
@@ -479,8 +500,15 @@ const GlobalProductsPage = () => {
             onConfirm={() => handleDelete(record.id)}
             okText="Yes"
             cancelText="No"
+            disabled={deleting !== null || submitting}
           >
-            <Button icon={<DeleteOutlined />} danger size="small" />
+            <Button 
+              icon={<DeleteOutlined />} 
+              danger 
+              size="small" 
+              loading={deleting === record.id}
+              disabled={deleting !== null || submitting}
+            />
           </Popconfirm>
         </Space>
       ),
@@ -517,6 +545,7 @@ const GlobalProductsPage = () => {
             icon={<EditOutlined />}
             onClick={() => showBrandModal(record)}
             size="small"
+            disabled={brandDeleting !== null || brandSubmitting}
           />
           <Popconfirm
             title="Delete brand"
@@ -524,8 +553,15 @@ const GlobalProductsPage = () => {
             onConfirm={() => handleBrandDelete(record.id)}
             okText="Yes"
             cancelText="No"
+            disabled={brandDeleting !== null || brandSubmitting}
           >
-            <Button icon={<DeleteOutlined />} danger size="small" />
+            <Button 
+              icon={<DeleteOutlined />} 
+              danger 
+              size="small" 
+              loading={brandDeleting === record.id}
+              disabled={brandDeleting !== null || brandSubmitting}
+            />
           </Popconfirm>
         </Space>
       ),
@@ -578,7 +614,7 @@ const GlobalProductsPage = () => {
                             {brand.name}
                           </Option>
                         ))}
-                        <Option value="custom">Custom Brands</Option>
+                        {/* <Option value="custom">Custom Brands</Option> */}
                       </Select>
                       <Select
                         placeholder="Filter by Category"
@@ -796,6 +832,7 @@ const GlobalProductsPage = () => {
                 }}
                 block={isMobile}
                 className="order-2 sm:order-1"
+                disabled={submitting}
               >
                 Cancel
               </Button>
@@ -804,6 +841,8 @@ const GlobalProductsPage = () => {
                 htmlType="submit"
                 block={isMobile}
                 className="order-1 sm:order-2 sm:ml-2"
+                loading={submitting}
+                disabled={submitting}
               >
                 {editingProduct ? 'Update' : 'Create'}
               </Button>
@@ -854,6 +893,7 @@ const GlobalProductsPage = () => {
                 }}
                 block={isMobile}
                 className="order-2 sm:order-1"
+                disabled={brandSubmitting}
               >
                 Cancel
               </Button>
@@ -862,6 +902,8 @@ const GlobalProductsPage = () => {
                 htmlType="submit"
                 block={isMobile}
                 className="order-1 sm:order-2 sm:ml-2"
+                loading={brandSubmitting}
+                disabled={brandSubmitting}
               >
                 {editingBrand ? 'Update' : 'Create'}
               </Button>

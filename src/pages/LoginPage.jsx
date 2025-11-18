@@ -1,20 +1,49 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi'
 import { useLogin } from '../hooks/useLogin'
 import { useAuth } from '../hooks/useAuth'
-import { Spin, message } from 'antd'
+import { Spin, message, Alert } from 'antd'
 import GoogleAuthButton from '../components/GoogleAuthButton'
 import AppleAuthButton from '../components/AppleAuthButton'
 import Logo from '../components/Logo'
 
 function LoginPage () {
+  const [searchParams] = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [urlError, setUrlError] = useState(null)
   const { login, loading, error } = useLogin()
   const { login: contextLogin } = useAuth()
   const navigate = useNavigate()
+
+  // Handle error from URL params (OAuth redirects)
+  useEffect(() => {
+    const errorParam = searchParams.get('error')
+    if (errorParam) {
+      setUrlError(decodeURIComponent(errorParam))
+      
+      // Show message
+      if (errorParam.includes('incomplete')) {
+        message.warning({
+          content: decodeURIComponent(errorParam),
+          duration: 8,
+          style: { marginTop: '20vh' }
+        })
+      } else {
+        message.error({
+          content: decodeURIComponent(errorParam),
+          duration: 6,
+          style: { marginTop: '20vh' }
+        })
+      }
+
+      // Clear URL params after displaying
+      const newUrl = window.location.pathname
+      window.history.replaceState({}, '', newUrl)
+    }
+  }, [searchParams])
 
   const handleSubmit = async e => {
     e.preventDefault()
@@ -68,6 +97,26 @@ function LoginPage () {
 
         {/* Login Form */}
         <div className='bg-white rounded-xl shadow-lg p-8'>
+          {urlError && urlError.includes('incomplete') && (
+            <Alert
+              message="Incomplete Registration"
+              description={urlError}
+              type="warning"
+              showIcon
+              closable
+              onClose={() => setUrlError(null)}
+              className='mb-4'
+              action={
+                <Link
+                  to='/register'
+                  className='text-sm font-medium text-blue-600 hover:text-blue-700'
+                >
+                  Try Again
+                </Link>
+              }
+            />
+          )}
+          
           {error && (
             <div className='mb-4 p-4 bg-red-50 border border-red-200 rounded-lg'>
               <p className='text-red-700 text-sm'>{error}</p>

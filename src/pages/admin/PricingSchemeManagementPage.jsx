@@ -9,9 +9,18 @@ const { TextArea } = Input;
 const PricingSchemeManagementPage = () => {
   const [schemes, setSchemes] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [settingDefault, setSettingDefault] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinSetupModalVisible, setPinSetupModalVisible] = useState(false);
   const [editingScheme, setEditingScheme] = useState(null);
+  const [pendingUpdate, setPendingUpdate] = useState(null);
   const [form] = Form.useForm();
+  const [pinForm] = Form.useForm();
+  const [pinSetupForm] = Form.useForm();
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -47,15 +56,52 @@ const PricingSchemeManagementPage = () => {
         description: scheme.description,
         category: scheme.type, // Backend uses 'type' field
         formula: scheme.pricingRules?.formula || '',
-        isPinProtected: scheme.pricingRules?.isPinProtected || false,
+        // Don't include protection fields when editing - they can't be changed
       });
     } else {
       form.resetFields();
+      form.setFieldsValue({
+        isPinProtected: false,
+        protectionMethod: 'pin',
+      });
     }
     setModalVisible(true);
   };
 
   const handleSubmit = async (values) => {
+    try {
+      // If editing a scheme
+      if (editingScheme) {
+        // If the scheme is protected, require PIN verification
+        if (editingScheme.isPinProtected) {
+          setPendingUpdate(values);
+          setPinModalVisible(true);
+          return;
+        }
+        // Not protected, submit directly
+        await submitScheme(values);
+        return;
+      }
+
+      // Creating new scheme - check if enabling protection
+      const isEnablingProtection = values.isPinProtected;
+
+      if (isEnablingProtection) {
+        setPinSetupModalVisible(true);
+        setPendingUpdate(values);
+        return;
+      }
+
+      // No protection, submit directly
+      await submitScheme(values);
+    } catch (error) {
+      console.error('Error saving scheme:', error);
+      message.error(error.message || 'Failed to save pricing scheme');
+    }
+  };
+
+  const submitScheme = async (values, verificationPin = null) => {
+    setSubmitting(true);
     try {
       const data = {
         name: values.name,
@@ -64,12 +110,20 @@ const PricingSchemeManagementPage = () => {
         isActive: true,
         pricingRules: {
           formula: values.formula,
-          isPinProtected: values.isPinProtected || false,
         },
+        isPinProtected: values.isPinProtected || false,
+        protectionMethod: values.isPinProtected ? 'pin' : null,
       };
 
+      // Only include protectionPin when creating a new protected scheme or changing the PIN
+      if (values.protectionPin) {
+        data.protectionPin = values.protectionPin;
+      }
+
+      const customHeaders = verificationPin ? { 'x-verification-pin': verificationPin } : {};
+
       if (editingScheme) {
-        await apiService.updatePricingScheme(editingScheme.id, data);
+        await apiService.updatePricingScheme(editingScheme.id, data, customHeaders);
         message.success('Pricing scheme updated successfully');
       } else {
         await apiService.createPricingScheme(data);
@@ -77,33 +131,97 @@ const PricingSchemeManagementPage = () => {
       }
 
       setModalVisible(false);
+      setPinModalVisible(false);
+      setPinSetupModalVisible(false);
       form.resetFields();
+      pinForm.resetFields();
+      pinSetupForm.resetFields();
+      setPendingUpdate(null);
       fetchSchemes();
     } catch (error) {
-      console.error('Error saving scheme:', error);
-      message.error(error.message || 'Failed to save pricing scheme');
+      console.error('Submit scheme error:', error);
+      
+      if (error.response?.data?.requiresPin) {
+        message.error('Invalid PIN. Please try again.');
+      } else if (error.response?.data?.message) {
+        message.error(error.response.data.message);
+      } else if (error.message) {
+        message.error(error.message);
+      } else {
+        message.error(`Failed to ${editingScheme ? 'update' : 'create'} pricing scheme`);
+      }
+      throw error;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePinVerification = async (values) => {
+    setVerifying(true);
+    try {
+      await submitScheme(pendingUpdate, values.verificationPin);
+    } catch (error) {
+      // Error already handled in submitScheme
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handlePinSetup = async (values) => {
+    if (values.protectionPin !== values.confirmPin) {
+      message.error('PINs do not match');
+      return;
+    }
+
+    const updatedValues = {
+      ...pendingUpdate,
+      protectionPin: values.protectionPin,
+    };
+
+    try {
+      await submitScheme(updatedValues);
+    } catch (error) {
+      // Error already handled in submitScheme
     }
   };
 
   const handleDelete = async (id) => {
+    setDeleting(id);
     try {
       await apiService.deletePricingScheme(id);
       message.success('Pricing scheme deleted successfully');
       fetchSchemes();
     } catch (error) {
       console.error('Error deleting scheme:', error);
-      message.error(error.message || 'Failed to delete pricing scheme');
+      if (error.response?.data?.message) {
+        message.error(error.response.data.message);
+      } else if (error.message) {
+        message.error(error.message);
+      } else {
+        message.error('Failed to delete pricing scheme');
+      }
+    } finally {
+      setDeleting(null);
     }
   };
 
   const handleSetDefault = async (id) => {
+    setSettingDefault(id);
     try {
       await apiService.setDefaultPricingScheme(id);
       message.success('Default pricing scheme updated');
       fetchSchemes();
     } catch (error) {
       console.error('Error setting default scheme:', error);
-      message.error('Failed to set default scheme');
+      if (error.response?.data?.message) {
+        message.error(error.response.data.message);
+      } else if (error.message) {
+        message.error(error.message);
+      } else {
+        message.error('Failed to set default scheme');
+      }
+    } finally {
+      setSettingDefault(null);
     }
   };
 
@@ -116,9 +234,16 @@ const PricingSchemeManagementPage = () => {
       render: (name, record) => (
         <div>
           <div style={{ fontWeight: 500 }}>{name}</div>
-          {record.isDefault && (
-            <Tag color="gold" style={{ marginTop: 4 }}>Default</Tag>
-          )}
+          <div style={{ display: 'flex', gap: '4px', marginTop: 4, flexWrap: 'wrap' }}>
+            {record.isDefault && (
+              <Tag color="gold">Default</Tag>
+            )}
+            {record.isPinProtected && (
+              <Tag color="purple" style={{ fontSize: '11px' }}>
+                🔒 PIN
+              </Tag>
+            )}
+          </div>
         </div>
       ),
     },
@@ -184,6 +309,8 @@ const PricingSchemeManagementPage = () => {
               size="small"
               onClick={() => handleSetDefault(record.id)}
               title="Set as default"
+              loading={settingDefault === record.id}
+              disabled={settingDefault !== null || loading}
             >
               Set Default
             </Button>
@@ -193,6 +320,7 @@ const PricingSchemeManagementPage = () => {
             onClick={() => showModal(record)}
             size="small"
             block={isMobile}
+            disabled={settingDefault !== null || deleting !== null || loading}
           >
             {isMobile && 'Edit'}
           </Button>
@@ -202,8 +330,16 @@ const PricingSchemeManagementPage = () => {
             onConfirm={() => handleDelete(record.id)}
             okText="Yes"
             cancelText="No"
+            disabled={deleting !== null || settingDefault !== null || loading}
           >
-            <Button icon={<DeleteOutlined />} danger size="small" block={isMobile} />
+            <Button 
+              icon={<DeleteOutlined />} 
+              danger 
+              size="small" 
+              block={isMobile}
+              loading={deleting === record.id}
+              disabled={deleting !== null || settingDefault !== null || loading}
+            />
           </Popconfirm>
         </Space>
       ),
@@ -348,13 +484,22 @@ const PricingSchemeManagementPage = () => {
           <Form.Item
             name="isPinProtected"
             label="PIN Protection"
-            extra="Require PIN/2FA to modify formula (owner-only control)"
+            extra="Require PIN to modify this pricing scheme (cannot be changed after creation)"
           >
-            <Select>
+            <Select disabled={!!editingScheme}>
               <Option value={false}>No Protection</Option>
-              <Option value={true}>PIN Protected</Option>
+              <Option value={true}>Enable PIN Protection</Option>
             </Select>
           </Form.Item>
+
+          {editingScheme?.isPinProtected && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+              <p className="text-sm text-blue-800">
+                🔒 This scheme is protected with <strong>PIN</strong>. 
+                Protection settings cannot be modified after creation.
+              </p>
+            </div>
+          )}
 
           <Form.Item className="mb-0">
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-0 w-full sm:justify-end">
@@ -365,6 +510,7 @@ const PricingSchemeManagementPage = () => {
                 }}
                 block={isMobile}
                 className="order-2 sm:order-1"
+                disabled={submitting}
               >
                 Cancel
               </Button>
@@ -373,8 +519,159 @@ const PricingSchemeManagementPage = () => {
                 htmlType="submit"
                 block={isMobile}
                 className="order-1 sm:order-2 sm:ml-2"
+                loading={submitting}
+                disabled={submitting}
               >
                 {editingScheme ? 'Update' : 'Create'}
+              </Button>
+            </div>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* PIN Verification Modal */}
+      <Modal
+        title="Verify PIN"
+        open={pinModalVisible}
+        onCancel={() => {
+          setPinModalVisible(false);
+          pinForm.resetFields();
+        }}
+        footer={null}
+        width={isMobile ? '100%' : 400}
+      >
+        <Form
+          form={pinForm}
+          layout="vertical"
+          onFinish={handlePinVerification}
+        >
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+            <p className="text-sm text-yellow-800">
+              This pricing scheme is PIN protected. 
+              Please enter your PIN to make changes.
+            </p>
+          </div>
+
+          <Form.Item
+            name="verificationPin"
+            label="Enter PIN"
+            rules={[
+              { required: true, message: 'Please enter your PIN' },
+              { min: 4, message: 'PIN must be at least 4 characters' }
+            ]}
+          >
+            <Input.Password
+              placeholder="Enter your PIN"
+              maxLength={6}
+              autoComplete="off"
+            />
+          </Form.Item>
+
+          <Form.Item className="mb-0">
+            <div className="flex gap-2 w-full justify-end">
+              <Button 
+                onClick={() => {
+                  setPinModalVisible(false);
+                  pinForm.resetFields();
+                }}
+                disabled={verifying}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                loading={verifying}
+                disabled={verifying}
+              >
+                Verify & Continue
+              </Button>
+            </div>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* PIN Setup Modal */}
+      <Modal
+        title="Set Up PIN Protection"
+        open={pinSetupModalVisible}
+        onCancel={() => {
+          setPinSetupModalVisible(false);
+          pinSetupForm.resetFields();
+        }}
+        footer={null}
+        width={isMobile ? '100%' : 500}
+      >
+        <Form
+          form={pinSetupForm}
+          layout="vertical"
+          onFinish={handlePinSetup}
+        >
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+            <p className="text-sm text-blue-800">
+              Set a PIN to protect this pricing scheme from unauthorized modifications.
+              You'll need to enter this PIN whenever you want to edit this scheme.
+            </p>
+          </div>
+
+          <Form.Item
+            name="protectionPin"
+            label="Create PIN"
+            rules={[
+              { required: true, message: 'Please enter a PIN' },
+              { min: 4, message: 'PIN must be at least 4 characters' },
+              { max: 6, message: 'PIN must be at most 6 characters' },
+              { pattern: /^\d+$/, message: 'PIN must contain only numbers' }
+            ]}
+          >
+            <Input.Password
+              placeholder="Enter 4-6 digit PIN"
+              maxLength={6}
+              autoComplete="off"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="confirmPin"
+            label="Confirm PIN"
+            dependencies={['protectionPin']}
+            rules={[
+              { required: true, message: 'Please confirm your PIN' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('protectionPin') === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('PINs do not match'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password
+              placeholder="Re-enter PIN"
+              maxLength={6}
+              autoComplete="off"
+            />
+          </Form.Item>
+
+          <Form.Item className="mb-0">
+            <div className="flex gap-2 w-full justify-end">
+              <Button 
+                onClick={() => {
+                  setPinSetupModalVisible(false);
+                  pinSetupForm.resetFields();
+                }}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                loading={submitting}
+                disabled={submitting}
+              >
+                Set PIN & Save
               </Button>
             </div>
           </Form.Item>
