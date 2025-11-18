@@ -43,8 +43,7 @@ const PaintProduct = sequelize.define('PaintProduct', {
   },
   tier: {
     type: DataTypes.ENUM('good', 'better', 'best'),
-    allowNull: false,
-    comment: 'Product quality tier'
+    allowNull: false
   },
   costPerGallon: {
     type: DataTypes.DECIMAL(10, 2),

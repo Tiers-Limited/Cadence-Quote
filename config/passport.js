@@ -38,7 +38,7 @@ module.exports = function(passport) {
             where: { googleId: profile.id },
             include: [{
               model: Tenant,
-              attributes: ['id', 'companyName', 'subscriptionPlan']
+              attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
             }]
           });
 
@@ -48,23 +48,48 @@ module.exports = function(passport) {
               where: { email },
               include: [{
                 model: Tenant,
-                attributes: ['id', 'companyName', 'subscriptionPlan']
+                attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
               }]
             });
 
-            // If user exists with email, link Google account
+            // If user exists with email
             if (user) {
-              await user.update({
-                googleId: profile.id,
-                authProvider: user.authProvider ? `${user.authProvider},google` : 'google',
-                fullName: user.fullName || profile.displayName,
-                isActive: true
-              });
+              // Check if user has pending payment (incomplete registration)
+              if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+                // Don't activate - return as pending payment user
+                return done(null, {
+                  user,
+                  isNewUser: false,
+                  hasPendingPayment: true,
+                  email,
+                  googleProfile: profile
+                });
+              }
+              
+              // Active user - link Google account
+              if (user.isActive) {
+                await user.update({
+                  googleId: profile.id,
+                  authProvider: user.authProvider ? `${user.authProvider},google` : 'google',
+                  fullName: user.fullName || profile.displayName
+                });
+              }
             }
           }
 
           // Return existing user
           if (user) {
+            // Check for pending payment
+            if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+              return done(null, {
+                user,
+                isNewUser: false,
+                hasPendingPayment: true,
+                email,
+                googleProfile: profile
+              });
+            }
+            
             return done(null, {
               user,
               isNewUser: false,
@@ -118,7 +143,7 @@ module.exports = function(passport) {
             where: { appleId },
             include: [{
               model: Tenant,
-              attributes: ['id', 'companyName', 'subscriptionPlan']
+              attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
             }]
           });
 
@@ -128,22 +153,47 @@ module.exports = function(passport) {
               where: { email },
               include: [{
                 model: Tenant,
-                attributes: ['id', 'companyName', 'subscriptionPlan']
+                attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
               }]
             });
 
-            // If user exists with email, link Apple account
+            // If user exists with email
             if (user) {
-              await user.update({
-                appleId,
-                authProvider: user.authProvider ? `${user.authProvider},apple` : 'apple',
-                isActive: true
-              });
+              // Check if user has pending payment (incomplete registration)
+              if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+                // Don't activate - return as pending payment user
+                return done(null, {
+                  user,
+                  isNewUser: false,
+                  hasPendingPayment: true,
+                  email,
+                  appleProfile: profile
+                });
+              }
+              
+              // Active user - link Apple account
+              if (user.isActive) {
+                await user.update({
+                  appleId,
+                  authProvider: user.authProvider ? `${user.authProvider},apple` : 'apple'
+                });
+              }
             }
           }
 
           // Return existing user
           if (user) {
+            // Check for pending payment
+            if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+              return done(null, {
+                user,
+                isNewUser: false,
+                hasPendingPayment: true,
+                email,
+                appleProfile: profile
+              });
+            }
+            
             return done(null, {
               user,
               isNewUser: false,

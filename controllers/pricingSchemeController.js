@@ -1,6 +1,7 @@
 // controllers/pricingSchemeController.js
 const PricingScheme = require('../models/PricingScheme');
 const { createAuditLog } = require('./auditLogController');
+const bcrypt = require('bcryptjs');
 
 /**
  * Get all pricing schemes for a tenant
@@ -79,7 +80,10 @@ const createPricingScheme = async (req, res) => {
       type,
       description,
       isDefault,
-      pricingRules
+      pricingRules,
+      isPinProtected,
+      protectionPin,
+      protectionMethod
     } = req.body;
 
     // Validation
@@ -99,6 +103,12 @@ const createPricingScheme = async (req, res) => {
       );
     }
 
+    // Hash PIN if provided
+    let hashedPin = null;
+    if (isPinProtected && protectionPin && protectionMethod === 'pin') {
+      hashedPin = await bcrypt.hash(protectionPin, 10);
+    }
+
     const scheme = await PricingScheme.create({
       tenantId,
       name,
@@ -106,7 +116,10 @@ const createPricingScheme = async (req, res) => {
       description,
       isDefault: isDefault || false,
       isActive: true,
-      pricingRules: pricingRules || {}
+      pricingRules: pricingRules || {},
+      isPinProtected: isPinProtected || false,
+      protectionPin: hashedPin,
+      protectionMethod: isPinProtected ? protectionMethod : null
     });
 
     // Audit log
@@ -162,8 +175,18 @@ const updatePricingScheme = async (req, res) => {
       description,
       isDefault,
       isActive,
-      pricingRules
+      pricingRules,
+      isPinProtected,
+      protectionPin,
+      protectionMethod
     } = req.body;
+
+    // Get verification PIN from header for security
+    let verificationPin = req.headers['x-verification-pin'];
+    
+    // Debug logging
+    console.log('Verification PIN type:', typeof verificationPin);
+    console.log('Verification PIN value:', verificationPin);
 
     const scheme = await PricingScheme.findOne({
       where: { id, tenantId }
@@ -174,6 +197,54 @@ const updatePricingScheme = async (req, res) => {
         success: false,
         message: 'Pricing scheme not found'
       });
+    }
+
+    // Check protection based on method
+    if (scheme.isPinProtected) {
+      if (scheme.protectionMethod === 'pin') {
+        if (!verificationPin) {
+          return res.status(403).json({
+            success: false,
+            message: 'PIN verification required',
+            requiresPin: true,
+            protectionMethod: 'pin'
+          });
+        }
+
+        // Ensure verificationPin is a string and not an object
+        if (typeof verificationPin === 'object') {
+          console.error('Verification PIN is an object:', verificationPin);
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid PIN format'
+          });
+        }
+
+        const pinToVerify = String(verificationPin).trim();
+        const isPinValid = await bcrypt.compare(pinToVerify, scheme.protectionPin);
+        if (!isPinValid) {
+          return res.status(403).json({
+            success: false,
+            message: 'Invalid PIN',
+            requiresPin: true,
+            protectionMethod: 'pin'
+          });
+        }
+      } else if (scheme.protectionMethod === '2fa') {
+        // TODO: Implement 2FA verification
+        // For now, we'll allow the update but log it
+        console.log('2FA verification required - not yet implemented');
+        // In production, you would verify the 2FA token from headers
+        // const twoFaToken = req.headers['x-2fa-token'];
+        // if (!twoFaToken || !verify2FA(twoFaToken)) {
+        //   return res.status(403).json({
+        //     success: false,
+        //     message: '2FA verification required',
+        //     requires2FA: true,
+        //     protectionMethod: '2fa'
+        //   });
+        // }
+      }
     }
 
     // If setting as default, unset other defaults
@@ -190,13 +261,30 @@ const updatePricingScheme = async (req, res) => {
     if (isDefault !== undefined && isDefault !== scheme.isDefault) changes.isDefault = { old: scheme.isDefault, new: isDefault };
     if (isActive !== undefined && isActive !== scheme.isActive) changes.isActive = { old: scheme.isActive, new: isActive };
 
+    // Hash new PIN if provided
+    let hashedPin = scheme.protectionPin;
+    if (isPinProtected && protectionPin && protectionMethod === 'pin') {
+      hashedPin = await bcrypt.hash(protectionPin, 10);
+    } else if (isPinProtected === false) {
+      hashedPin = null;
+    }
+
+    // Determine protection method
+    let finalProtectionMethod = scheme.protectionMethod;
+    if (isPinProtected !== undefined) {
+      finalProtectionMethod = isPinProtected ? protectionMethod : null;
+    }
+
     await scheme.update({
       name: name || scheme.name,
       type: type || scheme.type,
-      description: description !== undefined ? description : scheme.description,
-      isDefault: isDefault !== undefined ? isDefault : scheme.isDefault,
-      isActive: isActive !== undefined ? isActive : scheme.isActive,
-      pricingRules: pricingRules !== undefined ? pricingRules : scheme.pricingRules
+      description: description ?? scheme.description,
+      isDefault: isDefault ?? scheme.isDefault,
+      isActive: isActive ?? scheme.isActive,
+      pricingRules: pricingRules ?? scheme.pricingRules,
+      isPinProtected: isPinProtected ?? scheme.isPinProtected,
+      protectionPin: hashedPin,
+      protectionMethod: finalProtectionMethod
     });
 
     // Audit log

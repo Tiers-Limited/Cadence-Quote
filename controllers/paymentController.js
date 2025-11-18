@@ -189,11 +189,30 @@ const confirmStripePayment = async (req, res) => {
       }
     }
 
+    // Ensure we have a Stripe customer
+    let stripeCustomerId = session.customer;
+    
+    // If no customer was created (shouldn't happen with customer_creation: 'always')
+    if (!stripeCustomerId) {
+      console.log('No customer in session, creating one manually');
+      const { createCustomer } = require('../services/stripeService');
+      const user = await User.findByPk(userId);
+      const customer = await createCustomer({
+        email: user.email,
+        name: user.fullName || `${user.firstName} ${user.lastName}`,
+        metadata: {
+          userId: userId.toString(),
+          tenantId: tenantId.toString()
+        }
+      });
+      stripeCustomerId = customer.id;
+    }
+
     // Update payment record
     await payment.update({
       status: 'paid',
       stripePaymentIntentId: session.payment_intent,
-      stripeCustomerId: session.customer,
+      stripeCustomerId: stripeCustomerId,
       paidAt: new Date(),
       metadata: {
         ...payment.metadata,
@@ -216,7 +235,7 @@ const confirmStripePayment = async (req, res) => {
       tenantId,
       stripeSubscriptionId: session.subscription || `session_${session.id}`,
       stripePriceId: planDetails.priceId,
-      stripeCustomerId: session.customer,
+      stripeCustomerId: stripeCustomerId,
       tier: subscriptionPlan,
       status: 'trialing',
       currentPeriodStart: currentDate,
@@ -244,7 +263,7 @@ const confirmStripePayment = async (req, res) => {
     if (tenant) {
       await tenant.update({
         subscriptionPlan,
-        stripeCustomerId: session.customer,
+        stripeCustomerId: stripeCustomerId,
         paymentStatus: 'active',
         subscriptionExpiresAt: currentPeriodEnd,
         isActive: true // Activate tenant for registration flow
@@ -407,10 +426,76 @@ const getPaymentDetails = async (req, res) => {
   }
 };
 
+/**
+ * Get Stripe payment session details (for resuming incomplete payments)
+ * GET /api/payments/session/:sessionId
+ */
+const getPaymentSession = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session ID is required'
+      });
+    }
+
+    // Retrieve session from Stripe
+    let session;
+    try {
+      session = await retrieveSession(sessionId);
+    } catch (stripeError) {
+      console.error('Stripe session retrieval error:', stripeError);
+      // Any error retrieving the session means it's expired or invalid
+      return res.status(410).json({
+        success: false,
+        message: 'Payment session has expired or is no longer available'
+      });
+    }
+
+    if (!session) {
+      return res.status(410).json({
+        success: false,
+        message: 'Payment session not found'
+      });
+    }
+
+    // Check if session is still valid
+    if (session.status === 'expired' || session.status === 'complete') {
+      return res.status(410).json({
+        success: false,
+        message: 'Payment session has expired. Please start a new registration.'
+      });
+    }
+
+    // Return session details
+    res.json({
+      success: true,
+      data: {
+        sessionId: session.id,
+        url: session.url,
+        status: session.status,
+        amount: session.amount_total,
+        currency: session.currency
+      }
+    });
+
+  } catch (error) {
+    console.error('Get payment session error:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve payment session'
+    });
+  }
+};
+
 module.exports = {
   getSubscriptionPlans,
   createPaymentSession,
   confirmStripePayment,
   getPaymentHistory,
-  getPaymentDetails
+  getPaymentDetails,
+  getPaymentSession
 };

@@ -6,7 +6,8 @@ const {
   createPaymentSession,
   confirmStripePayment,
   getPaymentHistory,
-  getPaymentDetails
+  getPaymentDetails,
+  getPaymentSession
 } = require('../controllers/paymentController');
 const { auth, authorize } = require('../middleware/auth');
 
@@ -31,6 +32,13 @@ router.post('/create-checkout-session', auth, createPaymentSession);
  * @query   sessionId - Stripe checkout session ID
  */
 router.get('/confirm', confirmStripePayment);
+
+/**
+ * @route   GET /api/payments/session/:sessionId
+ * @desc    Get Stripe payment session details (for resuming incomplete payments)
+ * @access  Public
+ */
+router.get('/session/:sessionId', getPaymentSession);
 
 /**
  * @route   GET /api/payments/history

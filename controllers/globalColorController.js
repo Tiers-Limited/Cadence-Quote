@@ -387,9 +387,9 @@ exports.bulkUploadGlobalColors = async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const rawJson = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+    const data = XLSX.utils.sheet_to_json(worksheet);
 
-    if (!rawJson || rawJson.length === 0) {
+    if (!data || data.length === 0) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
@@ -397,27 +397,24 @@ exports.bulkUploadGlobalColors = async (req, res) => {
       });
     }
 
-    // Map headers to fields based on first row
-    const headers = rawJson[0];
-    const keyMap = {
-      code: Object.keys(headers).find(k => headers[k] === 'Color Code' || headers[k] === 'COLOR CODE') || '__EMPTY',
-      name: Object.keys(headers).find(k => headers[k] === 'Color Name' || headers[k] === 'COLOR NAME') || '__EMPTY_1',
-      hexValue: Object.keys(headers).find(k => headers[k] === 'Hex Value' || headers[k] === 'HEX') || '__EMPTY_2',
-      red: Object.keys(headers).find(k => headers[k] === 'Red' || headers[k] === 'RED') || '__EMPTY_3',
-      green: Object.keys(headers).find(k => headers[k] === 'Green' || headers[k] === 'GREEN') || '__EMPTY_4',
-      blue: Object.keys(headers).find(k => headers[k] === 'Blue' || headers[k] === 'BLUE') || '__EMPTY_5',
-      sampleImage: Object.keys(headers).find(k => headers[k] === 'Sample Image' || headers[k] === 'SAMPLE IMAGE') || '__EMPTY_6',
-    };
-
     const validColors = [];
     const errors = [];
 
-    // Process data rows (skip header row) - validate and prepare data
-    for (let i = 1; i < rawJson.length; i++) {
-      const row = rawJson[i];
+    // Process data rows - validate and prepare data
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
       try {
+        // Get values from columns (support multiple variations)
+        // Use ?? (nullish coalescing) for 0 values to work correctly
+        const colorName = row['Color Name'] ?? row['COLOR NAME'] ?? row['color_name'] ?? row['name'];
+        const colorCode = row['Color Code'] ?? row['COLOR CODE'] ?? row['color_code'] ?? row['code'];
+        let hexValue = row['Hex Value'] ?? row['HEX VALUE'] ?? row['hex_value'] ?? row['HEX'] ?? row['hex'] ?? '';
+        const red = row['Red'] ?? row['RED'] ?? row['red'];
+        const green = row['Green'] ?? row['GREEN'] ?? row['green'];
+        const blue = row['Blue'] ?? row['BLUE'] ?? row['blue'];
+        const sampleImage = row['Sample Image'] ?? row['SAMPLE IMAGE'] ?? row['sample_image'] ?? row['sampleImage'];
+
         // Normalize hex value
-        let hexValue = row[keyMap.hexValue] || '';
         if (hexValue) {
           hexValue = hexValue.toString().trim();
           if (hexValue && !hexValue.startsWith('#')) {
@@ -426,21 +423,18 @@ exports.bulkUploadGlobalColors = async (req, res) => {
         }
 
         // Map CSV columns to database fields
+        // For RGB values: 0 is valid (black), but empty/null/undefined should be null
+        const isValidRgbValue = (val) => val !== undefined && val !== null && val !== '';
+        
         const colorData = {
           brandId: Number.parseInt(brandId),
-          name: row[keyMap.name] || '',
-          code: row[keyMap.code] || '',
+          name: colorName ? colorName.toString().trim() : '',
+          code: colorCode ? colorCode.toString().trim() : '',
           hexValue: hexValue || null,
-          red: row[keyMap.red] !== undefined && row[keyMap.red] !== null && row[keyMap.red] !== '' 
-            ? Number(row[keyMap.red]) 
-            : null,
-          green: row[keyMap.green] !== undefined && row[keyMap.green] !== null && row[keyMap.green] !== '' 
-            ? Number(row[keyMap.green]) 
-            : null,
-          blue: row[keyMap.blue] !== undefined && row[keyMap.blue] !== null && row[keyMap.blue] !== '' 
-            ? Number(row[keyMap.blue]) 
-            : null,
-          sampleImage: row[keyMap.sampleImage] || null,
+          red: isValidRgbValue(red) ? Number(red) : null,
+          green: isValidRgbValue(green) ? Number(green) : null,
+          blue: isValidRgbValue(blue) ? Number(blue) : null,
+          sampleImage: sampleImage ? sampleImage.toString().trim() : null,
           isActive: true,
         };
 
@@ -459,7 +453,7 @@ exports.bulkUploadGlobalColors = async (req, res) => {
       } catch (err) {
         errors.push({
           row: i + 2,
-          name: row[keyMap.name] || 'N/A',
+          name: row['Color Name'] || row['COLOR NAME'] || 'N/A',
           error: err.message,
         });
       }

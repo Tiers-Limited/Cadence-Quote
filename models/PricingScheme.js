@@ -22,7 +22,6 @@ const PricingScheme = sequelize.define('PricingScheme', {
   name: {
     type: DataTypes.STRING(255),
     allowNull: false,
-    comment: 'e.g., "Square-Foot (Turnkey)", "Hourly (Labor Only)"'
   },
   type: {
     type: DataTypes.ENUM(
@@ -33,7 +32,6 @@ const PricingScheme = sequelize.define('PricingScheme', {
       'room_flat_rate'          // Room-Based / Flat Rate
     ),
     allowNull: false,
-    comment: 'Type of pricing calculation'
   },
   description: {
     type: DataTypes.TEXT,
@@ -43,7 +41,6 @@ const PricingScheme = sequelize.define('PricingScheme', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     field: 'is_default',
-    comment: 'Is this the default pricing scheme for this tenant'
   },
   isActive: {
     type: DataTypes.BOOLEAN,
@@ -56,7 +53,23 @@ const PricingScheme = sequelize.define('PricingScheme', {
     type: DataTypes.JSON,
     allowNull: true,
     field: 'pricing_rules',
-    comment: 'JSON object containing pricing rules for different surfaces/scenarios'
+  },
+
+  // PIN Protection
+  isPinProtected: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'is_pin_protected',
+  },
+  protectionPin: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'protection_pin',
+  },
+  protectionMethod: {
+    type: DataTypes.ENUM('pin', '2fa'),
+    allowNull: true,
+    field: 'protection_method'
   },
   
   // Example structure for pricingRules by type:

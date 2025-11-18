@@ -10,7 +10,9 @@ exports.getAllTenants = async (req, res) => {
   try {
     const { status, search, page = 1, limit = 50 } = req.query;
     
-    const where = {};
+    const where = {
+      email: { [Op.ne]: 'admin@cadence.com' } // Exclude admin tenant
+    };
     
     if (status) where.status = status;
     if (search) {

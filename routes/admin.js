@@ -19,6 +19,7 @@ const auditLogController = require('../controllers/auditLogController');
 const tenantController = require('../controllers/tenantController');
 const featureFlagController = require('../controllers/featureFlagController');
 const brandController = require('../controllers/brandController');
+const adminSettingsController = require('../controllers/adminSettingsController');
 
 // Apply auth and admin role check to all routes
 router.use(auth);
@@ -78,5 +79,10 @@ router.delete('/feature-flags/:id', featureFlagController.deleteFeatureFlag);
 router.get('/tenants/:tenantId/features', featureFlagController.getTenantFeatures);
 router.post('/tenants/:tenantId/features/:featureId', featureFlagController.assignFeatureToTenant);
 router.delete('/tenants/:tenantId/features/:featureId', featureFlagController.removeFeatureFromTenant);
+
+// ===== ADMIN SETTINGS ROUTES =====
+router.get('/settings/profile', adminSettingsController.getAdminProfile);
+router.put('/settings/profile', adminSettingsController.updateAdminProfile);
+router.post('/settings/change-password', adminSettingsController.changeAdminPassword);
 
 module.exports = router;

@@ -310,7 +310,66 @@ const login = async (req, res) => {
       });
     }
 
-    // Find user with tenant information
+    // First, check if user exists with pending payment (including inactive users)
+    const pendingUser = await User.findOne({
+      where: { email },
+      attributes: [
+        "id",
+        "fullName",
+        "email",
+        "role",
+        "tenantId",
+        "authProvider",
+        "password",
+        "isActive",
+      ],
+      include: [
+        {
+          model: Tenant,
+          attributes: ["id", "companyName", "paymentStatus", "subscriptionPlan"],
+          required: true,
+        },
+      ],
+    });
+
+    // If user exists but payment is pending, handle payment completion flow
+    if (pendingUser && !pendingUser.isActive && pendingUser.Tenant.paymentStatus === 'pending') {
+      // Find the pending payment
+      const pendingPayment = await Payment.findOne({
+        where: {
+          tenantId: pendingUser.tenantId,
+          status: 'pending'
+        },
+        order: [['createdAt', 'DESC']]
+      });
+
+      if (pendingPayment && pendingPayment.stripeSessionId) {
+        return res.status(402).json({
+          success: false,
+          message: 'Your registration is incomplete. Please complete payment to activate your account.',
+          requiresPayment: true,
+          data: {
+            userId: pendingUser.id,
+            tenantId: pendingUser.tenantId,
+            email: pendingUser.email,
+            subscriptionPlan: pendingUser.Tenant.subscriptionPlan,
+            stripeSessionId: pendingPayment.stripeSessionId,
+            // Generate a temporary token for payment completion
+            tempToken: generateToken(pendingUser.id, pendingUser.tenantId)
+          }
+        });
+      }
+
+      // Payment record doesn't exist or no session ID - allow re-registration
+      return res.status(402).json({
+        success: false,
+        message: 'Your registration is incomplete. Please contact support or register again.',
+        requiresPayment: true,
+        allowReregistration: true
+      });
+    }
+
+    // Find active user with tenant information
     const user = await User.findOne({
       where: {
         email,
@@ -341,7 +400,7 @@ const login = async (req, res) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "No account found with this email",
+        message: "Invalid email or password",
       });
     }
 
@@ -798,17 +857,54 @@ const registerWithPayment = async (req, res) => {
 
     console.log(authProvider);
 
+    // Security: Sanitize and validate inputs
     const isGoogleAuth = authProvider === "google" && googleId;
     const isAppleAuth = authProvider === "apple" && appleId;
     const isOAuth = isGoogleAuth || isAppleAuth;
 
-    if (!isOAuth && (!password || password.length < 8)) {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: !password
-          ? "Password is required for email registration"
-          : "Password must be at least 8 characters long",
+        message: "Invalid email format",
+      });
+    }
+
+    // Validate password strength for non-OAuth users
+    if (!isOAuth) {
+      if (!password || password.length < 8) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: !password
+            ? "Password is required for email registration"
+            : "Password must be at least 8 characters long",
+        });
+      }
+      
+      // Additional password strength check
+      const hasUpperCase = /[A-Z]/.test(password);
+      const hasLowerCase = /[a-z]/.test(password);
+      const hasNumber = /[0-9]/.test(password);
+      
+      if (!hasUpperCase || !hasLowerCase || !hasNumber) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Password must contain at least one uppercase letter, one lowercase letter, and one number",
+        });
+      }
+    }
+
+    // Validate phone number format
+    const phoneRegex = /^[\d\s\-\+\(\)]+$/;
+    if (!phoneRegex.test(phoneNumber)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid phone number format",
       });
     }
 
@@ -826,14 +922,43 @@ const registerWithPayment = async (req, res) => {
     try {
       const existingUser = await User.findOne({
         where: { email },
+        include: [{
+          model: Tenant,
+          attributes: ['id', 'paymentStatus', 'subscriptionPlan']
+        }],
         transaction,
       });
+      
       if (existingUser) {
-        await transaction.rollback();
-        return res.status(409).json({
-          success: false,
-          message: "Email already registered",
-        });
+        // If user exists with pending payment, clean up and allow re-registration
+        if (!existingUser.isActive && existingUser.Tenant?.paymentStatus === 'pending') {
+          console.log('Found incomplete registration, cleaning up for retry');
+          
+          // Delete old pending payment records
+          await Payment.destroy({
+            where: {
+              tenantId: existingUser.tenantId,
+              status: 'pending'
+            },
+            transaction
+          });
+          
+          // Delete the old user and tenant
+          await existingUser.destroy({ transaction });
+          await Tenant.destroy({
+            where: { id: existingUser.tenantId },
+            transaction
+          });
+          
+          console.log('Cleanup completed, proceeding with new registration');
+        } else {
+          // User is active or payment is complete
+          await transaction.rollback();
+          return res.status(409).json({
+            success: false,
+            message: "Email already registered. Please login instead.",
+          });
+        }
       }
     } catch (error) {
       console.error("Error checking existing user:", error);
@@ -1096,6 +1221,64 @@ const handleGoogleCallback = async (req, res) => {
 
     console.log("Backend User Response:", response);
 
+    // Check for pending payment user
+    if (response.hasPendingPayment) {
+      const { Payment } = require('../models');
+      
+      // Find the pending payment
+      const payment = await Payment.findOne({
+        where: {
+          userId: response.user.id,
+          tenantId: response.user.tenantId,
+          status: 'pending'
+        },
+        order: [['createdAt', 'DESC']]
+      });
+
+      // Check if payment session is still valid
+      let sessionIsValid = false;
+      if (payment && payment.stripeSessionId) {
+        try {
+          const { retrieveSession } = require('../services/stripeService');
+          const session = await retrieveSession(payment.stripeSessionId);
+          
+          // Session is valid only if it's open
+          if (session && session.status === 'open') {
+            sessionIsValid = true;
+          }
+        } catch (sessionError) {
+          console.log('Stripe session check failed:', sessionError.message);
+          // Session is invalid or expired
+        }
+      }
+
+      // If session is still valid, redirect to resume payment
+      if (sessionIsValid) {
+        return res.redirect(
+          `${FRONTEND_URL}/auth/resume-payment?sessionId=${payment.stripeSessionId}&provider=google`
+        );
+      }
+      
+      // Session expired or invalid - redirect directly to registration for cleanup
+      const profile = response.googleProfile;
+      const googleData = {
+        googleId: profile.id,
+        email: profile.emails && profile.emails[0] ? profile.emails[0].value : "",
+        firstName: profile.name?.givenName || "",
+        lastName: profile.name?.familyName || "",
+        fullName: profile.displayName || "",
+        photo: profile.photos && profile.photos[0] ? profile.photos[0].value : "",
+        provider: "google",
+        timestamp: Date.now(),
+      };
+
+      const encodedData = Buffer.from(JSON.stringify(googleData)).toString("base64");
+      
+      return res.redirect(
+        `${FRONTEND_URL}/register?googleData=${encodedData}&retry=true`
+      );
+    }
+
     // New user - redirect to registration page with Google data
     if (response.isNewUser) {
       const profile = response.googleProfile;
@@ -1122,8 +1305,17 @@ const handleGoogleCallback = async (req, res) => {
       // Redirect to registration page with encoded data
       return res.redirect(`${FRONTEND_URL}/register?googleData=${encodedData}`);
     }
-    // Existing user - generate tokens and redirect to dashboard
+    // Existing active user - generate tokens and redirect to dashboard
     else {
+      // Verify user is active
+      if (!response.user.isActive) {
+        return res.redirect(
+          `${FRONTEND_URL}/login?error=${encodeURIComponent(
+            "Your account is not active. Please contact support."
+          )}`
+        );
+      }
+
       const token = generateToken(response.user.id, response.user.tenantId);
       const refreshToken = generateRefreshToken(
         response.user.id,
@@ -1212,18 +1404,47 @@ const completeGoogleSignup = async (req, res) => {
     // Check if email already exists
     const existingUser = await User.findOne({
       where: { email: googleInfo.email },
+      include: [{
+        model: Tenant,
+        attributes: ['id', 'paymentStatus', 'subscriptionPlan']
+      }]
     });
+    
     if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Email already registered",
-      });
+      // If user exists with pending payment, clean up and allow re-registration
+      if (!existingUser.isActive && existingUser.Tenant?.paymentStatus === 'pending') {
+        console.log('Found incomplete Google registration, cleaning up for retry');
+        
+        // Delete old pending payment records
+        await Payment.destroy({
+          where: {
+            tenantId: existingUser.tenantId,
+            status: 'pending'
+          },
+          transaction
+        });
+        
+        // Delete the old user and tenant
+        await existingUser.destroy({ transaction });
+        await Tenant.destroy({
+          where: { id: existingUser.tenantId },
+          transaction
+        });
+        
+        console.log('Cleanup completed, proceeding with new Google registration');
+      } else {
+        await transaction.rollback();
+        return res.status(409).json({
+          success: false,
+          message: "Email already registered. Please login instead.",
+        });
+      }
     }
 
     // Create tenant (no subdomain)
     const tenant = await Tenant.create(
       {
-        companyName,
+        companyName: sanitizedCompanyName,
         email: googleInfo.email,
         phoneNumber,
         businessAddress: businessAddress || null,
@@ -1295,6 +1516,7 @@ const completeGoogleSignup = async (req, res) => {
     );
 
     await transaction.commit();
+    console.log("Transaction committed successfully");
 
     console.log("Google signup initiated:", {
       tenantId: tenant.id,
@@ -1322,8 +1544,13 @@ const completeGoogleSignup = async (req, res) => {
       },
     });
   } catch (error) {
-    await transaction.rollback();
     console.error("Complete Google signup error:", error);
+    try {
+      await transaction.rollback();
+      console.log("Transaction rolled back successfully");
+    } catch (rollbackError) {
+      console.error("Rollback failed:", rollbackError);
+    }
 
     res.status(500).json({
       success: false,
@@ -1396,6 +1623,60 @@ const handleAppleCallback = async (req, res) => {
 
     console.log("Backend Apple User Response:", response);
 
+    // Check for pending payment user
+    if (response.hasPendingPayment) {
+      const { Payment } = require('../models');
+      
+      // Find the pending payment
+      const payment = await Payment.findOne({
+        where: {
+          userId: response.user.id,
+          tenantId: response.user.tenantId,
+          status: 'pending'
+        },
+        order: [['createdAt', 'DESC']]
+      });
+
+      // Check if payment session is still valid
+      let sessionIsValid = false;
+      if (payment && payment.stripeSessionId) {
+        try {
+          const { retrieveSession } = require('../services/stripeService');
+          const session = await retrieveSession(payment.stripeSessionId);
+          
+          // Session is valid only if it's open
+          if (session && session.status === 'open') {
+            sessionIsValid = true;
+          }
+        } catch (sessionError) {
+          console.log('Stripe session check failed:', sessionError.message);
+          // Session is invalid or expired
+        }
+      }
+
+      // If session is still valid, redirect to resume payment
+      if (sessionIsValid) {
+        return res.redirect(
+          `${FRONTEND_URL}/auth/resume-payment?sessionId=${payment.stripeSessionId}&provider=apple`
+        );
+      }
+      
+      // Session expired or invalid - redirect directly to registration for cleanup
+      const appleData = {
+        appleId: response.appleId,
+        email: response.email,
+        fullName: response.fullName,
+        provider: "apple",
+        timestamp: Date.now(),
+      };
+
+      const encodedData = Buffer.from(JSON.stringify(appleData)).toString("base64");
+      
+      return res.redirect(
+        `${FRONTEND_URL}/register?appleData=${encodedData}&retry=true`
+      );
+    }
+
     // New user - redirect to registration page with Apple data
     if (response.isNewUser) {
       const profile = response.appleProfile;
@@ -1417,8 +1698,17 @@ const handleAppleCallback = async (req, res) => {
       // Redirect to registration page with encoded data
       return res.redirect(`${FRONTEND_URL}/register?appleData=${encodedData}`);
     }
-    // Existing user - generate tokens and redirect to dashboard
+    // Existing active user - generate tokens and redirect to dashboard
     else {
+      // Verify user is active
+      if (!response.user.isActive) {
+        return res.redirect(
+          `${FRONTEND_URL}/login?error=${encodeURIComponent(
+            "Your account is not active. Please contact support."
+          )}`
+        );
+      }
+
       const token = generateToken(response.user.id, response.user.tenantId);
       const refreshToken = generateRefreshToken(
         response.user.id,
@@ -1495,6 +1785,27 @@ const completeAppleSignup = async (req, res) => {
       });
     }
 
+    // Validate phone number format
+    const phoneRegex = /^[\d\s\-\+\(\)]+$/;
+    if (!phoneRegex.test(phoneNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid phone number format",
+      });
+    }
+
+    // Sanitize company name to prevent XSS
+    const sanitizedCompanyName = companyName
+      .replace(/[<>]/g, '')
+      .trim();
+    
+    if (!sanitizedCompanyName) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid company name",
+      });
+    }
+
     // Validate subscription plan
     const validPlans = ["basic", "pro", "enterprise"];
     if (!validPlans.includes(subscriptionPlan)) {
@@ -1507,18 +1818,47 @@ const completeAppleSignup = async (req, res) => {
     // Check if email already exists
     const existingUser = await User.findOne({
       where: { email: appleInfo.email },
+      include: [{
+        model: Tenant,
+        attributes: ['id', 'paymentStatus', 'subscriptionPlan']
+      }]
     });
+    
     if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Email already registered",
-      });
+      // If user exists with pending payment, clean up and allow re-registration
+      if (!existingUser.isActive && existingUser.Tenant?.paymentStatus === 'pending') {
+        console.log('Found incomplete Apple registration, cleaning up for retry');
+        
+        // Delete old pending payment records
+        await Payment.destroy({
+          where: {
+            tenantId: existingUser.tenantId,
+            status: 'pending'
+          },
+          transaction
+        });
+        
+        // Delete the old user and tenant
+        await existingUser.destroy({ transaction });
+        await Tenant.destroy({
+          where: { id: existingUser.tenantId },
+          transaction
+        });
+        
+        console.log('Cleanup completed, proceeding with new Apple registration');
+      } else {
+        await transaction.rollback();
+        return res.status(409).json({
+          success: false,
+          message: "Email already registered. Please login instead.",
+        });
+      }
     }
 
     // Create tenant
     const tenant = await Tenant.create(
       {
-        companyName,
+        companyName: sanitizedCompanyName,
         email: appleInfo.email,
         phoneNumber,
         businessAddress: businessAddress || null,
@@ -1590,6 +1930,7 @@ const completeAppleSignup = async (req, res) => {
     );
 
     await transaction.commit();
+    console.log("Transaction committed successfully");
 
     console.log("Apple signup initiated:", {
       tenantId: tenant.id,
@@ -1617,8 +1958,13 @@ const completeAppleSignup = async (req, res) => {
       },
     });
   } catch (error) {
-    await transaction.rollback();
     console.error("Complete Apple signup error:", error);
+    try {
+      await transaction.rollback();
+      console.log("Transaction rolled back successfully");
+    } catch (rollbackError) {
+      console.error("Rollback failed:", rollbackError);
+    }
 
     res.status(500).json({
       success: false,

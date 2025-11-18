@@ -90,6 +90,7 @@ const createCheckoutSession = async ({
       payment_method_types: ['card'],
       mode: 'payment', // One-time payment (change to 'subscription' for recurring)
       customer_email: email,
+      customer_creation: 'always', // Always create a customer for tracking
       line_items: [
         {
           price_data: {
@@ -177,6 +178,27 @@ const createOrGetCustomer = async ({ email, name, tenantId }) => {
 };
 
 /**
+ * Create a new Stripe customer
+ * @param {Object} params - Customer parameters
+ * @param {string} params.email - Customer email
+ * @param {string} params.name - Customer name
+ * @param {Object} params.metadata - Additional metadata
+ */
+const createCustomer = async ({ email, name, metadata = {} }) => {
+  try {
+    const customer = await stripe.customers.create({
+      email,
+      name,
+      metadata
+    });
+    return customer;
+  } catch (error) {
+    console.error('Stripe customer creation error:', error);
+    throw error;
+  }
+};
+
+/**
  * Refund a payment
  * @param {string} paymentIntentId - Stripe Payment Intent ID
  * @param {number} amount - Amount to refund (in cents, optional)
@@ -203,6 +225,7 @@ module.exports = {
   createCheckoutSession,
   retrieveSession,
   createOrGetCustomer,
+  createCustomer,
   refundPayment,
   getSubscriptionPlan,
   createSubscription,
