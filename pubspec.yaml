@@ -1,0 +1,83 @@
+name: primechoice
+description: "A new Flutter project."
+
+publish_to: 'none' 
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  get: ^4.7.2
+  url_launcher: ^6.3.2
+  intl: ^0.20.2
+  get_storage: ^2.1.1
+  logger: ^2.6.2
+  iconsax: ^0.0.8
+  launcher_name: ^1.0.2
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.7
+  rename: ^3.1.0
+  google_fonts: ^6.3.2
+  permission_handler: ^10.4.5
+  camera: ^0.10.6
+  ar_flutter_plugin: ^0.7.3
+  vector_math: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+  - assets/
+  - assets/logos/
+  - assets/images/
+  - assets/animations/
+
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/logos/logo.png"
+
+  
+  
+  
+  
+
+  
+  
+
+  
+  
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
