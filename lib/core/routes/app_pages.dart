@@ -31,9 +31,6 @@ class AppPages {
       page: () => ExportPage(project: Get.arguments?['project'] ?? {}),
     ),
     GetPage(name: AppRoutes.profile, page: () => const ProfilePage()),
-    GetPage(
-      name: AppRoutes.heightCapture,
-      page: () => const HeightCapturePage(),
-    ),
+    GetPage(name: AppRoutes.heightCapture, page: () => HeightCapturePage()),
   ];
 }

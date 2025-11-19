@@ -19,3 +19,8 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+android {
+    namespace "com.ar_flutter_plugin"
+}
+

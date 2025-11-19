@@ -1,11 +1,9 @@
-import 'package:ar_flutter_plugin/ar_flutter_plugin.dart';
+import 'package:ar_flutter_plugin/widgets/ar_view.dart';
 import 'package:ar_flutter_plugin/managers/ar_session_manager.dart';
 import 'package:ar_flutter_plugin/managers/ar_object_manager.dart';
 import 'package:ar_flutter_plugin/managers/ar_anchor_manager.dart';
-import 'package:ar_flutter_plugin/models/ar_node.dart';
-import 'package:ar_flutter_plugin/models/ar_anchor.dart';
+import 'package:ar_flutter_plugin/managers/ar_location_manager.dart';
 import 'package:ar_flutter_plugin/models/ar_hittest_result.dart';
-import 'package:ar_flutter_plugin/datatypes/node_types.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -15,6 +13,7 @@ import '../view_model/height_capture_controller.dart';
 import '../view_model/permissions_controller.dart';
 
 class HeightCapturePage extends StatelessWidget {
+  HeightCapturePage({super.key});
   final c = Get.put(HeightCaptureController());
   final p = Get.put(PermissionsController());
 
@@ -110,6 +109,36 @@ class _ARMeasureViewState extends State<_ARMeasureView> {
           onARViewCreated: _onARViewCreated, // UPDATED
         ),
 
+        // Center dashed line and pins matching reference design
+        Positioned.fill(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final centerX = constraints.maxWidth / 2;
+              return Stack(
+                children: [
+                  Positioned(
+                    left: centerX - 1,
+                    top: 16,
+                    child: _DashedLine(height: constraints.maxHeight - 32),
+                  ),
+                  if (widget.controller.ceilingWorld != null)
+                    Positioned(
+                      left: centerX - 10,
+                      top: 24,
+                      child: const _Pin(),
+                    ),
+                  if (widget.controller.floorWorld != null)
+                    Positioned(
+                      left: centerX - 10,
+                      bottom: 24,
+                      child: const _Pin(),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+
         if (heightMeters != null)
           Positioned(
             bottom: 25,
@@ -130,11 +159,15 @@ class _ARMeasureViewState extends State<_ARMeasureView> {
     );
   }
 
-  // 👇👇 TRUE UPDATED CALLBACK (ONLY 1 PARAMETER)
-  void _onARViewCreated(ARSessionManager sessionManager) async {
+  void _onARViewCreated(
+    ARSessionManager sessionManager,
+    ARObjectManager objectManager,
+    ARAnchorManager anchorManager,
+    ARLocationManager locationManager,
+  ) async {
     arSessionManager = sessionManager;
-    arObjectManager = controller.objectManager;
-    arAnchorManager = controller.anchorManager;
+    arObjectManager = objectManager;
+    arAnchorManager = anchorManager;
 
     await arSessionManager!.onInitialize(
       showPlanes: true,
@@ -144,7 +177,6 @@ class _ARMeasureViewState extends State<_ARMeasureView> {
 
     await arObjectManager!.onInitialize();
 
-    // Updated tap handler
     arSessionManager!.onPlaneOrPointTap = _onPlaneTap;
   }
 
@@ -157,17 +189,6 @@ class _ARMeasureViewState extends State<_ARMeasureView> {
       hit.worldTransform.storage[13],
       hit.worldTransform.storage[14],
     );
-
-    final anchor = ARPlaneAnchor(transformation: hit.worldTransform);
-    await arAnchorManager!.addAnchor(anchor);
-
-    final node = ARNode(
-      type: NodeType.sphere,
-      scale: vmath.Vector3(0.03, 0.03, 0.03),
-      materials: [ARMaterial(color: Colors.red.value)],
-    );
-
-    await arObjectManager!.addNode(node, planeAnchor: anchor);
 
     final c = widget.controller;
 
@@ -186,8 +207,54 @@ class _ARMeasureViewState extends State<_ARMeasureView> {
   @override
   void dispose() {
     arSessionManager?.dispose();
-    arObjectManager?.dispose();
-    arAnchorManager?.dispose();
     super.dispose();
   }
+}
+
+class _Pin extends StatelessWidget {
+  const _Pin();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: const BoxDecoration(
+        color: Colors.red,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+class _DashedLine extends StatelessWidget {
+  final double height;
+  const _DashedLine({required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(size: Size(2, height), painter: _DashedLinePainter());
+  }
+}
+
+class _DashedLinePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 2;
+    const dashHeight = 8;
+    const dashSpace = 6;
+    double y = 0;
+    while (y < size.height) {
+      canvas.drawLine(
+        const Offset(1, 0) + Offset(0, y),
+        const Offset(1, 0) + Offset(0, y + dashHeight),
+        paint,
+      );
+      y += dashHeight + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:primechoice/core/routes/app_routes.dart';
 
 class VerifyAccountController extends GetxController {
   final String email;
@@ -17,14 +18,14 @@ class VerifyAccountController extends GetxController {
   void verify() {
     if (!(formKey.currentState?.validate() ?? false)) return;
     isLoading.value = true;
-    Future.delayed(const Duration(milliseconds: 600), () {
+    Future.delayed(const Duration(seconds: 1), () {
       isLoading.value = false;
       navigateToHome();
     });
   }
 
   void navigateToHome() {
-    // TODO: Implement navigation to Home
+    Get.offAllNamed(AppRoutes.home);
   }
 
   @override

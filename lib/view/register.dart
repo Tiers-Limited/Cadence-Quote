@@ -190,7 +190,9 @@ class _RegisterPageState extends State<RegisterPage> {
                               }
                             },
                             child: Ink(
-                              decoration: MyButtonTheme.primaryGradient(radius: 24),
+                              decoration: MyButtonTheme.primaryGradient(
+                                radius: 24,
+                              ),
                               child: Obx(
                                 () => SizedBox(
                                   height: 48,

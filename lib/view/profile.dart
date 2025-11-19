@@ -12,7 +12,7 @@ class ProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const CustomAppBar(title: 'Edit Profile'),
+      appBar: const CustomAppBar(title: 'Edit Profile', showBack: false),
       body: Stack(
         children: [
           const CustomBackground(),
@@ -31,12 +31,12 @@ class ProfilePage extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Ana Dua',
+                        'Abrar Haider',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'ana@gmail.com',
+                        'abrarhaider987@gmail.com',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ],

@@ -15,7 +15,7 @@ class MyImages {
   static const String onBoardingImage3 = "assets/images/onBoarding3.png";
 
   //Profile
-  static const String user = "assets/images/content/user.png";
+  static const String user = "assets/images/user.png";
 
   //Login
   static const String loginImage = "assets/images/google-logo.png";

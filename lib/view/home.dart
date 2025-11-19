@@ -34,16 +34,10 @@ class _HomePageState extends State<HomePage> {
       ),
       bottomNavigationBar: CustomBottomNavBar(
         currentIndex: _index,
-        onTap: (i) {
-          if (i == 1) {
-            Get.toNamed(AppRoutes.profile);
-          } else {
-            setState(() => _index = i);
-          }
-        },
+        onTap: (i) => setState(() => _index = i),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Iconsax.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Iconsax.user), label: 'Profile'),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.person_pin), label: ''),
         ],
       ),
     );
@@ -202,12 +196,7 @@ class _ProfileTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              IconButton(onPressed: onBack, icon: const Icon(Icons.arrow_back)),
-              const Spacer(),
-            ],
-          ),
+          const SizedBox(height: 8),
           Text(
             'Edit Profile',
             textAlign: TextAlign.center,
@@ -222,57 +211,91 @@ class _ProfileTab extends StatelessWidget {
                   backgroundImage: const AssetImage(MyImages.user),
                 ),
                 const SizedBox(height: 8),
-                Text('Ana Dua', style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  'Abrar Haider',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
                 const SizedBox(height: 4),
                 Text(
-                  'ana@gmail.com',
+                  'abrarhaider987@gmail.com',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          TextFormField(
-            decoration: MyTextFormFieldTheme.lightInputDecoration(
-              labelText: 'Name',
-              prefixIcon: const Icon(Iconsax.user, color: MyColors.primary),
-            ),
+          const _ProfileTile(
+            icon: Iconsax.user,
+            title: 'Name',
+            color: Colors.black,
           ),
           const SizedBox(height: 12),
-          TextFormField(
-            decoration: MyTextFormFieldTheme.lightInputDecoration(
-              labelText: 'Email',
-              prefixIcon: const Icon(Iconsax.sms, color: MyColors.primary),
-            ),
+          const _ProfileTile(
+            icon: Iconsax.sms,
+            title: 'Email',
+            color: Colors.black,
           ),
-          const SizedBox(height: 24),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () {},
-              child: Ink(
-                decoration: BoxDecoration(
-                  color: Colors.red,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const SizedBox(
-                  height: 48,
-                  child: Center(
-                    child: Text(
-                      'Logout',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          const SizedBox(height: 12),
+          _ProfileTile(
+            icon: Iconsax.logout,
+            title: 'Logout',
+            color: Colors.red,
+            onTap: () {},
           ),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+}
+
+class _ProfileTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Color color;
+  final VoidCallback? onTap;
+  const _ProfileTile({
+    required this.icon,
+    required this.title,
+    required this.color,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.15)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color.withOpacity(0.6)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: color.withOpacity(0.6),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }

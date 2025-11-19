@@ -1,6 +1,4 @@
 import 'package:get/get.dart';
-import 'package:camera/camera.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:vector_math/vector_math_64.dart' as vmath;
 
 class HeightCaptureController extends GetxController {
