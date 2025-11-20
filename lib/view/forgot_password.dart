@@ -61,41 +61,28 @@ class ForgotPasswordPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   Obx(
-                    () => Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(24),
-                        onTap: controller.isLoading.value
-                            ? null
-                            : controller.resetPassword,
-                          child: Ink(
-                            decoration: MyButtonTheme.primaryGradient(radius: 24),
-                            child: SizedBox(
-                              height: 48,
-                              child: Center(
-                              child: controller.isLoading.value
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              Colors.white,
-                                            ),
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Reset Password',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
+                    () => GradientElevatedButton(
+                      onPressed: controller.isLoading.value
+                          ? null
+                          : controller.resetPassword,
+                      child: controller.isLoading.value
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : const Text(
+                              'Reset Password',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                 ],

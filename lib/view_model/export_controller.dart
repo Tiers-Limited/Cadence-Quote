@@ -1,8 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/utils/popups/loaders.dart';
+import 'package:primechoice/core/utils/io/file_saver.dart';
+import 'package:primechoice/core/utils/pdf/pdf_builder.dart';
 
 enum ExportFormat { pdf, json, ncjson }
 
@@ -18,31 +20,50 @@ class ExportController extends GetxController {
   Future<void> export() async {
     isExporting.value = true;
     try {
-      final dir = Directory.systemTemp.path;
       final name = (project['title'] ?? 'project').toString().replaceAll(
         ' ',
         '_',
       );
-      late String path;
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      late String savedTo;
       switch (selected.value) {
         case ExportFormat.json:
-          path = '$dir/${name}_${DateTime.now().millisecondsSinceEpoch}.json';
-          await File(path).writeAsString(jsonEncode(project));
+          final bytes = utf8.encode(jsonEncode(project));
+          savedTo = await saveBytes(
+            '${name}_$ts.json',
+            'application/json',
+            bytes,
+          );
           break;
         case ExportFormat.ncjson:
-          path = '$dir/${name}_${DateTime.now().millisecondsSinceEpoch}.ncjson';
           final nc = {'type': 'ncjson', 'payload': project, 'version': 1};
-          await File(path).writeAsString(jsonEncode(nc));
+          final bytes = utf8.encode(jsonEncode(nc));
+          savedTo = await saveBytes(
+            '${name}_$ts.ncjson',
+            'application/json',
+            bytes,
+          );
           break;
         case ExportFormat.pdf:
-          path = '$dir/${name}_${DateTime.now().millisecondsSinceEpoch}.pdf';
-          await File(
-            path,
-          ).writeAsString('Export Project\n${jsonEncode(project)}');
+          final bytes = await buildProjectPdf(name, project);
+          savedTo = await saveBytes(
+            '${name}_$ts.pdf',
+            'application/pdf',
+            bytes,
+          );
           break;
       }
-      MyLoaders.successSnackBar(title: 'Exported', message: 'Saved to $path');
+      MyLoaders.successSnackBar(
+        title: 'Exported',
+        message: 'Saved to $savedTo',
+      );
+      if (kDebugMode) {
+        print('Exported to $savedTo');
+      }
     } catch (e) {
+      if (kDebugMode) {
+        print('Export failed: $e');
+      }
       MyLoaders.errorSnackBar(title: 'Export failed', message: e.toString());
     } finally {
       isExporting.value = false;

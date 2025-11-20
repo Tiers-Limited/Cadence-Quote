@@ -28,6 +28,14 @@ class VerifyAccountController extends GetxController {
     Get.offAllNamed(AppRoutes.home);
   }
 
+  void onOtpChanged() {
+    final codeText = code;
+    if (codeText.length != 4) return;
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    if (isLoading.value) return;
+    verify();
+  }
+
   @override
   void onClose() {
     d1.dispose();

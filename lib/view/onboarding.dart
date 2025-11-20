@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_theme.dart';
 import 'package:primechoice/core/widgets/custom_background.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
@@ -138,34 +139,19 @@ class _OnboardCard extends StatelessWidget {
                     style: MyTextTheme.lightTextTheme.bodyMedium,
                   ),
                   const SizedBox(height: 16),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: onNext,
-                      child: Ink(
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            colors: [MyColors.primary, MyColors.secondary],
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: SizedBox(
-                          height: 50,
-                          width: 150,
-                          child: Center(
-                            child: Text(
-                              'Next',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: GoogleFonts.poppins().fontFamily,
-                                fontSize: 20.0,
-                              ),
-                            ),
-                          ),
+                  SizedBox(
+                    height: 50,
+                    width: 150,
+                    child: GradientElevatedButton(
+                      onPressed: onNext,
+                      radius: 12,
+                      child: Text(
+                        'Next',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: GoogleFonts.poppins().fontFamily,
+                          fontSize: 20.0,
                         ),
                       ),
                     ),

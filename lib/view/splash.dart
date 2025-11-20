@@ -18,15 +18,23 @@ class _SplashState extends State<Splash> {
   @override
   void initState() {
     super.initState();
+    _initFlow();
+  }
+
+  Future<void> _initFlow() async {
     final p = Get.put(PermissionsController());
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      Get.offAllNamed(AppRoutes.onboarding);
-    });
-    () async {
-      await Permission.camera.request();
-      await p.refreshCamera();
-    }();
+
+    /// 3 sec wait (optional — splash animation)
+    await Future.delayed(const Duration(seconds: 3));
+
+    /// Now request permission and wait for result
+    final status = await Permission.camera.request();
+    await p.refreshCamera();
+
+    /// After permission result, navigate
+    if (!mounted) return;
+
+    Get.offAllNamed(AppRoutes.onboarding);
   }
 
   @override

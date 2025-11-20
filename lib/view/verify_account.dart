@@ -59,58 +59,36 @@ class VerifyAccountPage extends StatelessWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _OtpBox(controller.d1),
-                        _OtpBox(controller.d2),
-                        _OtpBox(controller.d3),
-                        _OtpBox(controller.d4),
+                        _OtpBox(
+                          controller: controller.d1,
+                          onChanged: (_) => controller.onOtpChanged(),
+                        ),
+                        _OtpBox(
+                          controller: controller.d2,
+                          onChanged: (_) => controller.onOtpChanged(),
+                        ),
+                        _OtpBox(
+                          controller: controller.d3,
+                          onChanged: (_) => controller.onOtpChanged(),
+                        ),
+                        _OtpBox(
+                          controller: controller.d4,
+                          onChanged: (_) => controller.onOtpChanged(),
+                        ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
                   Obx(
-                    () => Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(24),
-                        onTap: controller.isLoading.value
-                            ? null
-                            : controller.verify,
-                        child: Ink(
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                              colors: [MyColors.primary, MyColors.secondary],
+                    () => controller.isLoading.value
+                        ? const Center(
+                            child: SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             ),
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                          child: SizedBox(
-                            height: 48,
-                            child: Center(
-                              child: controller.isLoading.value
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              Colors.white,
-                                            ),
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Verify',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ],
               ),
@@ -124,7 +102,8 @@ class VerifyAccountPage extends StatelessWidget {
 
 class _OtpBox extends StatelessWidget {
   final TextEditingController controller;
-  const _OtpBox(this.controller);
+  final ValueChanged<String>? onChanged;
+  const _OtpBox({required this.controller, this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -145,6 +124,7 @@ class _OtpBox extends StatelessWidget {
         },
         onChanged: (v) {
           if (v.isNotEmpty) FocusScope.of(context).nextFocus();
+          onChanged?.call(v);
         },
       ),
     );

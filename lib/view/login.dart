@@ -111,42 +111,29 @@ class LoginPage extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(24),
-                            onTap: () {
-                              controller.login();
-                            },
-                            child: Ink(
-                              decoration: MyButtonTheme.primaryGradient(radius: 24),
-                              child: Obx(
-                                () => SizedBox(
-                                  height: 48,
-                                  child: Center(
-                                    child: controller.isLoading.value
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                    Colors.white,
-                                                  ),
-                                            ),
-                                          )
-                                        : const Text(
-                                            'Login',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
+                        Obx(
+                          () => GradientElevatedButton(
+                            onPressed: controller.isLoading.value
+                                ? null
+                                : controller.login,
+                            child: controller.isLoading.value
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Text(
+                                    'Login',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                              ),
-                            ),
                           ),
                         ),
                       ],
@@ -206,6 +193,7 @@ class LoginPage extends StatelessWidget {
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(0),
                         ),
@@ -222,7 +210,8 @@ class LoginPage extends StatelessWidget {
                                 padding: const EdgeInsets.only(right: 12.0),
                                 child: Text(
                                   "Connect with Apple",
-                                  style: TextStyle(color: MyColors.white),
+                                  style: MyTextTheme.lightTextTheme.titleLarge!
+                                      .copyWith(color: MyColors.white),
                                 ),
                               ),
                             ),

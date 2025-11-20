@@ -3,6 +3,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/core/utils/constants/image_strings.dart';
+import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_theme.dart';
 import 'package:primechoice/core/widgets/custom_background.dart';
@@ -75,34 +76,16 @@ class _HomeTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () {
-                Get.toNamed(AppRoutes.heightCapture);
-              },
-              child: Ink(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [MyColors.primary, MyColors.secondary],
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const SizedBox(
-                  height: 48,
-                  child: Center(
-                    child: Text(
-                      'Start New Scan',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
+          GradientElevatedButton(
+            onPressed: () {
+              Get.toNamed(AppRoutes.heightCapture);
+            },
+            radius: 8,
+            child: const Text(
+              'Start New Scan',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -131,7 +114,7 @@ class _HomeTab extends StatelessWidget {
             imageAsset: 'assets/images/logo.png',
             onTap: () {
               Get.toNamed(
-                AppRoutes.export,
+                AppRoutes.projectDetail,
                 arguments: {
                   'project': {
                     'title': 'Living Room',
@@ -151,7 +134,7 @@ class _HomeTab extends StatelessWidget {
             imageAsset: 'assets/images/logo.png',
             onTap: () {
               Get.toNamed(
-                AppRoutes.export,
+                AppRoutes.projectDetail,
                 arguments: {
                   'project': {
                     'title': 'Kitchen',

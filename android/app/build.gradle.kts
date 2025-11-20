@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.primechoice"
+    namespace = "com.primechoice.main"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "29.0.13599879"
 
@@ -29,7 +29,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.primechoice"
+        applicationId = "com.primechoice.main"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24

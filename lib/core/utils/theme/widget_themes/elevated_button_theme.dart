@@ -10,10 +10,11 @@ class MyElevatedButtonTheme {
   /* -- Light Theme -- */
   static final lightElevatedButtonTheme = ElevatedButtonThemeData(
     style: ElevatedButton.styleFrom(
-      elevation: 0,
+      elevation: 8,
+      shadowColor: MyColors.primary.withOpacity(0.6),
       foregroundColor: MyColors.white,
       backgroundColor: MyColors.primary,
-      side: const BorderSide(color: MyColors.dark),
+      side: BorderSide(color: MyColors.primary.withOpacity(0.0)),
       padding: const EdgeInsets.symmetric(vertical: MySizes.buttonHeight),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(MySizes.borderRadiusLg),

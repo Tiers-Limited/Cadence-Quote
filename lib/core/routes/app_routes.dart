@@ -7,6 +7,7 @@ class AppRoutes {
   static const verify = '/verify';
   static const home = '/home';
   static const export = '/export';
+  static const projectDetail = '/project-detail';
   static const profile = '/profile';
   static const heightCapture = '/height-capture';
 }

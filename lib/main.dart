@@ -4,6 +4,7 @@ import 'package:primechoice/core/routes/app_pages.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart';
+import 'package:primechoice/core/utils/theme/widget_themes/elevated_button_theme.dart';
 
 void main() {
   runApp(const MyApp());
@@ -20,6 +21,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         textTheme: MyTextTheme.lightTextTheme,
         inputDecorationTheme: MyTextFormFieldTheme.lightInputDecorationTheme,
+        elevatedButtonTheme: MyElevatedButtonTheme.lightElevatedButtonTheme,
         scaffoldBackgroundColor: Colors.white,
       ),
       initialRoute: AppRoutes.splash,

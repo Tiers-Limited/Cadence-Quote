@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_theme.dart';
 import 'package:primechoice/core/widgets/custom_background.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart';
-import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view_model/register_controller.dart';
 
@@ -174,11 +174,9 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(24),
-                            onTap: () {
+                        Obx(
+                          () => GradientElevatedButton(
+                            onPressed: () {
                               if (controller.formKey.currentState?.validate() ??
                                   false) {
                                 Get.toNamed(
@@ -189,37 +187,24 @@ class _RegisterPageState extends State<RegisterPage> {
                                 );
                               }
                             },
-                            child: Ink(
-                              decoration: MyButtonTheme.primaryGradient(
-                                radius: 24,
-                              ),
-                              child: Obx(
-                                () => SizedBox(
-                                  height: 48,
-                                  child: Center(
-                                    child: controller.isLoading.value
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                    Colors.white,
-                                                  ),
-                                            ),
-                                          )
-                                        : const Text(
-                                            'Register',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
+                            child: controller.isLoading.value
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Text(
+                                    'Register',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                              ),
-                            ),
                           ),
                         ),
                       ],
@@ -279,6 +264,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(0),
                         ),
@@ -300,6 +286,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               ),
                             ),
                           ),
+                          const SizedBox(width: 12),
                         ],
                       ),
                     ),

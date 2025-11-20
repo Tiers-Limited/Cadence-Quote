@@ -26,7 +26,7 @@ class OnboardingController extends GetxController {
         title: 'Transform Your Home with Smart Scanning',
         subtitle:
             "Use your phone's camera to capture walls, ceilings, and trims in 3D—no tape measure needed.",
-        imageAsset: MyImages.onBoardingImage2,
+        imageAsset: MyImages.onBoardingImage1,
       ),
       OnboardingItem(
         title: 'Accurate Room Measurements in Seconds',
@@ -38,7 +38,7 @@ class OnboardingController extends GetxController {
         title: 'Visualize, Save, and Share Projects',
         subtitle:
             'Review detailed 3D maps, edit room info, and export professional reports to PDF or data formats.',
-        imageAsset: MyImages.onBoardingImage2,
+        imageAsset: MyImages.onBoardingImage3,
       ),
     ];
     super.onInit();

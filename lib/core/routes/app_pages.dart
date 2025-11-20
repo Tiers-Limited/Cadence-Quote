@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view/export.dart';
+import 'package:primechoice/view/project_detail.dart';
 import 'package:primechoice/view/forgot_password.dart';
 import 'package:primechoice/view/height_capture.dart';
 import 'package:primechoice/view/home.dart';
@@ -30,7 +31,11 @@ class AppPages {
       name: AppRoutes.export,
       page: () => ExportPage(project: Get.arguments?['project'] ?? {}),
     ),
+    GetPage(
+      name: AppRoutes.projectDetail,
+      page: () => ProjectDetailPage(project: Get.arguments?['project'] ?? {}),
+    ),
     GetPage(name: AppRoutes.profile, page: () => const ProfilePage()),
-    GetPage(name: AppRoutes.heightCapture, page: () => HeightCapturePage()),
+    // GetPage(name: AppRoutes.heightCapture, page: () => HeightCapturePage()),
   ];
 }

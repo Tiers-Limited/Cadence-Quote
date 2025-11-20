@@ -1,4 +1,4 @@
-package com.example.primechoice
+package com.primechoice.main
 
 import io.flutter.embedding.android.FlutterActivity
 
