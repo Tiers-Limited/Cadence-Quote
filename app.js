@@ -24,6 +24,8 @@ const productsRouter = require('./routes/products');
 const adminRouter = require('./routes/admin');
 const subscriptionsRouter = require('./routes/subscriptions');
 const webhooksRouter = require('./routes/webhooks');
+const mobileAuthRouter = require('./routes/mobileAuth');
+const contractorRouter = require('./routes/contractorRouter'); // NEW FEATURE: Contractor product configs
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 // Load all models and associations
@@ -76,11 +78,13 @@ app.get('/health', (req, res) => {
 // Mount routes
 app.use('/', indexRouter);
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/mbl/auth', mobileAuthRouter); // Mobile authentication routes
 app.use('/api/v1/payments', paymentsRouter);
 app.use('/api/v1/brands', brandsRouter);
 app.use('/api/v1/products', productsRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/subscriptions', subscriptionsRouter);
+app.use('/api/v1/contractor', contractorRouter); // Contractor product configs
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler

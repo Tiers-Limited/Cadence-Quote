@@ -81,6 +81,29 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     defaultValue: 30,
     field: 'quote_validity_days',
     comment: 'Number of days quote remains valid'
+  },
+  
+  // Product Configuration Defaults
+  productConfigLaborRates: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'product_config_labor_rates',
+    defaultValue: { interior: [], exterior: [] },
+    comment: 'Default labor rates for product configurations (interior/exterior)'
+  },
+  productConfigDefaultMarkup: {
+    type: DataTypes.DECIMAL(5, 2),
+    allowNull: false,
+    defaultValue: 15.00,
+    field: 'product_config_default_markup',
+    comment: 'Default markup percentage for product configurations'
+  },
+  productConfigDefaultTaxRate: {
+    type: DataTypes.DECIMAL(5, 2),
+    allowNull: false,
+    defaultValue: 0.00,
+    field: 'product_config_default_tax_rate',
+    comment: 'Default tax rate for product configurations'
   }
 }, {
   timestamps: true,
