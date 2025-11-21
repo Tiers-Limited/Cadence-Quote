@@ -116,6 +116,14 @@ function MainLayout({ children }) {
       onClick: () => handleMenuClick('/products/catalog')
     },
     {
+      label:'New Quote',
+      key: 'quotes',
+      icon: <Badge dot offset={[ -5, 5 ]}>
+        <FiFileText size={20} />
+      </Badge>,
+      onClick: () => handleMenuClick('/quotes/new')
+    },
+    {
       key: 'leads',
       icon: <FiUsers size={20} />,
       label: 'Leads',

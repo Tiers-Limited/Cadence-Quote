@@ -23,6 +23,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   InfoCircleOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import apiService from '../services/apiService';
 
@@ -40,6 +41,7 @@ const ContractorProductConfigManager = () => {
   const [selectedGlobalProduct, setSelectedGlobalProduct] = useState(null);
   const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
+  const [searchText, setSearchText] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [activeTab, setActiveTab] = useState('products');
   const [form] = Form.useForm();
@@ -480,7 +482,7 @@ const ContractorProductConfigManager = () => {
     },
   ];
 
-  // Filter configs based on selected brand and category
+  // Filter configs based on selected brand, category, and search text
   const filteredConfigs = configs.filter(config => {
     const globalProd = config.globalProduct;
     
@@ -494,7 +496,14 @@ const ContractorProductConfigManager = () => {
       ? true
       : globalProd?.category === selectedCategoryFilter;
     
-    return brandMatch && categoryMatch;
+    // Filter by search text (product name or brand name)
+    const searchMatch = !searchText
+      ? true
+      : globalProd?.name?.toLowerCase().includes(searchText.toLowerCase()) ||
+        globalProd?.brand?.name?.toLowerCase().includes(searchText.toLowerCase()) ||
+        globalProd?.customBrand?.toLowerCase().includes(searchText.toLowerCase());
+    
+    return brandMatch && categoryMatch && searchMatch;
   });
 
   // Filter global products based on selected brand and category
@@ -594,6 +603,14 @@ const ContractorProductConfigManager = () => {
             {/* Filter Controls */}
             <div className='flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap items-start sm:items-center justify-between'>
             <div className='flex flex-col sm:flex-row gap-2 sm:gap-3'>
+              <Input
+                placeholder="Search products or brands..."
+                prefix={<SearchOutlined />}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                allowClear
+                className="w-full sm:w-[250px]"
+              />
               <Select
                 placeholder="Filter by Brand"
                 className="w-full sm:w-[200px]"
