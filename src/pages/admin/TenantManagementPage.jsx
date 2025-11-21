@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Space, Tag, Badge, InputNumber } from 'antd';
-import { CheckCircleOutlined, StopOutlined, UserOutlined, EyeOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, StopOutlined, UserOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 
 const { Option } = Select;
@@ -12,6 +12,7 @@ const TenantManagementPage = () => {
   const [selectedTenant, setSelectedTenant] = useState(null);
   const [form] = Form.useForm();
   const [isMobile, setIsMobile] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -92,18 +93,31 @@ const TenantManagementPage = () => {
     return colors[status] || 'default';
   };
 
+  const filteredTenants = tenants.filter(tenant => {
+    if (!searchText) return true;
+    const search = searchText.toLowerCase();
+    return (
+      tenant.companyName?.toLowerCase().includes(search) ||
+      tenant.subdomain?.toLowerCase().includes(search) ||
+      tenant.status?.toLowerCase().includes(search)
+    );
+  });
+
   const columns = [
     {
       title: 'Tenant Name',
       dataIndex: 'companyName',
       key: 'companyName',
+      width: isMobile ? 150 : undefined,
       sorter: (a, b) => a.companyName.localeCompare(b.companyName),
+      ellipsis: true,
     },
     
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
+      width: isMobile ? 90 : undefined,
       filters: [
         { text: 'Active', value: 'active' },
         { text: 'Trial', value: 'trial' },
@@ -117,7 +131,7 @@ const TenantManagementPage = () => {
         </Tag>
       ),
     },
-    {
+    ...(!isMobile ? [{
       title: 'Users',
       key: 'users',
       render: (_, record) => (
@@ -125,14 +139,14 @@ const TenantManagementPage = () => {
           <UserOutlined style={{ fontSize: 16, color: '#1890ff' }} />
         </Badge>
       ),
-    },
-    {
+    }] : []),
+    ...(!isMobile ? [{
       title: 'Seat Limit',
       dataIndex: 'seatLimit',
       key: 'seatLimit',
       render: (limit) => limit || 5,
-    },
-    {
+    }] : []),
+    ...(!isMobile ? [{
       title: 'Trial Ends',
       dataIndex: 'trialEndsAt',
       key: 'trialEndsAt',
@@ -141,8 +155,8 @@ const TenantManagementPage = () => {
         'month': 'short',
         'year': 'numeric'
       }) : '-',
-    },
-    {
+    }] : []),
+    ...(!isMobile ? [{
       title: 'Created',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -151,20 +165,21 @@ const TenantManagementPage = () => {
         'month': 'short',
         'year': 'numeric'
       }),
-    },
+    }] : []),
     {
       title: 'Actions',
       key: 'actions',
-      fixed: 'right',
-      width: 200,
+      fixed: isMobile ? undefined : 'right',
+      width: isMobile ? 100 : 200,
       render: (_, record) => (
-        <Space>
+        <Space direction={isMobile ? 'vertical' : 'horizontal'} size="small">
           <Button
             icon={<EyeOutlined />}
             onClick={() => showEditModal(record)}
             size="small"
+            block={isMobile}
           >
-            Edit
+            {!isMobile && 'Edit'}
           </Button>
           {record.status !== 'active' && (
             <Button
@@ -172,8 +187,9 @@ const TenantManagementPage = () => {
               onClick={() => handleActivate(record.id)}
               size="small"
               type="primary"
+              block={isMobile}
             >
-              Activate
+              {!isMobile && 'Activate'}
             </Button>
           )}
           {record.status === 'active' && (
@@ -182,8 +198,9 @@ const TenantManagementPage = () => {
               onClick={() => handleSuspend(record.id)}
               size="small"
               danger
+              block={isMobile}
             >
-              Suspend
+              {!isMobile && 'Suspend'}
             </Button>
           )}
         </Space>
@@ -192,22 +209,30 @@ const TenantManagementPage = () => {
   ];
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Tenant Management</h1>
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Tenant Management</h1>
+        <Input
+          placeholder="Search tenants..."
+          prefix={<SearchOutlined />}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          allowClear
+          className="w-full sm:w-64"
+        />
       </div>
 
       <Table
         columns={columns}
-        dataSource={tenants}
+        dataSource={filteredTenants}
         loading={loading}
         rowKey="id"
-        scroll={{ x: 'max-content' }}
-        pagination={{ pageSize: 20 }}
+        scroll={{ x: isMobile ? 800 : 'max-content' }}
+        pagination={{ pageSize: isMobile ? 10 : 20, simple: isMobile }}
         expandable={{
           expandedRowRender: (record) => (
-            <div className="bg-gray-50 p-4 rounded">
-              <h3 className="mb-3 font-semibold">Users ({record.Users?.length || 0})</h3>
+            <div className="bg-gray-50 p-3 sm:p-4 rounded">
+              <h3 className="mb-2 sm:mb-3 text-sm sm:text-base font-semibold">Users ({record.Users?.length || 0})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {record.Users?.map(user => (
                   <div key={user.id} className="p-3 bg-white rounded border border-gray-200">
@@ -236,7 +261,9 @@ const TenantManagementPage = () => {
           form.resetFields();
         }}
         footer={null}
-        width={500}
+        width={isMobile ? '100%' : 500}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={form}
@@ -273,14 +300,14 @@ const TenantManagementPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <Space className="w-full justify-end">
+            <Space className={isMobile ? 'w-full flex-col' : 'w-full justify-end'}>
               <Button onClick={() => {
                 setModalVisible(false);
                 form.resetFields();
-              }}>
+              }} block={isMobile}>
                 Cancel
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button type="primary" htmlType="submit" block={isMobile}>
                 Update
               </Button>
             </Space>

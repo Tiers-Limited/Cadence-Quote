@@ -25,6 +25,7 @@ import RoleBasedRoute from '../pages/RoleBasedRoute';
 import PublicLeadFormPage from '../pages/PublicLeadFormPage';
 import { Spin } from 'antd';
 import BrandProductManager from '../features/admin/BrandProductManager';
+import QuoteBuilderPage from '../pages/QuoteBuilderPage';
 
 // Admin Components
 import RoleProtectedRoute from '../components/RoleProtectedRoute';
@@ -37,6 +38,7 @@ import TenantManagementPage from '../pages/admin/TenantManagementPage';
 import FeatureFlagsPage from '../pages/admin/FeatureFlagsPage';
 import StripeBillingPage from '../pages/admin/StripeBillingPage';
 import AdminSettingsPage from '../pages/admin/AdminSettingsPage';
+import ContractorProductConfigManager from '../pages/ContractorProductConfigManager';
 
 const AppRoutes = () => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -88,7 +90,8 @@ const AppRoutes = () => {
         }
       >
         <Route path='/dashboard' element={<DashboardPage />} />
-        <Route path='/products/catalog' element={<BrandProductManager />} />
+        <Route path='/quotes/new' element={<QuoteBuilderPage />} />
+        <Route path='/products/catalog' element={<ContractorProductConfigManager />} />
         <Route path='/products/colors' element={<ColorLibrary />} />
         <Route path='/pricing/schemes' element={<PricingSchemes />} />
         <Route path='/leads/forms' element={<LeadFormBuilder />} />

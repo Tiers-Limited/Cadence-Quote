@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, message, Space, Tag, Card, Descriptions, Tabs, Tooltip, Popconfirm } from 'antd';
+import { Table, Button, message, Space, Tag, Card, Descriptions, Tabs, Tooltip, Popconfirm, Input } from 'antd';
 import { 
   CreditCardOutlined, 
   DollarOutlined, 
@@ -7,7 +7,8 @@ import {
   ReloadOutlined,
   StopOutlined,
   SyncOutlined,
-  ExclamationCircleOutlined
+  ExclamationCircleOutlined,
+  SearchOutlined
 } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 
@@ -21,6 +22,7 @@ const StripeBillingPage = () => {
   const [activeTab, setActiveTab] = useState('subscriptions');
   const [isMobile, setIsMobile] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
+  const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -126,6 +128,17 @@ const StripeBillingPage = () => {
     if (tier === 'pro') return 'green';
     return 'purple';
   };
+
+  const filteredSubscriptions = subscriptions.filter(sub => {
+    if (!searchText) return true;
+    const search = searchText.toLowerCase();
+    return (
+      sub.tenant?.companyName?.toLowerCase().includes(search) ||
+      sub.tenant?.email?.toLowerCase().includes(search) ||
+      sub.tier?.toLowerCase().includes(search) ||
+      sub.status?.toLowerCase().includes(search)
+    );
+  });
 
   const subscriptionColumns = [
     {
@@ -252,7 +265,15 @@ const StripeBillingPage = () => {
     <div className="p-3 sm:p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold">Stripe Billing & Subscriptions</h1>
-        <Space>
+        <Space direction={isMobile ? 'vertical' : 'horizontal'} className="w-full sm:w-auto">
+          <Input
+            placeholder="Search subscriptions..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            allowClear
+            className="w-full sm:w-56"
+          />
           <Button
             icon={<SyncOutlined />}
             onClick={() => {
@@ -393,7 +414,7 @@ const StripeBillingPage = () => {
             children: (
               <Table
                 columns={subscriptionColumns}
-                dataSource={subscriptions}
+                dataSource={filteredSubscriptions}
                 loading={loading}
                 rowKey="id"
                 scroll={{ x: isMobile ? 800 : 'max-content' }}

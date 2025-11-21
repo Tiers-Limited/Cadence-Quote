@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Space, Tag, Popconfirm, Card } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CalculatorOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CalculatorOutlined, SearchOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 
 const { Option } = Select;
@@ -22,6 +22,7 @@ const PricingSchemeManagementPage = () => {
   const [pinForm] = Form.useForm();
   const [pinSetupForm] = Form.useForm();
   const [isMobile, setIsMobile] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -225,6 +226,17 @@ const PricingSchemeManagementPage = () => {
     }
   };
 
+  const filteredSchemes = schemes.filter(scheme => {
+    if (!searchText) return true;
+    const search = searchText.toLowerCase();
+    return (
+      scheme.name?.toLowerCase().includes(search) ||
+      scheme.description?.toLowerCase().includes(search) ||
+      scheme.type?.toLowerCase().includes(search) ||
+      scheme.pricingRules?.formula?.toLowerCase().includes(search)
+    );
+  });
+
   const columns = [
     {
       title: 'Name',
@@ -301,9 +313,9 @@ const PricingSchemeManagementPage = () => {
       title: 'Actions',
       key: 'actions',
       fixed: isMobile ? undefined : 'right',
-      width: isMobile ? 100 : 120,
+      width: isMobile ? 120 : 200,
       render: (_, record) => (
-        <Space size="small" direction={isMobile ? 'vertical' : 'horizontal'}>
+        <Space size="small" direction={isMobile ? 'vertical' : 'horizontal'} className="w-full">
           {!record.isDefault && (
             <Button
               size="small"
@@ -311,8 +323,9 @@ const PricingSchemeManagementPage = () => {
               title="Set as default"
               loading={settingDefault === record.id}
               disabled={settingDefault !== null || loading}
+              block={isMobile}
             >
-              Set Default
+              {isMobile ? 'Default' : 'Set Default'}
             </Button>
           )}
           <Button
@@ -350,14 +363,24 @@ const PricingSchemeManagementPage = () => {
     <div className="p-3 sm:p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold">Pricing Scheme Management</h1>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => showModal()}
-          block={isMobile}
-        >
-          Add Scheme
-        </Button>
+        <Space direction={isMobile ? 'vertical' : 'horizontal'} className="w-full sm:w-auto">
+          <Input
+            placeholder="Search schemes..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            allowClear
+            style={{ width: isMobile ? '100%' : 250 }}
+          />
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => showModal()}
+            block={isMobile}
+          >
+            Add Scheme
+          </Button>
+        </Space>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
@@ -405,7 +428,7 @@ const PricingSchemeManagementPage = () => {
 
       <Table
         columns={columns}
-        dataSource={schemes}
+        dataSource={filteredSchemes}
         loading={loading}
         rowKey="id"
         scroll={{ x: isMobile ? 700 : 'max-content' }}
@@ -539,6 +562,8 @@ const PricingSchemeManagementPage = () => {
         }}
         footer={null}
         width={isMobile ? '100%' : 400}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={pinForm}
@@ -568,13 +593,15 @@ const PricingSchemeManagementPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <div className="flex gap-2 w-full justify-end">
+            <div className={isMobile ? 'flex flex-col gap-2' : 'flex gap-2 w-full justify-end'}>
               <Button 
                 onClick={() => {
                   setPinModalVisible(false);
                   pinForm.resetFields();
                 }}
                 disabled={verifying}
+                block={isMobile}
+                className={isMobile ? 'order-2' : ''}
               >
                 Cancel
               </Button>
@@ -583,6 +610,8 @@ const PricingSchemeManagementPage = () => {
                 htmlType="submit"
                 loading={verifying}
                 disabled={verifying}
+                block={isMobile}
+                className={isMobile ? 'order-1' : ''}
               >
                 Verify & Continue
               </Button>
@@ -601,6 +630,8 @@ const PricingSchemeManagementPage = () => {
         }}
         footer={null}
         width={isMobile ? '100%' : 500}
+        style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
+        bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form
           form={pinSetupForm}
@@ -655,13 +686,15 @@ const PricingSchemeManagementPage = () => {
           </Form.Item>
 
           <Form.Item className="mb-0">
-            <div className="flex gap-2 w-full justify-end">
+            <div className={isMobile ? 'flex flex-col gap-2' : 'flex gap-2 w-full justify-end'}>
               <Button 
                 onClick={() => {
                   setPinSetupModalVisible(false);
                   pinSetupForm.resetFields();
                 }}
                 disabled={submitting}
+                block={isMobile}
+                className={isMobile ? 'order-2' : ''}
               >
                 Cancel
               </Button>
@@ -670,6 +703,8 @@ const PricingSchemeManagementPage = () => {
                 htmlType="submit"
                 loading={submitting}
                 disabled={submitting}
+                block={isMobile}
+                className={isMobile ? 'order-1' : ''}
               >
                 Set PIN & Save
               </Button>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Table, Tabs, Tag, DatePicker, Button, Space, message } from 'antd';
-import { ReloadOutlined, FilterOutlined } from '@ant-design/icons';
+import { Table, Tabs, Tag, DatePicker, Button, Space, message, Input } from 'antd';
+import { ReloadOutlined, FilterOutlined, SearchOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 import dayjs from 'dayjs';
 
@@ -17,6 +17,7 @@ const AuditLogsPage = () => {
     total: 0,
   });
   const [isMobile, setIsMobile] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -85,6 +86,18 @@ const AuditLogsPage = () => {
     setDateRange(dates);
     setPagination({ ...pagination, current: 1 });
   };
+
+  const filteredLogs = logs.filter(log => {
+    if (!searchText) return true;
+    const search = searchText.toLowerCase();
+    return (
+      log.action?.toLowerCase().includes(search) ||
+      log.category?.toLowerCase().includes(search) ||
+      log.user?.fullName?.toLowerCase().includes(search) ||
+      log.entityType?.toLowerCase().includes(search) ||
+      log.ipAddress?.toLowerCase().includes(search)
+    );
+  });
 
   const getCategoryColor = (category) => {
     const colors = {
@@ -206,6 +219,14 @@ const AuditLogsPage = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold">Audit Logs</h1>
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Input
+            placeholder="Search logs..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            allowClear
+            className="w-full sm:w-48"
+          />
           <RangePicker
             onChange={handleDateRangeChange}
             className="w-full sm:w-[300px]"
@@ -233,7 +254,7 @@ const AuditLogsPage = () => {
 
         <Table
           columns={columns}
-          dataSource={logs}
+          dataSource={filteredLogs}
           loading={loading}
           rowKey="id"
           scroll={{ x: isMobile ? 500 : 'max-content' }}

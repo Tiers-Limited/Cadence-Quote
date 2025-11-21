@@ -423,7 +423,7 @@ const BrandProductManager = () => {
                 <h4 className="font-semibold mb-2 text-sm sm:text-base">Product Details:</h4>
                 <p className="text-xs sm:text-sm"><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
                 <p className="text-xs sm:text-sm"><strong>Category:</strong> {selectedGlobalProduct.category}</p>
-                <p className="text-xs sm:text-sm"><strong>Tier:</strong> {selectedGlobalProduct.tier || 'N/A'}</p>
+               
                 <p className="text-xs sm:text-sm"><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
               </div>
 

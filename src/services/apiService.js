@@ -486,6 +486,70 @@ class ApiService {
   async getPaymentSession(sessionId) {
     return this.get(`/payments/session/${sessionId}`);
   }
+
+  // ========================================
+  // Contractor Product Configuration APIs
+  // ========================================
+
+  /**
+   * Get all product configurations for the authenticated contractor
+   * @param {Object} params - Query parameters (brandId, search, page, limit, sortBy, sortOrder)
+   */
+  async getProductConfigs(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/contractor/product-configs?${queryString}` : '/contractor/product-configs';
+    return this.get(endpoint);
+  }
+
+  /**
+   * Get a single product configuration by ID
+   * @param {number} id - Product configuration ID
+   */
+  async getProductConfigById(id) {
+    return this.get(`/contractor/product-configs/${id}`);
+  }
+
+  /**
+   * Create a new product configuration
+   * @param {Object} data - Configuration data (globalProductId, sheens, laborRates, defaultMarkup, productMarkups, taxRate)
+   */
+  async createProductConfig(data) {
+    return this.post('/contractor/product-configs', data);
+  }
+
+  /**
+   * Update an existing product configuration
+   * @param {number} id - Product configuration ID
+   * @param {Object} data - Updated configuration data
+   */
+  async updateProductConfig(id, data) {
+    return this.put(`/contractor/product-configs/${id}`, data);
+  }
+
+  /**
+   * Delete (soft delete) a product configuration
+   * @param {number} id - Product configuration ID
+   */
+  async deleteProductConfig(id) {
+    return this.delete(`/contractor/product-configs/${id}`);
+  }
+
+  /**
+   * Get default values for product configurations
+   * Returns default labor rates, markup, tax rate, and coverage
+   */
+  async getProductConfigDefaults() {
+    return this.get('/contractor/product-configs/defaults');
+  }
+
+  /**
+   * Update default values for product configurations
+   * @param {Object} data - Updated defaults (laborRates, defaultMarkup, defaultTaxRate)
+   */
+  async updateProductConfigDefaults(data) {
+    return this.put('/contractor/product-configs/defaults', data);
+  }
 }
 
 export const apiService = new ApiService(API_BASE_URL)
+export default apiService
