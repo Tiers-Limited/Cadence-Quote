@@ -104,6 +104,21 @@ const User = sequelize.define('User', {
     type: DataTypes.BIGINT, // Store as milliseconds timestamp to avoid timezone issues
     allowNull: true,
     field: 'password_reset_expires'
+  },
+  address: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    validate: {
+      len: [0, 500] // Max 500 characters
+    }
+  },
+  phoneNumber: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'phone_number',
+    validate: {
+      is: /^[+]?[(]?\d{1,4}[)]?[-\s.]?[(]?\d{1,4}[)]?[-\s.]?\d{1,9}$/i
+    }
   }
 }, {
   timestamps: true,

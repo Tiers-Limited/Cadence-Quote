@@ -50,7 +50,7 @@ const mobileSignup = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { fullName, email, password } = req.body;
+    const { fullName, email, password, phoneNumber, address } = req.body;
 
     // Validation
     if (!fullName || !email || !password) {
@@ -117,6 +117,8 @@ const mobileSignup = async (req, res) => {
         fullName: fullName.trim(),
         email: email.toLowerCase().trim(),
         password, // Will be hashed by beforeCreate hook
+        phoneNumber: phoneNumber ? phoneNumber.trim() : null,
+        address: address ? address.trim() : null,
         role: "contractor", // Mobile users are contractors
         tenantId: bobbyTenant.id,
         isActive: true,
@@ -166,6 +168,8 @@ const mobileSignup = async (req, res) => {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
+          phoneNumber: user.phoneNumber,
+          address: user.address,
           role: user.role,
           emailVerified: user.emailVerified,
           tenantId: user.tenantId,
