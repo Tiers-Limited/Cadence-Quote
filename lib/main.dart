@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/routes/app_pages.dart';
@@ -6,8 +7,19 @@ import 'package:primechoice/core/utils/theme/widget_themes/text_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/elevated_button_theme.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await dotenv.load(fileName: '.env');
+  } catch (_) {
+    if (kDebugMode) {
+      print('Warning: .env not found, using defaults');
+    }
+  }
+  await MyLocalStorage.init('app');
   runApp(const MyApp());
 }
 

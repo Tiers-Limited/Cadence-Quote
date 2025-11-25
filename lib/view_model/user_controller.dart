@@ -5,4 +5,3 @@ class UserController extends GetxController {
 
   void setAddress(String value) => address.value = value;
 }
-

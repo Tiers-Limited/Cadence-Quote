@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
+import 'package:primechoice/core/services/auth_service.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
+import 'package:primechoice/core/utils/popups/loaders.dart';
 
 class LoginController extends GetxController {
   final formKey = GlobalKey<FormState>();
@@ -14,10 +17,21 @@ class LoginController extends GetxController {
   void login() {
     if (!(formKey.currentState?.validate() ?? false)) return;
     isLoading.value = true;
-    Future.delayed(const Duration(seconds: 1), () {
-      isLoading.value = false;
-      Get.toNamed(AppRoutes.home);
-    });
+    AuthService.instance
+        .signin(
+          email: emailController.text.trim(),
+          password: passwordController.text,
+        )
+        .then((data) async {
+          final token = data['token'];
+          await MyLocalStorage.instance().writeData('auth_token', token);
+          MyLoaders.successSnackBar(title: 'Login successful');
+          Get.toNamed(AppRoutes.home);
+        })
+        .catchError((e) {
+          MyLoaders.errorSnackBar(title: 'Login failed', message: e.toString());
+        })
+        .whenComplete(() => isLoading.value = false);
   }
 
   @override

@@ -8,6 +8,8 @@ import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart
 import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view_model/login_controller.dart';
+import 'package:primechoice/core/services/auth_service.dart';
+import 'package:primechoice/core/utils/popups/loaders.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -160,7 +162,20 @@ class LoginPage extends StatelessWidget {
                           borderRadius: BorderRadius.zero,
                         ),
                       ),
-                      onPressed: () {},
+                      onPressed: () async {
+                        try {
+                          final data = await AuthService.instance
+                              .loginWithGoogle();
+                          debugPrint(
+                            'Google user: ${data['fullName']} ${data['email']} ${data['photoUrl']}',
+                          );
+                        } catch (e) {
+                          MyLoaders.errorSnackBar(
+                            title: 'Google sign-in failed',
+                            message: e.toString(),
+                          );
+                        }
+                      },
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [

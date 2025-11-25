@@ -32,6 +32,9 @@ dependencies:
   vector_math: ^2.1.5
   persistent_bottom_nav_bar_v2: ^6.2.0
   pdf: ^3.11.3
+  http: ^1.2.0
+  flutter_dotenv: ^5.1.0
+  google_sign_in: ^6.2.1
 
 dependency_overrides:
   # Required by arkit_plugin >=1.2.0 which uses Matrix4.scaleByVector3
@@ -51,6 +54,7 @@ flutter:
   - assets/logos/
   - assets/images/
   - assets/animations/
+  - .env
 
 
 flutter_launcher_icons:

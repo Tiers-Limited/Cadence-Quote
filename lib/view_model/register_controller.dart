@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:primechoice/core/services/auth_service.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
+import 'package:primechoice/core/utils/popups/loaders.dart';
 
 class RegisterController extends GetxController {
   final formKey = GlobalKey<FormState>();
@@ -19,9 +22,29 @@ class RegisterController extends GetxController {
   void register() {
     if (!(formKey.currentState?.validate() ?? false)) return;
     isLoading.value = true;
-    Future.delayed(const Duration(seconds: 1), () {
-      isLoading.value = false;
-    });
+    AuthService.instance
+        .signup(
+          fullName: nameController.text.trim(),
+          email: emailController.text.trim(),
+          password: passwordController.text,
+          address: addressController.text.trim(),
+        )
+        .then((data) async {
+          final token = data['token'];
+          await MyLocalStorage.instance().writeData('auth_token', token);
+          MyLoaders.successSnackBar(
+            title: 'Registered',
+            message:
+                'Please check your email to verify your account before login.',
+          );
+        })
+        .catchError((e) {
+          MyLoaders.errorSnackBar(
+            title: 'Registration failed',
+            message: e.toString(),
+          );
+        })
+        .whenComplete(() => isLoading.value = false);
   }
 
   @override

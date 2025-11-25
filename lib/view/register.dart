@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:primechoice/core/services/auth_service.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_theme.dart';
 import 'package:primechoice/core/widgets/custom_background.dart';
@@ -205,14 +206,7 @@ class _RegisterPageState extends State<RegisterPage> {
                                 user.setAddress(
                                   controller.addressController.text.trim(),
                                 );
-                                Get.toNamed(
-                                  AppRoutes.verify,
-                                  arguments: {
-                                    'email': controller.emailController.text,
-                                    'address':
-                                        controller.addressController.text,
-                                  },
-                                );
+                                controller.register();
                               }
                             },
                             child: controller.isLoading.value
@@ -259,7 +253,17 @@ class _RegisterPageState extends State<RegisterPage> {
                           borderRadius: BorderRadius.zero,
                         ),
                       ),
-                      onPressed: () {},
+                      onPressed: () async {
+                        try {
+                          final data = await AuthService.instance
+                              .signupWithGoogle();
+                          debugPrint(
+                            'Google user: ${data['fullName']} ${data['email']} ${data['photoUrl']}',
+                          );
+                        } catch (e) {
+                          Get.snackbar('Google sign-up failed', e.toString());
+                        }
+                      },
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
