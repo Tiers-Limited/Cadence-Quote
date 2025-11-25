@@ -38,7 +38,7 @@ class ProjectDetailPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
@@ -50,76 +50,84 @@ class ProjectDetailPage extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              project['title'] ?? 'Room 1 (Living Room)',
-                              style: TextStyle(
-                                fontSize: 14.0,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: GoogleFonts.poppins().fontFamily,
-                                color: MyColors.primary,
-                              ),
-                            ),
-                          ),
-                          const Icon(Icons.keyboard_arrow_down),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _InfoTile(label: 'Label', value: 'Bedroom'),
-                      const SizedBox(height: 8),
-                      _InfoTile(label: 'Walls', value: '24 m²'),
-                      const SizedBox(height: 8),
-                      _InfoTile(label: 'Ceiling', value: '--'),
-                      const SizedBox(height: 8),
-                      _InfoTile(label: 'Trim', value: '8 m'),
-                      const SizedBox(height: 8),
-                      _InfoTile(label: 'Height', value: '2.72 m'),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: GradientElevatedButton(
-                              onPressed: () {
-                                Get.toNamed(
-                                  AppRoutes.export,
-                                  arguments: {'project': project},
-                                );
-                              },
-                              radius: 12,
-                              child: const Text(
-                                'Export',
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    // color: Colors.grey.withOpacity(0.05),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                project['title'] ?? 'Room 1 (Living Room)',
                                 style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14.0,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: GoogleFonts.poppins().fontFamily,
+                                  color: MyColors.primary,
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: GradientElevatedButton(
-                              radius: 12,
-                              gradient: const LinearGradient(
-                                colors: [Colors.black87, Colors.black],
-                              ),
-                              onPressed: () {},
-                              child: const Text(
-                                'Save Project',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
+                            const Icon(Icons.keyboard_arrow_down),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _InfoTile(label: 'Label', value: 'Bedroom'),
+                        const SizedBox(height: 8),
+                        _InfoTile(label: 'Walls', value: '24 m²'),
+                        const SizedBox(height: 8),
+                        _InfoTile(label: 'Ceiling', value: '--'),
+                        const SizedBox(height: 8),
+                        _InfoTile(label: 'Trim', value: '8 m'),
+                        const SizedBox(height: 8),
+                        _InfoTile(label: 'Height', value: '2.72 m'),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: GradientElevatedButton(
+                                onPressed: () {
+                                  Get.toNamed(
+                                    AppRoutes.export,
+                                    arguments: {'project': project},
+                                  );
+                                },
+                                radius: 12,
+                                child: const Text(
+                                  'Export',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: GradientElevatedButton(
+                                radius: 12,
+                                gradient: const LinearGradient(
+                                  colors: [Colors.black87, Colors.black],
+                                ),
+                                onPressed: () {},
+                                child: const Text(
+                                  'Save Project',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],

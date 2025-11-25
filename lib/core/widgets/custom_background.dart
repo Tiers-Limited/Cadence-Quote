@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
+import 'package:primechoice/core/utils/constants/image_strings.dart';
 
 class CustomBackground extends StatelessWidget {
   final Widget? child;
@@ -25,6 +26,16 @@ class CustomBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container();
+    return SizedBox.expand(
+      child: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage(MyImages.backgroundImage),
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
+          ),
+        ),
+      ),
+    );
   }
 }

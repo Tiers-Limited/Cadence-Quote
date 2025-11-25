@@ -28,6 +28,7 @@ class _SplashState extends State<Splash> {
     await Future.delayed(const Duration(seconds: 3));
 
     /// Now request permission and wait for result
+    // ignore: unused_local_variable
     final status = await Permission.camera.request();
     await p.refreshCamera();
 

@@ -5,6 +5,7 @@ class RegisterController extends GetxController {
   final formKey = GlobalKey<FormState>();
   final nameController = TextEditingController();
   final emailController = TextEditingController();
+  final addressController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmController = TextEditingController();
 
@@ -27,6 +28,7 @@ class RegisterController extends GetxController {
   void onClose() {
     nameController.dispose();
     emailController.dispose();
+    addressController.dispose();
     passwordController.dispose();
     confirmController.dispose();
     super.onClose();

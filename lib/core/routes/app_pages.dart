@@ -4,6 +4,7 @@ import 'package:primechoice/view/export.dart';
 import 'package:primechoice/view/project_detail.dart';
 import 'package:primechoice/view/forgot_password.dart';
 import 'package:primechoice/view/height_capture.dart';
+import 'package:primechoice/view/scan.dart';
 import 'package:primechoice/view/home.dart';
 import 'package:primechoice/view/login.dart';
 import 'package:primechoice/view/onboarding.dart';
@@ -36,6 +37,13 @@ class AppPages {
       page: () => ProjectDetailPage(project: Get.arguments?['project'] ?? {}),
     ),
     GetPage(name: AppRoutes.profile, page: () => const ProfilePage()),
-    // GetPage(name: AppRoutes.heightCapture, page: () => HeightCapturePage()),
+    GetPage(
+      name: AppRoutes.heightCapture,
+      page: () => const HeightCapturePage(),
+    ),
+    GetPage(
+      name: AppRoutes.scan,
+      page: () => const ScanPage(),
+    ),
   ];
 }

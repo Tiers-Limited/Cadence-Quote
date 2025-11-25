@@ -7,6 +7,7 @@ import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view_model/register_controller.dart';
+import 'package:primechoice/view_model/user_controller.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -33,6 +34,7 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     final controller = Get.put(RegisterController());
+    final user = Get.put(UserController(), permanent: true);
     return Scaffold(
       body: Stack(
         children: [
@@ -81,6 +83,27 @@ class _RegisterPageState extends State<RegisterPage> {
                             hintText: 'John Doe',
                             prefixIcon: const Icon(
                               Icons.person_outline,
+                              color: MyColors.primary,
+                            ),
+                          ),
+                          validator: (v) =>
+                              (v == null || v.isEmpty) ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Address',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: controller.addressController,
+                          keyboardType: TextInputType.streetAddress,
+                          textInputAction: TextInputAction.next,
+                          maxLines: 1,
+                          decoration: MyTextFormFieldTheme.lightInputDecoration(
+                            hintText: '123 Main St, City, Country',
+                            prefixIcon: const Icon(
+                              Icons.location_on_outlined,
                               color: MyColors.primary,
                             ),
                           ),
@@ -179,10 +202,15 @@ class _RegisterPageState extends State<RegisterPage> {
                             onPressed: () {
                               if (controller.formKey.currentState?.validate() ??
                                   false) {
+                                user.setAddress(
+                                  controller.addressController.text.trim(),
+                                );
                                 Get.toNamed(
                                   AppRoutes.verify,
                                   arguments: {
                                     'email': controller.emailController.text,
+                                    'address':
+                                        controller.addressController.text,
                                   },
                                 );
                               }

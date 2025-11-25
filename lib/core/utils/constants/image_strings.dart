@@ -7,7 +7,9 @@ class MyImages {
   static const String logoImage = "assets/images/full-logo.png";
 
   // -- Background Images
-  static const String backgroundImage = "assets/images/background_image.png";
+  static const String backgroundImage = "assets/images/background.png";
+  static const String circleBackgroundImage =
+      "assets/images/circleBackground.png";
 
   // -- OnBoarding Screen Images
   static const String onBoardingImage1 = "assets/images/onBoarding1.png";

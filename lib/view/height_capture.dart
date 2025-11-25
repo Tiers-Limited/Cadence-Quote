@@ -1,260 +1,501 @@
-// import 'package:ar_flutter_plugin/widgets/ar_view.dart';
-// import 'package:ar_flutter_plugin/managers/ar_session_manager.dart';
-// import 'package:ar_flutter_plugin/managers/ar_object_manager.dart';
-// import 'package:ar_flutter_plugin/managers/ar_anchor_manager.dart';
-// import 'package:ar_flutter_plugin/managers/ar_location_manager.dart';
-// import 'package:ar_flutter_plugin/models/ar_hittest_result.dart';
-// import 'package:flutter/material.dart';
-// import 'package:get/get.dart';
-// import 'package:permission_handler/permission_handler.dart';
-// import 'package:vector_math/vector_math_64.dart' as vmath;
+import 'package:camera/camera.dart';
+import 'dart:io' show Platform;
+import 'package:arkit_plugin/arkit_plugin.dart';
+import 'package:vector_math/vector_math_64.dart' as vmath;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:primechoice/core/utils/constants/colors.dart';
+import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
+import 'package:primechoice/view_model/permissions_controller.dart';
+import 'dart:math' as math;
 
-// import '../view_model/height_capture_controller.dart';
-// import '../view_model/permissions_controller.dart';
+class HeightCapturePage extends StatefulWidget {
+  const HeightCapturePage({super.key});
 
-// class HeightCapturePage extends StatelessWidget {
-//   HeightCapturePage({super.key});
-//   final c = Get.put(HeightCaptureController());
-//   final p = Get.put(PermissionsController());
+  @override
+  State<HeightCapturePage> createState() => _HeightCapturePageState();
+}
 
-//   @override
-//   Widget build(BuildContext context) {
-//     final imgW = MediaQuery.of(context).size.width;
-//     final imgH = MediaQuery.of(context).size.height * 0.65;
+class _HeightCapturePageState extends State<HeightCapturePage> {
+  final p = Get.put(PermissionsController());
+  CameraController? _cameraController;
+  bool _initializing = false;
+  ARKitController? _arkitController; // iOS ARKit controller
 
-//     return Scaffold(
-//       body: Column(
-//         children: [
-//           SizedBox(
-//             width: imgW,
-//             height: imgH,
-//             child: Obx(() {
-//               if (!p.cameraGranted) {
-//                 return Center(
-//                   child: Column(
-//                     mainAxisSize: MainAxisSize.min,
-//                     children: [
-//                       const Text(
-//                         'Camera permission required',
-//                         style: TextStyle(color: Colors.white),
-//                       ),
-//                       const SizedBox(height: 10),
-//                       ElevatedButton(
-//                         onPressed: () async {
-//                           final status = await Permission.camera.request();
-//                           p.cameraStatus.value = status;
-//                         },
-//                         child: const Text("Allow Camera"),
-//                       ),
-//                     ],
-//                   ),
-//                 );
-//               }
+  // Manual placement state
+  Offset? _dragPos; // live pin while long-pressing
+  Offset? _floorPin; // saved pin 1
+  Offset? _ceilingPin; // saved pin 2
 
-//               return _ARMeasureView(controller: c);
-//             }),
-//           ),
+  // AR world positions + computed distance
+  vmath.Vector3? _floorWorld;
+  vmath.Vector3? _ceilingWorld;
+  double? _distanceMeters;
 
-//           const SizedBox(height: 12),
+  @override
+  void initState() {
+    super.initState();
+    _ensurePermissionThenInit();
+  }
 
-//           Padding(
-//             padding: const EdgeInsets.symmetric(horizontal: 20),
-//             child: InkWell(
-//               onTap: () => c.reset(),
-//               child: Ink(
-//                 height: 48,
-//                 decoration: BoxDecoration(
-//                   color: Colors.blue,
-//                   borderRadius: BorderRadius.circular(14),
-//                 ),
-//                 child: const Center(
-//                   child: Text(
-//                     "Tap FLOOR then CEILING",
-//                     style: TextStyle(
-//                       color: Colors.white,
-//                       fontWeight: FontWeight.w600,
-//                     ),
-//                   ),
-//                 ),
-//               ),
-//             ),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-// }
+  Future<void> _ensurePermissionThenInit() async {
+    await p.refreshCamera();
+    if (!p.cameraGranted) return;
+    // On iOS, ARKit provides the camera feed; no need to init Camera plugin.
+    if (!Platform.isIOS) {
+      await _initCamera();
+    }
+  }
 
-// class _ARMeasureView extends StatefulWidget {
-//   final HeightCaptureController controller;
+  Future<void> _initCamera() async {
+    if (_initializing) return;
+    setState(() => _initializing = true);
+    try {
+      final cameras = await availableCameras();
+      final back = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+      _cameraController = CameraController(
+        back,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+      await _cameraController!.initialize();
+    } catch (_) {
+      // Ignore errors for now; UI will show permission/help content
+    } finally {
+      if (mounted) setState(() => _initializing = false);
+    }
+  }
 
-//   const _ARMeasureView({required this.controller});
+  @override
+  void dispose() {
+    _cameraController?.dispose();
+    _arkitController?.dispose();
+    super.dispose();
+  }
 
-//   @override
-//   State<_ARMeasureView> createState() => _ARMeasureViewState();
-// }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          // Camera preview (fills screen)
+          Positioned.fill(
+            child: Obx(() {
+              if (!p.cameraGranted) {
+                return _PermissionView(
+                  onRequest: () async {
+                    await p.requestCamera();
+                    await _ensurePermissionThenInit();
+                  },
+                  onSettings: p.openSettings,
+                );
+              }
+              // On iOS, show ARKit scene view; otherwise, show CameraPreview
+              if (Platform.isIOS) {
+                return ARKitSceneView(
+                  enableTapRecognizer: false,
+                  onARKitViewCreated: _onARKitViewCreated,
+                );
+              }
+              if (_cameraController == null ||
+                  !_cameraController!.value.isInitialized) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              return CameraPreview(_cameraController!);
+            }),
+          ),
 
-// class _ARMeasureViewState extends State<_ARMeasureView> {
-//   ARSessionManager? arSessionManager;
-//   ARObjectManager? arObjectManager;
-//   ARAnchorManager? arAnchorManager;
+          // Gesture layer to capture long press and paint pins/line
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onLongPressStart: (details) {
+                setState(() => _dragPos = details.localPosition);
+              },
+              onLongPressMoveUpdate: (details) {
+                setState(() => _dragPos = details.localPosition);
+              },
+              onLongPressEnd: (details) async {
+                // Persist the 2D pin (floor first, then ceiling)
+                Offset? toSave = _dragPos;
+                vmath.Vector3? worldPoint;
 
-//   double? heightMeters;
+                // For iOS AR: perform a hit test at normalized screen coords to get world position
+                if (Platform.isIOS &&
+                    _arkitController != null &&
+                    toSave != null) {
+                  final box = context.findRenderObject() as RenderBox?;
+                  final size = box?.size;
+                  if (size != null && size.width > 0 && size.height > 0) {
+                    final x = (toSave.dx / size.width).clamp(0.0, 1.0);
+                    final y = (toSave.dy / size.height).clamp(0.0, 1.0);
+                    final results = await _arkitController!.performHitTest(
+                      x: x,
+                      y: y,
+                    );
+                    if (results.isNotEmpty) {
+                      final m = results.first.worldTransform;
+                      final t = m.getTranslation();
+                      worldPoint = vmath.Vector3(t.x, t.y, t.z);
+                    }
+                  }
+                }
 
-//   @override
-//   Widget build(BuildContext context) {
-//     return Stack(
-//       children: [
-//         ARView(
-//           onARViewCreated: _onARViewCreated, // UPDATED
-//         ),
+                setState(() {
+                  if (_floorPin == null) {
+                    _floorPin = toSave;
+                    _floorWorld = worldPoint ?? _floorWorld;
+                  } else if (_ceilingPin == null) {
+                    _ceilingPin = toSave;
+                    _ceilingWorld = worldPoint ?? _ceilingWorld;
+                  } else {
+                    // If both exist, allow adjusting last pin
+                    _ceilingPin = toSave;
+                    _ceilingWorld = worldPoint ?? _ceilingWorld;
+                  }
+                  _dragPos = null;
 
-//         // Center dashed line and pins matching reference design
-//         Positioned.fill(
-//           child: LayoutBuilder(
-//             builder: (context, constraints) {
-//               final centerX = constraints.maxWidth / 2;
-//               return Stack(
-//                 children: [
-//                   Positioned(
-//                     left: centerX - 1,
-//                     top: 16,
-//                     child: _DashedLine(height: constraints.maxHeight - 32),
-//                   ),
-//                   if (widget.controller.ceilingWorld != null)
-//                     Positioned(
-//                       left: centerX - 10,
-//                       top: 24,
-//                       child: const _Pin(),
-//                     ),
-//                   if (widget.controller.floorWorld != null)
-//                     Positioned(
-//                       left: centerX - 10,
-//                       bottom: 24,
-//                       child: const _Pin(),
-//                     ),
-//                 ],
-//               );
-//             },
-//           ),
-//         ),
+                  if (_floorWorld != null && _ceilingWorld != null) {
+                    _distanceMeters = (_floorWorld! - _ceilingWorld!).length;
+                  }
+                });
+              },
+              child: CustomPaint(
+                painter: _PinPainter(
+                  dragPos: _dragPos,
+                  floor: _floorPin,
+                  ceiling: _ceilingPin,
+                ),
+              ),
+            ),
+          ),
 
-//         if (heightMeters != null)
-//           Positioned(
-//             bottom: 25,
-//             right: 25,
-//             child: Container(
-//               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-//               decoration: BoxDecoration(
-//                 color: Colors.black.withOpacity(0.65),
-//                 borderRadius: BorderRadius.circular(8),
-//               ),
-//               child: Text(
-//                 "${heightMeters!.toStringAsFixed(2)} m",
-//                 style: const TextStyle(color: Colors.white, fontSize: 18),
-//               ),
-//             ),
-//           ),
-//       ],
-//     );
-//   }
+          // Back button (top-left)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 12,
+            child: _BackButton(),
+          ),
 
-//   void _onARViewCreated(
-//     ARSessionManager sessionManager,
-//     ARObjectManager objectManager,
-//     ARAnchorManager anchorManager,
-//     ARLocationManager locationManager,
-//   ) async {
-//     arSessionManager = sessionManager;
-//     arObjectManager = objectManager;
-//     arAnchorManager = anchorManager;
+          // Reset pins (top-right)
+          if (_floorPin != null || _ceilingPin != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 12,
+              child: _ResetButton(
+                onReset: () {
+                  setState(() {
+                    _floorPin = null;
+                    _ceilingPin = null;
+                    _dragPos = null;
+                    _floorWorld = null;
+                    _ceilingWorld = null;
+                    _distanceMeters = null;
+                  });
+                },
+              ),
+            ),
 
-//     await arSessionManager!.onInitialize(
-//       showPlanes: true,
-//       showFeaturePoints: false,
-//       handleTaps: true,
-//     );
+          // Distance label near the midpoint of pins (shown when available)
+          if (_floorPin != null &&
+              _ceilingPin != null &&
+              _distanceMeters != null)
+            Positioned(
+              left:
+                  math.min(_floorPin!.dx, _ceilingPin!.dx) +
+                  (math.max(_floorPin!.dx, _ceilingPin!.dx) -
+                          math.min(_floorPin!.dx, _ceilingPin!.dx)) /
+                      2 -
+                  40,
+              top:
+                  math.min(_floorPin!.dy, _ceilingPin!.dy) +
+                  (math.max(_floorPin!.dy, _ceilingPin!.dy) -
+                          math.min(_floorPin!.dy, _ceilingPin!.dy)) /
+                      2 -
+                  12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  "${_distanceMeters!.toStringAsFixed(2)} m",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
 
-//     await arObjectManager!.onInitialize();
+          // Gradient info container overlay (bottom center)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 24,
+            child: _OverlayInstruction(
+              text: _floorPin == null
+                  ? 'Long press to place FLOOR pin'
+                  : (_ceilingPin == null
+                        ? 'Long press to place CEILING pin'
+                        : 'Pins placed. Long press to adjust or Reset'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-//     arSessionManager!.onPlaneOrPointTap = _onPlaneTap;
-//   }
+  void _onARKitViewCreated(ARKitController controller) {
+    _arkitController = controller;
+  }
+}
 
-//   Future<void> _onPlaneTap(List<ARHitTestResult> hits) async {
-//     if (hits.isEmpty) return;
-//     final hit = hits.first;
+class _BackButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => Get.back(),
+      borderRadius: BorderRadius.circular(24),
+      child: Ink(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [MyColors.primary, MyColors.primary.withOpacity(0.7)],
+          ),
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: MyColors.primary.withOpacity(0.35),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: const Icon(Icons.arrow_back, color: Colors.white),
+      ),
+    );
+  }
+}
 
-//     final pos = vmath.Vector3(
-//       hit.worldTransform.storage[12],
-//       hit.worldTransform.storage[13],
-//       hit.worldTransform.storage[14],
-//     );
+class _OverlayInstruction extends StatelessWidget {
+  final String text;
+  // ignore: unused_element_parameter
+  const _OverlayInstruction({super.key, required this.text});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [MyColors.primary, MyColors.primary.withOpacity(0.6)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: MyColors.primary.withOpacity(0.35),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-//     final c = widget.controller;
+class _ResetButton extends StatelessWidget {
+  final VoidCallback onReset;
+  const _ResetButton({required this.onReset});
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onReset,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.refresh, color: Colors.white, size: 18),
+            SizedBox(width: 6),
+            Text('Reset', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-//     if (c.floorWorld == null) {
-//       c.floorWorld = pos;
-//     } else {
-//       c.ceilingWorld ??= pos;
-//       c.ceilingWorld = pos;
-//     }
+class _PinPainter extends CustomPainter {
+  final Offset? dragPos;
+  final Offset? floor;
+  final Offset? ceiling;
 
-//     setState(() {
-//       heightMeters = c.heightMetersAr;
-//     });
-//   }
+  _PinPainter({this.dragPos, this.floor, this.ceiling});
 
-//   @override
-//   void dispose() {
-//     arSessionManager?.dispose();
-//     super.dispose();
-//   }
-// }
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Draw dashed line between saved pins
+    if (floor != null && ceiling != null) {
+      final linePaint = Paint()
+        ..color = Colors.black
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      _drawDashedLine(canvas, floor!, ceiling!, linePaint);
+    }
 
-// class _Pin extends StatelessWidget {
-//   const _Pin();
-//   @override
-//   Widget build(BuildContext context) {
-//     return Container(
-//       width: 20,
-//       height: 20,
-//       decoration: const BoxDecoration(
-//         color: Colors.red,
-//         shape: BoxShape.circle,
-//       ),
-//     );
-//   }
-// }
+    final pinPaint = Paint()..color = const Color(0xFFE94D3B); // red pin color
 
-// class _DashedLine extends StatelessWidget {
-//   final double height;
-//   const _DashedLine({required this.height});
+    // Saved pins
+    if (floor != null) _drawPin(canvas, floor!, pinPaint);
+    if (ceiling != null) _drawPin(canvas, ceiling!, pinPaint);
 
-//   @override
-//   Widget build(BuildContext context) {
-//     return CustomPaint(size: Size(2, height), painter: _DashedLinePainter());
-//   }
-// }
+    // Live pin while long-pressing (only if one of the pins is still missing)
+    if (dragPos != null && (floor == null || ceiling == null)) {
+      _drawPin(canvas, dragPos!, pinPaint);
+    }
+  }
 
-// class _DashedLinePainter extends CustomPainter {
-//   @override
-//   void paint(Canvas canvas, Size size) {
-//     final paint = Paint()
-//       ..color = Colors.black
-//       ..strokeWidth = 2;
-//     const dashHeight = 8;
-//     const dashSpace = 6;
-//     double y = 0;
-//     while (y < size.height) {
-//       canvas.drawLine(
-//         const Offset(1, 0) + Offset(0, y),
-//         const Offset(1, 0) + Offset(0, y + dashHeight),
-//         paint,
-//       );
-//       y += dashHeight + dashSpace;
-//     }
-//   }
+  void _drawPin(Canvas canvas, Offset at, Paint paint) {
+    canvas.drawCircle(at, 10, paint);
+    // Optional: small white stroke for better visibility
+    final border = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(at, 10, border);
+  }
 
-//   @override
-//   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-// }
+  void _drawDashedLine(Canvas canvas, Offset p1, Offset p2, Paint paint) {
+    const double dashLength = 8;
+    const double dashGap = 6;
+    final total = (p2 - p1).distance;
+    if (total == 0) return;
+    final dir = (p2 - p1) / total; // unit vector
+    double covered = 0;
+    while (covered < total) {
+      final start = p1 + dir * covered;
+      final end = p1 + dir * math.min(covered + dashLength, total);
+      canvas.drawLine(start, end, paint);
+      covered += dashLength + dashGap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PinPainter oldDelegate) {
+    return oldDelegate.dragPos != dragPos ||
+        oldDelegate.floor != floor ||
+        oldDelegate.ceiling != ceiling;
+  }
+}
+
+class _PermissionView extends StatelessWidget {
+  final VoidCallback onRequest;
+  final Future<void> Function() onSettings;
+  const _PermissionView({required this.onRequest, required this.onSettings});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(color: Colors.black),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      MyColors.primary,
+                      MyColors.primary.withOpacity(0.7),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: MyColors.primary.withOpacity(0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.camera_alt,
+                  color: Colors.white,
+                  size: 36,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Camera Access Needed',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Allow camera to capture height with live preview.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: GradientElevatedButton(
+                      onPressed: onRequest,
+                      child: const Text(
+                        'Allow Camera',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.white.withOpacity(0.6)),
+                      ),
+                      onPressed: onSettings,
+                      child: const Text(
+                        'Open Settings',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

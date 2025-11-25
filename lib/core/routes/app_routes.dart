@@ -10,4 +10,5 @@ class AppRoutes {
   static const projectDetail = '/project-detail';
   static const profile = '/profile';
   static const heightCapture = '/height-capture';
+  static const scan = '/scan';
 }
