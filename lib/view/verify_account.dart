@@ -7,11 +7,16 @@ import 'package:primechoice/view_model/verify_account_controller.dart';
 
 class VerifyAccountPage extends StatelessWidget {
   final String email;
-  const VerifyAccountPage({super.key, required this.email});
+  final Map<String, dynamic> data;
+  const VerifyAccountPage({
+    super.key,
+    required this.email,
+    this.data = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.put(VerifyAccountController(email));
+    final controller = Get.put(VerifyAccountController(email, data));
     return Scaffold(
       body: Stack(
         children: [
@@ -123,7 +128,11 @@ class _OtpBox extends StatelessWidget {
           return null;
         },
         onChanged: (v) {
-          if (v.isNotEmpty) FocusScope.of(context).nextFocus();
+          if (v.isEmpty) {
+            FocusScope.of(context).previousFocus();
+          } else {
+            FocusScope.of(context).nextFocus();
+          }
           onChanged?.call(v);
         },
       ),

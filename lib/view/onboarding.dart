@@ -7,6 +7,7 @@ import 'package:primechoice/core/widgets/custom_background.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/view_model/onboarding_controller.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
 
 class OnboardingPage extends StatelessWidget {
   const OnboardingPage({super.key});
@@ -32,8 +33,12 @@ class OnboardingPage extends StatelessWidget {
                         item: item,
                         showBack: index > 0,
                         onBack: c.back,
-                        onNext: () {
+                        onNext: () async {
                           if (c.isLast) {
+                            await MyLocalStorage.instance().writeData(
+                              'isFirstTime',
+                              false,
+                            );
                             Get.offAllNamed(AppRoutes.login);
                           } else {
                             c.next();

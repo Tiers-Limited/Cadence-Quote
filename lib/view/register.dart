@@ -206,7 +206,19 @@ class _RegisterPageState extends State<RegisterPage> {
                                 user.setAddress(
                                   controller.addressController.text.trim(),
                                 );
-                                controller.register();
+                                Get.toNamed(
+                                  AppRoutes.verify,
+                                  arguments: {
+                                    'email': controller.emailController.text,
+                                    'data': {
+                                      'fullName':
+                                          controller.nameController.text,
+                                      'email': controller.emailController.text,
+                                      'address':
+                                          controller.addressController.text,
+                                    },
+                                  },
+                                );
                               }
                             },
                             child: controller.isLoading.value

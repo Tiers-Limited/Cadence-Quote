@@ -25,7 +25,10 @@ class AppPages {
     ),
     GetPage(
       name: AppRoutes.verify,
-      page: () => VerifyAccountPage(email: Get.arguments?['email']),
+      page: () => VerifyAccountPage(
+        email: Get.arguments?['email'],
+        data: Get.arguments?['data'] ?? {},
+      ),
     ),
     GetPage(name: AppRoutes.home, page: () => const HomePage()),
     GetPage(
@@ -41,9 +44,6 @@ class AppPages {
       name: AppRoutes.heightCapture,
       page: () => const HeightCapturePage(),
     ),
-    GetPage(
-      name: AppRoutes.scan,
-      page: () => const ScanPage(),
-    ),
+    GetPage(name: AppRoutes.scan, page: () => const ScanPage()),
   ];
 }
