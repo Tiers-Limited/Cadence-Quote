@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { auth } = require('../middleware/auth');
 const { resolveTenant } = require('../middleware/tenantResolver');
-const paintProductController = require('../controllers/paintProductController');
-const colorLibraryController = require('../controllers/colorLibraryController');
+
 const multer = require('multer');
 const os = require('os');
 const settingsController = require('../controllers/settingsController');
@@ -21,26 +20,8 @@ router.post('/lead-forms/public/:publicUrl/submit', leadFormController.submitPub
 router.use(auth);
 router.use(resolveTenant);
 
-// Paint Product routes
-router.get('/products', paintProductController.getAllProducts);
-router.get('/products/:id', paintProductController.getProduct);
-router.post('/products', paintProductController.createProduct);
-router.put('/products/:id', paintProductController.updateProduct);
-router.delete('/products/:id', paintProductController.deleteProduct);
-router.get('/products/tier/:tier', paintProductController.getProductsByTier);
-router.get('/products/category/:category', paintProductController.getProductsByCategory);
 
-// Color Library routes
-router.get('/colors/brand/:brand', colorLibraryController.getColorsByBrand);
-router.get('/colors/family/:family', colorLibraryController.getColorsByFamily);
-router.get('/colors', colorLibraryController.getAllColors);
-router.get('/colors/:id', colorLibraryController.getColor);
-router.post('/colors/bulk', colorLibraryController.createColorsBulk);
-// Upload an Excel/CSV file and import colors server-side
-router.post('/colors/upload', upload.single('file'), colorLibraryController.uploadColorsFromFile);
-router.post('/colors', colorLibraryController.createColor);
-router.put('/colors/:id', colorLibraryController.updateColor);
-router.delete('/colors/:id', colorLibraryController.deleteColor);
+
 
 // Pricing Scheme routes
 router.get('/pricing-schemes', pricingSchemeController.getPricingSchemes);

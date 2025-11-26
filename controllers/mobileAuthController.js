@@ -42,19 +42,16 @@ const getBobbyTenant = async (transaction) => {
 };
 
 /**
- * Mobile User Registration
+ * Mobile User Registration - Step 1: Request Verification Code
  * POST /api/mobile/auth/signup
- * All users are created under Bobby's tenant
+ * Sends verification code to email without creating user account yet
  */
 const mobileSignup = async (req, res) => {
-  const transaction = await sequelize.transaction();
-
   try {
     const { fullName, email, password, phoneNumber, address } = req.body;
 
     // Validation
     if (!fullName || !email || !password) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Missing required fields",
@@ -65,16 +62,14 @@ const mobileSignup = async (req, res) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Invalid email format",
+        message: "Invalid email format. Please enter a valid email address.",
       });
     }
 
     // Validate password strength
     if (password.length < 8) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Password must be at least 8 characters long",
@@ -87,63 +82,229 @@ const mobileSignup = async (req, res) => {
     const hasNumbers = /\d/.test(password);
     
     if (!hasUpperCase || !hasLowerCase || !hasNumbers) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Password must contain at least one uppercase letter, one lowercase letter, and one number",
       });
     }
 
-    // Check if email already exists
+    // Check if email already exists with a verified account
+    const existingUser = await User.findOne({ 
+      where: { 
+        email: email.toLowerCase(),
+        emailVerified: true 
+      }
+    });
+    
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists. Please sign in instead.",
+      });
+    }
+
+    // Check for existing pending verification code
+    let verificationRecord = await TwoFactorCode.findOne({
+      where: {
+        identifier: email.toLowerCase(),
+        purpose: 'signup_verification',
+      }
+    });
+
+    // Generate 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    if (verificationRecord) {
+      // Update existing record
+      verificationRecord.code = verificationCode;
+      verificationRecord.expiresAt = expiresAt;
+      verificationRecord.attempts = 0;
+      verificationRecord.metadata = {
+        fullName: fullName.trim(),
+        password, // Store temporarily (will be hashed when user is created)
+        phoneNumber: phoneNumber ? phoneNumber.trim() : null,
+        address: address ? address.trim() : null,
+      };
+      await verificationRecord.save();
+    } else {
+      // Create new verification record
+      verificationRecord = await TwoFactorCode.create({
+        identifier: email.toLowerCase(),
+        code: verificationCode,
+        purpose: 'signup_verification',
+        expiresAt,
+        attempts: 0,
+        metadata: {
+          fullName: fullName.trim(),
+          password, // Store temporarily
+          phoneNumber: phoneNumber ? phoneNumber.trim() : null,
+          address: address ? address.trim() : null,
+        }
+      });
+    }
+
+    // Send verification code via email
+    try {
+      await emailService.sendVerificationCodeEmail(
+        email.toLowerCase(), 
+        verificationCode, 
+        fullName.trim()
+      );
+    } catch (emailError) {
+      console.error('Error sending verification email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification code. Please try again.",
+      });
+    }
+
+    // Create audit log
+    await createAuditLog({
+      category: 'auth',
+      action: 'Mobile signup verification code sent',
+      entityType: 'TwoFactorCode',
+      entityId: verificationRecord.id,
+      metadata: { email: email.toLowerCase() },
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Verification code sent to your email. Please check your inbox.",
+      data: {
+        email: email.toLowerCase(),
+        expiresIn: 600, // 10 minutes in seconds
+      },
+    });
+  } catch (error) {
+    console.error("Mobile signup error:", error);
+    
+    res.status(500).json({
+      success: false,
+      message: "Registration failed. Please try again.",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Mobile User Registration - Step 2: Verify Code and Create Account
+ * POST /api/mobile/auth/verify-signup
+ * Verifies code and creates the user account
+ */
+const mobileVerifySignup = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { email, code } = req.body;
+
+    // Validation
+    if (!email || !code) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Email and verification code are required",
+      });
+    }
+
+    // Find verification record
+    const verificationRecord = await TwoFactorCode.findOne({
+      where: {
+        identifier: email.toLowerCase(),
+        purpose: 'signup_verification',
+      },
+      transaction
+    });
+
+    if (!verificationRecord) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "No verification code found for this email. Please request a new code.",
+      });
+    }
+
+    // Check if code has expired
+    if (new Date() > verificationRecord.expiresAt) {
+      await verificationRecord.destroy({ transaction });
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Verification code has expired. Please request a new code.",
+        expired: true,
+      });
+    }
+
+    // Check attempts limit (max 5 attempts)
+    if (verificationRecord.attempts >= 5) {
+      await verificationRecord.destroy({ transaction });
+      await transaction.rollback();
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed attempts. Please request a new verification code.",
+      });
+    }
+
+    // Verify code
+    if (verificationRecord.code !== code.trim()) {
+      verificationRecord.attempts += 1;
+      await verificationRecord.save({ transaction });
+      await transaction.rollback();
+      
+      const attemptsLeft = 5 - verificationRecord.attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Invalid verification code. ${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} remaining.`,
+        attemptsLeft,
+      });
+    }
+
+    // Code is valid - check if user already exists
     const existingUser = await User.findOne({ 
       where: { email: email.toLowerCase() },
       transaction 
     });
     
-    if (existingUser) {
+    if (existingUser && existingUser.emailVerified) {
+      await verificationRecord.destroy({ transaction });
       await transaction.rollback();
       return res.status(409).json({
         success: false,
-        message: "Email already registered",
+        message: "An account with this email already exists. Please sign in instead.",
       });
     }
 
     // Get or create Bobby's tenant
     const bobbyTenant = await getBobbyTenant(transaction);
 
+    // Retrieve stored user data from metadata
+    const { fullName, password, phoneNumber, address } = verificationRecord.metadata;
+
     // Create user under Bobby's tenant
     const user = await User.create(
       {
-        fullName: fullName.trim(),
-        email: email.toLowerCase().trim(),
+        fullName,
+        email: email.toLowerCase(),
         password, // Will be hashed by beforeCreate hook
-        phoneNumber: phoneNumber ? phoneNumber.trim() : null,
-        address: address ? address.trim() : null,
-        role: "contractor", // Mobile users are contractors
+        phoneNumber,
+        address,
+        role: "customer", // Mobile users are customers
         tenantId: bobbyTenant.id,
         isActive: true,
-        emailVerified: false,
+        emailVerified: true, // Email is verified via code
       },
       { transaction }
     );
 
-    // Generate email verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    user.emailVerificationToken = crypto
-      .createHash('sha256')
-      .update(verificationToken)
-      .digest('hex');
-    user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    await user.save({ transaction });
-
-    // Send verification email (non-blocking)
-    emailService.sendVerificationEmail(user.email, verificationToken, user.fullName)
-      .catch(err => console.error('Error sending verification email:', err));
+    // Delete verification record
+    await verificationRecord.destroy({ transaction });
 
     // Create audit log
     await createAuditLog({
       category: 'auth',
-      action: 'Mobile user registration',
+      action: 'Mobile user registration completed',
       userId: user.id,
       entityType: 'User',
       entityId: user.id,
@@ -159,10 +320,10 @@ const mobileSignup = async (req, res) => {
     const token = generateToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Return success response (don't expose sensitive data)
+    // Return success response
     res.status(201).json({
       success: true,
-      message: "Registration successful. Please check your email to verify your account.",
+      message: "Registration successful! Welcome aboard.",
       data: {
         user: {
           id: user.id,
@@ -180,11 +341,112 @@ const mobileSignup = async (req, res) => {
     });
   } catch (error) {
     await transaction.rollback();
-    console.error("Mobile signup error:", error);
+    console.error("Mobile verify signup error:", error);
     
     res.status(500).json({
       success: false,
-      message: "Registration failed. Please try again.",
+      message: "Verification failed. Please try again.",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Resend Signup Verification Code
+ * POST /api/mobile/auth/resend-signup-code
+ */
+const mobileResendSignupCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    // Find verification record
+    const verificationRecord = await TwoFactorCode.findOne({
+      where: {
+        identifier: email.toLowerCase(),
+        purpose: 'signup_verification',
+      }
+    });
+
+    if (!verificationRecord) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending signup found for this email. Please start the signup process again.",
+      });
+    }
+
+    // Check if user already exists with verified email
+    const existingUser = await User.findOne({ 
+      where: { 
+        email: email.toLowerCase(),
+        emailVerified: true 
+      }
+    });
+    
+    if (existingUser) {
+      await verificationRecord.destroy();
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists. Please sign in instead.",
+      });
+    }
+
+    // Generate new verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    verificationRecord.code = verificationCode;
+    verificationRecord.expiresAt = expiresAt;
+    verificationRecord.attempts = 0;
+    await verificationRecord.save();
+
+    // Send verification code via email
+    try {
+      const { fullName } = verificationRecord.metadata;
+      await emailService.sendVerificationCodeEmail(
+        email.toLowerCase(), 
+        verificationCode, 
+        fullName
+      );
+    } catch (emailError) {
+      console.error('Error sending verification email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification code. Please try again.",
+      });
+    }
+
+    // Create audit log
+    await createAuditLog({
+      category: 'auth',
+      action: 'Mobile signup verification code resent',
+      entityType: 'TwoFactorCode',
+      entityId: verificationRecord.id,
+      metadata: { email: email.toLowerCase() },
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "New verification code sent to your email.",
+      data: {
+        email: email.toLowerCase(),
+        expiresIn: 600, // 10 minutes in seconds
+      },
+    });
+  } catch (error) {
+    console.error("Mobile resend signup code error:", error);
+    
+    res.status(500).json({
+      success: false,
+      message: "Failed to resend verification code. Please try again.",
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -249,7 +511,7 @@ const mobileSignin = async (req, res) => {
     }
 
     // Check if user role is allowed for mobile
-    const allowedMobileRoles = ['contractor', 'contractor_admin'];
+    const allowedMobileRoles = ['customer', 'contractor_admin'];
     if (!allowedMobileRoles.includes(user.role)) {
       return res.status(403).json({
         success: false,
@@ -322,7 +584,7 @@ const mobileGoogleSignIn = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { idToken, deviceId, deviceName, platform } = req.body;
+    const { idToken } = req.body;
 
     if (!idToken) {
       await transaction.rollback();
@@ -373,7 +635,7 @@ const mobileGoogleSignIn = async (req, res) => {
         {
           fullName: name,
           email: email.toLowerCase(),
-          role: "contractor",
+          role: "customer",
           tenantId: bobbyTenant.id,
           isActive: true,
           emailVerified: true, // Google emails are pre-verified
@@ -414,7 +676,7 @@ const mobileGoogleSignIn = async (req, res) => {
       userId: user.id,
       entityType: 'User',
       entityId: user.id,
-      metadata: { deviceId, deviceName, platform, provider: 'google' },
+      metadata: { provider: 'google' },
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
       userAgent: req.headers['user-agent'],
       transaction
@@ -469,7 +731,7 @@ const mobileAppleSignIn = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { identityToken, email, fullName, deviceId, deviceName, platform } = req.body;
+    const { identityToken, email, fullName } = req.body;
 
     if (!identityToken) {
       await transaction.rollback();
@@ -513,7 +775,7 @@ const mobileAppleSignIn = async (req, res) => {
         {
           fullName: fullName || email.split('@')[0], // Fallback to email username
           email: email.toLowerCase(),
-          role: "contractor",
+          role: "customer",
           tenantId: bobbyTenant.id,
           isActive: true,
           emailVerified: true, // Apple emails are pre-verified
@@ -550,7 +812,7 @@ const mobileAppleSignIn = async (req, res) => {
       userId: user.id,
       entityType: 'User',
       entityId: user.id,
-      metadata: { deviceId, deviceName, platform, provider: 'apple' },
+      metadata: { provider: 'apple' },
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
       userAgent: req.headers['user-agent'],
       transaction
@@ -820,6 +1082,8 @@ const mobileVerifyEmail = async (req, res) => {
 
 module.exports = {
   mobileSignup,
+  mobileVerifySignup,
+  mobileResendSignupCode,
   mobileSignin,
   mobileGoogleSignIn,
   mobileAppleSignIn,

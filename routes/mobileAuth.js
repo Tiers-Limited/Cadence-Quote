@@ -4,6 +4,8 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const {
   mobileSignup,
+  mobileVerifySignup,
+  mobileResendSignupCode,
   mobileSignin,
   mobileGoogleSignIn,
   mobileAppleSignIn,
@@ -48,10 +50,24 @@ const signupLimiter = rateLimit({
 
 /**
  * @route   POST /api/mobile/auth/signup
- * @desc    Register new mobile user under Bobby's tenant
+ * @desc    Request verification code for new mobile user registration
  * @access  Public
  */
 router.post('/signup', signupLimiter, mobileSignup);
+
+/**
+ * @route   POST /api/mobile/auth/verify-signup
+ * @desc    Verify code and complete registration
+ * @access  Public
+ */
+router.post('/verify-signup', authLimiter, mobileVerifySignup);
+
+/**
+ * @route   POST /api/mobile/auth/resend-signup-code
+ * @desc    Resend verification code for signup
+ * @access  Public
+ */
+router.post('/resend-signup-code', signupLimiter, mobileResendSignupCode);
 
 /**
  * @route   POST /api/mobile/auth/signin

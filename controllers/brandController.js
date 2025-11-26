@@ -1,5 +1,5 @@
 const Brand = require('../models/Brand');
-const Product = require('../models/Product');
+
 const { Op } = require('sequelize');
 
 // Optimized: Get all brands with optional search and pagination
@@ -30,16 +30,7 @@ exports.getAllBrands = async (req, res) => {
       order: [[sortBy, sortOrder.toUpperCase()]],
     };
 
-    // Only include products if explicitly requested (improves performance)
-    if (includeProducts === 'true') {
-      queryOptions.include = [{
-        model: Product,
-        as: 'products',
-        where: { isActive: true },
-        required: false,
-        attributes: ['id', 'name'], // Only necessary fields
-      }];
-    }
+   
 
     // Pagination (optional - if not provided, return all)
     if (page && limit) {
@@ -84,14 +75,7 @@ exports.getBrandById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const brand = await Brand.findByPk(id, {
-      include: [{
-        model: Product,
-        as: 'products',
-        where: { isActive: true },
-        required: false
-      }]
-    });
+    const brand = await Brand.findByPk(id);
 
     if (!brand) {
       return res.status(404).json({

@@ -20,12 +20,12 @@ const authRouter = require('./routes/auth');
 const apiRouter = require('./routes/api');
 const paymentsRouter = require('./routes/payments');
 const brandsRouter = require('./routes/brands');
-const productsRouter = require('./routes/products');
 const adminRouter = require('./routes/admin');
 const subscriptionsRouter = require('./routes/subscriptions');
 const webhooksRouter = require('./routes/webhooks');
 const mobileAuthRouter = require('./routes/mobileAuth');
 const contractorRouter = require('./routes/contractorRouter'); // NEW FEATURE: Contractor product configs
+const quotesRouter = require('./routes/quotes'); // NEW FEATURE: Quote Builder optimized APIs
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 // Load all models and associations
@@ -81,10 +81,10 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/mbl/auth', mobileAuthRouter); // Mobile authentication routes
 app.use('/api/v1/payments', paymentsRouter);
 app.use('/api/v1/brands', brandsRouter);
-app.use('/api/v1/products', productsRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/subscriptions', subscriptionsRouter);
 app.use('/api/v1/contractor', contractorRouter); // Contractor product configs
+app.use('/api/v1/quotes', quotesRouter); // Quote Builder APIs
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler

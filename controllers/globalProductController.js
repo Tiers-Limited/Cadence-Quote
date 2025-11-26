@@ -1,6 +1,6 @@
 const GlobalProduct = require('../models/GlobalProduct');
 const Brand = require('../models/Brand');
-const UserProduct = require('../models/UserProduct');
+
 const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const sequelize  = require('../config/database');
@@ -101,12 +101,7 @@ exports.getGlobalProductById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const product = await GlobalProduct.findByPk(id, {
-      include: [
-        { model: Brand, as: 'brand' },
-        { model: UserProduct, foreignKey: 'globalProductId' },
-      ],
-    });
+    const product = await GlobalProduct.findByPk(id);
 
     if (!product) {
       return res.status(404).json({
