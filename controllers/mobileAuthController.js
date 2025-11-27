@@ -577,41 +577,38 @@ const mobileSignin = async (req, res) => {
 };
 
 /**
- * Mobile Google Sign In
+ * Mobile Google Sign In (Flutter)
  * POST /api/mobile/auth/google
+ * Accepts googleId, email, fullName from Flutter Google Sign In
  */
 const mobileGoogleSignIn = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { idToken } = req.body;
+    const { googleId, email, fullName, photoUrl } = req.body;
 
-    if (!idToken) {
+    // Validation
+    if (!googleId || !email) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Google ID token is required",
+        message: "Google ID and email are required",
       });
     }
 
-    // Verify Google token
-    let googleUser;
-    try {
-      const ticket = await googleClient.verifyIdToken({
-        idToken,
-        audience: process.env.GOOGLE_CLIENT_ID,
-      });
-      googleUser = ticket.getPayload();
-    } catch (error) {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
       await transaction.rollback();
-      console.error("Google token verification failed:", error);
-      return res.status(401).json({
+      return res.status(400).json({
         success: false,
-        message: "Invalid Google token",
+        message: "Invalid email format",
       });
     }
 
-    const { email, name, sub: googleId, picture } = googleUser;
+    // Use the provided data directly from Flutter
+    const name = fullName || email.split('@')[0];
+    const picture = photoUrl || null;
 
     // Get or create Bobby's tenant
     const bobbyTenant = await getBobbyTenant(transaction);
