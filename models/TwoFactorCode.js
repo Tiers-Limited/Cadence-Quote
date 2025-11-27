@@ -10,12 +10,23 @@ const TwoFactorCode = sequelize.define('TwoFactorCode', {
   },
   userId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
+    allowNull: true, // Made nullable for pre-signup verification codes
     references: {
       model: User,
       key: 'id'
     },
     onDelete: 'CASCADE'
+  },
+  identifier: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Email or phone number for pre-signup verification'
+  },
+  purpose: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'login',
+    comment: 'Purpose of the code: login, signup_verification, password_reset'
   },
   code: {
     type: DataTypes.STRING,
@@ -24,12 +35,27 @@ const TwoFactorCode = sequelize.define('TwoFactorCode', {
   expiresAt: {
     type: DataTypes.DATE,
     allowNull: false
+  },
+  attempts: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Number of failed verification attempts'
+  },
+  metadata: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: {},
+    comment: 'Additional data for the verification code'
   }
 }, {
   timestamps: true,
   indexes: [
     { fields: ['userId'] },
-    { fields: ['code'] }
+    { fields: ['code'] },
+    { fields: ['identifier'] },
+    { fields: ['purpose'] },
+    { fields: ['identifier', 'purpose'] }
   ]
 });
 

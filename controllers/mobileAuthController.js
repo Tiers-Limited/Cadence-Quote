@@ -199,9 +199,11 @@ const mobileVerifySignup = async (req, res) => {
 
   try {
     const { email, code } = req.body;
+    console.log("📧 Verify Signup - Email:", email, "Code:", code);
 
     // Validation
     if (!email || !code) {
+      console.log("❌ Missing email or code");
       await transaction.rollback();
       return res.status(400).json({
         success: false,
@@ -210,6 +212,7 @@ const mobileVerifySignup = async (req, res) => {
     }
 
     // Find verification record
+    console.log("🔍 Looking for verification record...");
     const verificationRecord = await TwoFactorCode.findOne({
       where: {
         identifier: email.toLowerCase(),
@@ -219,6 +222,7 @@ const mobileVerifySignup = async (req, res) => {
     });
 
     if (!verificationRecord) {
+      console.log("❌ No verification record found");
       await transaction.rollback();
       return res.status(404).json({
         success: false,
@@ -226,8 +230,15 @@ const mobileVerifySignup = async (req, res) => {
       });
     }
 
+    console.log("✅ Verification record found:", {
+      id: verificationRecord.id,
+      expiresAt: verificationRecord.expiresAt,
+      attempts: verificationRecord.attempts
+    });
+
     // Check if code has expired
     if (new Date() > verificationRecord.expiresAt) {
+      console.log("❌ Code expired");
       await verificationRecord.destroy({ transaction });
       await transaction.rollback();
       return res.status(400).json({
@@ -239,6 +250,7 @@ const mobileVerifySignup = async (req, res) => {
 
     // Check attempts limit (max 5 attempts)
     if (verificationRecord.attempts >= 5) {
+      console.log("❌ Too many attempts");
       await verificationRecord.destroy({ transaction });
       await transaction.rollback();
       return res.status(429).json({
@@ -249,6 +261,7 @@ const mobileVerifySignup = async (req, res) => {
 
     // Verify code
     if (verificationRecord.code !== code.trim()) {
+      console.log("❌ Invalid code - Attempts:", verificationRecord.attempts + 1);
       verificationRecord.attempts += 1;
       await verificationRecord.save({ transaction });
       await transaction.rollback();
@@ -261,13 +274,17 @@ const mobileVerifySignup = async (req, res) => {
       });
     }
 
+    console.log("✅ Code verified successfully");
+
     // Code is valid - check if user already exists
+    console.log("🔍 Checking for existing user...");
     const existingUser = await User.findOne({ 
       where: { email: email.toLowerCase() },
       transaction 
     });
     
     if (existingUser && existingUser.emailVerified) {
+      console.log("❌ User already exists with verified email");
       await verificationRecord.destroy({ transaction });
       await transaction.rollback();
       return res.status(409).json({
@@ -276,13 +293,24 @@ const mobileVerifySignup = async (req, res) => {
       });
     }
 
+    console.log("✅ No existing verified user found");
+
     // Get or create Bobby's tenant
+    console.log("🏢 Getting Bobby's tenant...");
     const bobbyTenant = await getBobbyTenant(transaction);
+    console.log("✅ Bobby's tenant ready:", bobbyTenant.id);
 
     // Retrieve stored user data from metadata
     const { fullName, password, phoneNumber, address } = verificationRecord.metadata;
+    console.log("📝 User data from metadata:", {
+      fullName,
+      hasPassword: !!password,
+      phoneNumber,
+      address
+    });
 
     // Create user under Bobby's tenant
+    console.log("👤 Creating user...");
     const user = await User.create(
       {
         fullName,
@@ -297,11 +325,15 @@ const mobileVerifySignup = async (req, res) => {
       },
       { transaction }
     );
+    console.log("✅ User created:", user.id);
 
     // Delete verification record
+    console.log("🗑️ Deleting verification record...");
     await verificationRecord.destroy({ transaction });
+    console.log("✅ Verification record deleted");
 
     // Create audit log
+    console.log("📝 Creating audit log...");
     await createAuditLog({
       category: 'auth',
       action: 'Mobile user registration completed',
@@ -313,14 +345,20 @@ const mobileVerifySignup = async (req, res) => {
       userAgent: req.headers['user-agent'],
       transaction
     });
+    console.log("✅ Audit log created");
 
+    console.log("💾 Committing transaction...");
     await transaction.commit();
+    console.log("✅ Transaction committed");
 
     // Generate tokens
+    console.log("🔑 Generating tokens...");
     const token = generateToken(user);
     const refreshToken = generateRefreshToken(user);
+    console.log("✅ Tokens generated");
 
     // Return success response
+    console.log("✅ Sending success response");
     res.status(201).json({
       success: true,
       message: "Registration successful! Welcome aboard.",
@@ -341,7 +379,8 @@ const mobileVerifySignup = async (req, res) => {
     });
   } catch (error) {
     await transaction.rollback();
-    console.error("Mobile verify signup error:", error);
+    console.error("❌ Mobile verify signup error:", error);
+    console.error("Error stack:", error.stack);
     
     res.status(500).json({
       success: false,
@@ -458,7 +497,7 @@ const mobileResendSignupCode = async (req, res) => {
  */
 const mobileSignin = async (req, res) => {
   try {
-    const { email, password, deviceId, deviceName, platform } = req.body;
+    const { email, password} = req.body;
 
     // Validation
     if (!email || !password) {
@@ -531,9 +570,7 @@ const mobileSignin = async (req, res) => {
       entityType: 'User',
       entityId: user.id,
       metadata: { 
-        deviceId, 
-        deviceName, 
-        platform,
+        
         emailVerified: user.emailVerified 
       },
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,

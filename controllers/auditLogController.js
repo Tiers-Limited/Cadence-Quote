@@ -18,7 +18,7 @@ exports.createAuditLog = async (logData) => {
       ipAddress: logData.ipAddress || null,
       userAgent: logData.userAgent || null,
       isImmutable: true,
-    });
+    }, logData.transaction ? { transaction: logData.transaction } : {});
     return log;
   } catch (error) {
     console.error('Create audit log error:', error);

@@ -151,9 +151,14 @@ User.prototype.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
+// Alias for validatePassword (used in mobile auth)
+User.prototype.validatePassword = async function (candidatePassword) {
+  return this.comparePassword(candidatePassword);
+};
+
 // Associations will be set up in models/index.js
 User.associate = (models) => {
-  User.belongsTo(models.Tenant, { foreignKey: 'tenantId' });
+  User.belongsTo(models.Tenant, { foreignKey: 'tenantId', as: 'tenant' });
   User.belongsTo(models.Role, { foreignKey: 'roleId', as: 'userRole' });
   User.hasMany(models.Payment, { foreignKey: 'userId' });
 };
