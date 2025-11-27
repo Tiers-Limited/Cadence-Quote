@@ -16,7 +16,7 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: 'tenants',
+      model: 'Tenants',
       key: 'id'
     }
   },
@@ -26,7 +26,7 @@ const Quote = sequelize.define('Quote', {
     allowNull: false,
     comment: 'Contractor/user who created the quote',
     references: {
-      model: 'users',
+      model: 'Users',
       key: 'id'
     }
   },
@@ -44,7 +44,6 @@ const Quote = sequelize.define('Quote', {
   quoteNumber: {
     type: DataTypes.STRING(50),
     allowNull: false,
-    unique: true,
     comment: 'Auto-generated quote number (e.g., Q-2024-001)'
   },
   
@@ -169,8 +168,7 @@ const Quote = sequelize.define('Quote', {
   status: {
     type: DataTypes.ENUM('draft', 'pending', 'approved', 'declined', 'archived'),
     allowNull: false,
-    defaultValue: 'draft',
-    comment: 'Quote lifecycle status'
+    defaultValue: 'draft'
   },
   
   // Additional Details
@@ -302,8 +300,8 @@ Quote.prototype.calculateTotals = function() {
     let labor = 0;
     let material = 0;
     
-    this.breakdown.forEach(area => {
-      area.surfaces?.forEach(surface => {
+    this?.breakdown?.forEach(area => {
+      area?.surfaces?.forEach(surface => {
         labor += parseFloat(surface.laborCost || 0);
         material += parseFloat(surface.materialCost || 0);
       });

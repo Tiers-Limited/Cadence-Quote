@@ -11,6 +11,7 @@ const {
   mobileAppleSignIn,
   mobileForgotPassword,
   mobileResetPassword,
+  mobileResendResetCode,
   mobileVerifyEmail,
 } = require('../controllers/mobileAuthController');
 
@@ -92,17 +93,24 @@ router.post('/apple', authLimiter, mobileAppleSignIn);
 
 /**
  * @route   POST /api/mobile/auth/forgot-password
- * @desc    Request password reset for mobile user
+ * @desc    Request verification code for password reset
  * @access  Public
  */
 router.post('/forgot-password', passwordResetLimiter, mobileForgotPassword);
 
 /**
  * @route   POST /api/mobile/auth/reset-password
- * @desc    Reset password with token
+ * @desc    Verify code and reset password
  * @access  Public
  */
 router.post('/reset-password', authLimiter, mobileResetPassword);
+
+/**
+ * @route   POST /api/mobile/auth/resend-reset-code
+ * @desc    Resend password reset verification code
+ * @access  Public
+ */
+router.post('/resend-reset-code', passwordResetLimiter, mobileResendResetCode);
 
 /**
  * @route   GET /api/mobile/auth/verify-email/:token

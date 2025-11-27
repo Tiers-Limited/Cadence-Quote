@@ -859,8 +859,9 @@ const mobileAppleSignIn = async (req, res) => {
 };
 
 /**
- * Mobile Forgot Password
+ * Mobile Forgot Password - Send Verification Code
  * POST /api/mobile/auth/forgot-password
+ * Sends a 6-digit verification code to reset password
  */
 const mobileForgotPassword = async (req, res) => {
   try {
@@ -882,22 +883,48 @@ const mobileForgotPassword = async (req, res) => {
     if (!user) {
       return res.status(200).json({
         success: true,
-        message: "If your email is registered, you will receive a password reset link shortly.",
+        message: "If your email is registered, you will receive a verification code shortly.",
       });
     }
 
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    user.passwordResetToken = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
-    user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-    await user.save();
+    // Check for existing password reset code
+    let resetRecord = await TwoFactorCode.findOne({
+      where: {
+        identifier: email.toLowerCase(),
+        purpose: 'password_reset',
+      }
+    });
 
-    // Send password reset email
+    // Generate 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    if (resetRecord) {
+      // Update existing record
+      resetRecord.code = verificationCode;
+      resetRecord.expiresAt = expiresAt;
+      resetRecord.attempts = 0;
+      resetRecord.metadata = { userId: user.id };
+      await resetRecord.save();
+    } else {
+      // Create new reset record
+      resetRecord = await TwoFactorCode.create({
+        identifier: email.toLowerCase(),
+        code: verificationCode,
+        purpose: 'password_reset',
+        expiresAt,
+        attempts: 0,
+        metadata: { userId: user.id }
+      });
+    }
+
+    // Send verification code via email
     try {
-      await emailService.sendPasswordResetEmail(user.email, resetToken, user.fullName);
+      await emailService.sendVerificationCodeEmail(
+        user.email,
+        verificationCode,
+        user.fullName
+      );
     } catch (emailError) {
       console.error('Error sending password reset email:', emailError);
       // Don't expose email sending errors to client
@@ -906,17 +933,22 @@ const mobileForgotPassword = async (req, res) => {
     // Create audit log
     await createAuditLog({
       category: 'auth',
-      action: 'Mobile password reset requested',
+      action: 'Mobile password reset code sent',
       userId: user.id,
-      entityType: 'User',
-      entityId: user.id,
+      entityType: 'TwoFactorCode',
+      entityId: resetRecord.id,
+      metadata: { email: user.email },
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
       userAgent: req.headers['user-agent'],
     });
 
     res.status(200).json({
       success: true,
-      message: "If your email is registered, you will receive a password reset link shortly.",
+      message: "If your email is registered, you will receive a verification code shortly.",
+      data: {
+        email: email.toLowerCase(),
+        expiresIn: 600
+      }
     });
   } catch (error) {
     console.error("Mobile forgot password error:", error);
@@ -930,17 +962,18 @@ const mobileForgotPassword = async (req, res) => {
 };
 
 /**
- * Mobile Reset Password
+ * Mobile Reset Password - Verify Code and Reset
  * POST /api/mobile/auth/reset-password
+ * Verifies the code and resets the password
  */
 const mobileResetPassword = async (req, res) => {
   try {
-    const { token, newPassword } = req.body;
+    const { email, code, newPassword } = req.body;
 
-    if (!token || !newPassword) {
+    if (!email || !code || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: "Token and new password are required",
+        message: "Email, verification code, and new password are required",
       });
     }
 
@@ -963,30 +996,72 @@ const mobileResetPassword = async (req, res) => {
       });
     }
 
-    // Hash the token and find user
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(token)
-      .digest('hex');
-
-    const user = await User.findOne({
+    // Find verification record
+    const resetRecord = await TwoFactorCode.findOne({
       where: {
-        passwordResetToken: hashedToken,
-      },
+        identifier: email.toLowerCase(),
+        purpose: 'password_reset',
+      }
     });
 
-    if (!user || user.passwordResetExpires < new Date()) {
+    if (!resetRecord) {
+      return res.status(404).json({
+        success: false,
+        message: "No password reset request found for this email. Please request a new code.",
+      });
+    }
+
+    // Check if code has expired
+    if (new Date() > resetRecord.expiresAt) {
+      await resetRecord.destroy();
       return res.status(400).json({
         success: false,
-        message: "Invalid or expired reset token",
+        message: "Verification code has expired. Please request a new code.",
+        expired: true,
+      });
+    }
+
+    // Check attempts limit (max 5 attempts)
+    if (resetRecord.attempts >= 5) {
+      await resetRecord.destroy();
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed attempts. Please request a new verification code.",
+      });
+    }
+
+    // Verify code
+    if (resetRecord.code !== code.trim()) {
+      resetRecord.attempts += 1;
+      await resetRecord.save();
+      
+      const attemptsLeft = 5 - resetRecord.attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Invalid verification code. ${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} remaining.`,
+        attemptsLeft,
+      });
+    }
+
+    // Code is valid - find user and update password
+    const user = await User.findOne({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) {
+      await resetRecord.destroy();
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
       });
     }
 
     // Update password
     user.password = newPassword; // Will be hashed by beforeUpdate hook
-    user.passwordResetToken = null;
-    user.passwordResetExpires = null;
     await user.save();
+
+    // Delete reset record
+    await resetRecord.destroy();
 
     // Create audit log
     await createAuditLog({
@@ -1009,6 +1084,104 @@ const mobileResetPassword = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Unable to reset password. Please try again.",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Resend Password Reset Verification Code
+ * POST /api/mobile/auth/resend-reset-code
+ */
+const mobileResendResetCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    // Find reset record
+    const resetRecord = await TwoFactorCode.findOne({
+      where: {
+        identifier: email.toLowerCase(),
+        purpose: 'password_reset',
+      }
+    });
+
+    if (!resetRecord) {
+      return res.status(404).json({
+        success: false,
+        message: "No password reset request found for this email. Please start the password reset process.",
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) {
+      await resetRecord.destroy();
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Generate new verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    resetRecord.code = verificationCode;
+    resetRecord.expiresAt = expiresAt;
+    resetRecord.attempts = 0;
+    await resetRecord.save();
+
+    // Send verification code via email
+    try {
+      await emailService.sendVerificationCodeEmail(
+        email.toLowerCase(),
+        verificationCode,
+        user.fullName
+      );
+    } catch (emailError) {
+      console.error('Error sending verification email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification code. Please try again.",
+      });
+    }
+
+    // Create audit log
+    await createAuditLog({
+      category: 'auth',
+      action: 'Mobile password reset code resent',
+      userId: user.id,
+      entityType: 'TwoFactorCode',
+      entityId: resetRecord.id,
+      metadata: { email: email.toLowerCase() },
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "New verification code sent to your email.",
+      data: {
+        email: email.toLowerCase(),
+        expiresIn: 600,
+      },
+    });
+  } catch (error) {
+    console.error("Mobile resend reset code error:", error);
+    
+    res.status(500).json({
+      success: false,
+      message: "Failed to resend verification code. Please try again.",
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -1089,5 +1262,6 @@ module.exports = {
   mobileAppleSignIn,
   mobileForgotPassword,
   mobileResetPassword,
+  mobileResendResetCode,
   mobileVerifyEmail,
 };
