@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/services/auth_service.dart';
-import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
+import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/core/utils/popups/loaders.dart';
+import 'package:flutter/foundation.dart';
 
 class RegisterController extends GetxController {
   final formKey = GlobalKey<FormState>();
@@ -22,6 +23,11 @@ class RegisterController extends GetxController {
   void register() {
     if (!(formKey.currentState?.validate() ?? false)) return;
     isLoading.value = true;
+    if (kDebugMode) {
+      debugPrint(
+        'Signup request: fullName=${nameController.text.trim()} email=${emailController.text.trim()}',
+      );
+    }
     AuthService.instance
         .signup(
           fullName: nameController.text.trim(),
@@ -29,16 +35,24 @@ class RegisterController extends GetxController {
           password: passwordController.text,
           address: addressController.text.trim(),
         )
-        .then((data) async {
-          final token = data['token'];
-          await MyLocalStorage.instance().writeData('auth_token', token);
-          MyLoaders.successSnackBar(
-            title: 'Registered',
-            message:
-                'Please check your email to verify your account before login.',
+        .then((body) async {
+          final msg = body['message'] ?? 'Verification code sent';
+          if (kDebugMode) {
+            debugPrint('Signup success: $msg');
+          }
+          MyLoaders.successSnackBar(title: 'Signup', message: msg);
+          Get.toNamed(
+            AppRoutes.verify,
+            arguments: {
+              'email': emailController.text.trim(),
+              'data': body['data'] ?? {},
+            },
           );
         })
         .catchError((e) {
+          if (kDebugMode) {
+            debugPrint('Signup error: ${e.toString()}');
+          }
           MyLoaders.errorSnackBar(
             title: 'Registration failed',
             message: e.toString(),

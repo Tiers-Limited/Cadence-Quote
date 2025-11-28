@@ -8,7 +8,8 @@ import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view_model/register_controller.dart';
-import 'package:primechoice/view_model/user_controller.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
+import 'package:primechoice/core/utils/popups/loaders.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -35,7 +36,6 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     final controller = Get.put(RegisterController());
-    final user = Get.put(UserController(), permanent: true);
     return Scaffold(
       body: Stack(
         children: [
@@ -87,8 +87,11 @@ class _RegisterPageState extends State<RegisterPage> {
                               color: MyColors.primary,
                             ),
                           ),
-                          validator: (v) =>
-                              (v == null || v.isEmpty) ? 'Required' : null,
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty)
+                              return 'Required';
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 20),
                         Text(
@@ -128,8 +131,14 @@ class _RegisterPageState extends State<RegisterPage> {
                               color: MyColors.primary,
                             ),
                           ),
-                          validator: (v) =>
-                              (v == null || v.isEmpty) ? 'Required' : null,
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return 'Required';
+                            final email = v.trim();
+                            final re = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                            if (!re.hasMatch(email))
+                              return 'Invalid email format';
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 20),
                         Text(
@@ -159,8 +168,16 @@ class _RegisterPageState extends State<RegisterPage> {
                                     onPressed: controller.toggleObscure1,
                                   ),
                                 ),
-                            validator: (v) =>
-                                (v == null || v.isEmpty) ? 'Required' : null,
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return 'Required';
+                              final p = v;
+                              if (p.length < 8 ||
+                                  !RegExp(r'[A-Z]').hasMatch(p) ||
+                                  !RegExp(r'[a-z]').hasMatch(p) ||
+                                  !RegExp(r'[0-9]').hasMatch(p))
+                                return 'At least 8 characters including an uppercase letter, a lowercase letter, and a number';
+                              return null;
+                            },
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -190,37 +207,20 @@ class _RegisterPageState extends State<RegisterPage> {
                                     onPressed: controller.toggleObscure2,
                                   ),
                                 ),
-                            validator: (v) => (v == null || v.isEmpty)
-                                ? 'Required'
-                                : (controller.passwordController.text != v)
-                                ? 'Passwords do not match'
-                                : null,
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return 'Required';
+                              if (controller.passwordController.text != v)
+                                return 'Passwords do not match';
+                              return null;
+                            },
                           ),
                         ),
                         const SizedBox(height: 16),
                         Obx(
                           () => GradientElevatedButton(
-                            onPressed: () {
-                              if (controller.formKey.currentState?.validate() ??
-                                  false) {
-                                user.setAddress(
-                                  controller.addressController.text.trim(),
-                                );
-                                Get.toNamed(
-                                  AppRoutes.verify,
-                                  arguments: {
-                                    'email': controller.emailController.text,
-                                    'data': {
-                                      'fullName':
-                                          controller.nameController.text,
-                                      'email': controller.emailController.text,
-                                      'address':
-                                          controller.addressController.text,
-                                    },
-                                  },
-                                );
-                              }
-                            },
+                            onPressed: controller.isLoading.value
+                                ? null
+                                : controller.register,
                             child: controller.isLoading.value
                                 ? const SizedBox(
                                     height: 20,
@@ -267,13 +267,31 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                       onPressed: () async {
                         try {
-                          final data = await AuthService.instance
+                          final body = await AuthService.instance
                               .signupWithGoogle();
-                          debugPrint(
-                            'Google user: ${data['fullName']} ${data['email']} ${data['photoUrl']}',
-                          );
+                          final data = body['data'] as Map<String, dynamic>?;
+                          final token = data?['token'] as String?;
+                          if (token != null && token.isNotEmpty) {
+                            await MyLocalStorage.instance().writeData(
+                              'auth_token',
+                              token,
+                            );
+                            MyLoaders.successSnackBar(
+                              title: 'Signup',
+                              message: body['message'] ?? 'Account created',
+                            );
+                            Get.offAllNamed(AppRoutes.home);
+                          } else {
+                            MyLoaders.errorSnackBar(
+                              title: 'Signup failed',
+                              message: 'Token missing',
+                            );
+                          }
                         } catch (e) {
-                          Get.snackbar('Google sign-up failed', e.toString());
+                          MyLoaders.errorSnackBar(
+                            title: 'Google sign-up failed',
+                            message: e.toString(),
+                          );
                         }
                       },
                       child: Row(

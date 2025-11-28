@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:primechoice/core/utils/constants/image_strings.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
+import 'package:get/get.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
+import 'package:primechoice/core/routes/app_routes.dart';
+import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -61,7 +65,13 @@ class ProfilePage extends StatelessWidget {
             icon: Iconsax.logout,
             title: 'Logout',
             color: Colors.red,
-            onTap: () {},
+            onTap: () async {
+              final ok = await _showLogoutConfirmDialog(context);
+              if (!ok) return;
+              final storage = MyLocalStorage.instance();
+              await storage.removeData('auth_token');
+              Get.offAllNamed(AppRoutes.login);
+            },
           ),
           const SizedBox(height: 24),
         ],
@@ -184,4 +194,108 @@ class _ProfileTile extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<bool> _showLogoutConfirmDialog(BuildContext context) async {
+  return await showDialog<bool>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Container(
+              // padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 12,
+                    ),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [MyColors.primary, MyColors.secondary],
+                      ),
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(12),
+                        topRight: Radius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Confirm Logout',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.all(18.0),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Are you sure you want to log out?',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: Colors.grey.withOpacity(0.4),
+                                  ),
+                                  backgroundColor: Colors.grey.withOpacity(0.1),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: GradientElevatedButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                radius: 8,
+                                child: const Text(
+                                  'Logout',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ) ??
+      false;
 }

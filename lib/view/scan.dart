@@ -1,4 +1,6 @@
 import 'package:camera/camera.dart';
+import 'dart:io' show Platform;
+import 'package:arkit_plugin/arkit_plugin.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
@@ -17,9 +19,19 @@ class ScanPage extends StatefulWidget {
 class _ScanPageState extends State<ScanPage> {
   final PermissionsController p = Get.put(PermissionsController());
   CameraController? _cameraController;
+  ARKitController? _arkitController;
   bool _initializing = false;
   bool _paused = false;
   String _ceilingType = 'Flat';
+  bool _scanCompleted = false;
+  bool _isScanning = false;
+
+  final List<ARKitPlaneAnchor> _planes = [];
+
+  double? _wallAreaM2;
+  double? _ceilingAreaM2;
+  double? _roomHeightM;
+  double? _trimLengthM;
 
   @override
   void initState() {
@@ -30,6 +42,10 @@ class _ScanPageState extends State<ScanPage> {
   Future<void> _ensurePermissionThenInit() async {
     await p.refreshCamera();
     if (!p.cameraGranted) return;
+    if (Platform.isIOS) {
+      setState(() => _isScanning = true);
+      return;
+    }
     await _initCamera();
   }
 
@@ -57,6 +73,7 @@ class _ScanPageState extends State<ScanPage> {
   @override
   void dispose() {
     _cameraController?.dispose();
+    _arkitController?.dispose();
     super.dispose();
   }
 
@@ -81,13 +98,20 @@ class _ScanPageState extends State<ScanPage> {
         return Stack(
           children: [
             Positioned.fill(
-              child: ColorFiltered(
-                colorFilter: ColorFilter.mode(
-                  _paused ? Colors.black.withOpacity(0.3) : Colors.transparent,
-                  BlendMode.darken,
-                ),
-                child: CameraPreview(_cameraController!),
-              ),
+              child: Platform.isIOS
+                  ? ARKitSceneView(
+                      enableTapRecognizer: false,
+                      onARKitViewCreated: _onARKitViewCreated,
+                    )
+                  : ColorFiltered(
+                      colorFilter: ColorFilter.mode(
+                        _paused
+                            ? Colors.black.withOpacity(0.3)
+                            : Colors.transparent,
+                        BlendMode.darken,
+                      ),
+                      child: CameraPreview(_cameraController!),
+                    ),
             ),
 
             Positioned(
@@ -106,6 +130,27 @@ class _ScanPageState extends State<ScanPage> {
                         Expanded(
                           child: _OverlayPill(text: 'Detecting walls...'),
                         ),
+                        if (Platform.isIOS && _isScanning && !_scanCompleted)
+                          SizedBox(
+                            width: 120,
+                            height: 90,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.85),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: MyColors.primary.withOpacity(0.2),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: CustomPaint(
+                                painter: _BlueprintPainter(planes: _planes),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -130,14 +175,28 @@ class _ScanPageState extends State<ScanPage> {
                 padding: const EdgeInsets.only(top: 80.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    _MetricPill(title: 'Wall areas', value: '25.4 m²'),
-                    SizedBox(height: 8),
-                    _MetricPill(title: 'Ceiling area', value: '25.4 m²'),
-                    SizedBox(height: 8),
-                    _MetricPill(title: 'Room Height', value: '2.54 m'),
-                    SizedBox(height: 8),
-                    _MetricPill(title: 'Trim length', value: '25.4 m'),
+                  children: [
+                    if (_scanCompleted) ...[
+                      _MetricPill(
+                        title: 'Wall areas',
+                        value: _fmtM2(_wallAreaM2),
+                      ),
+                      const SizedBox(height: 8),
+                      _MetricPill(
+                        title: 'Ceiling area',
+                        value: _fmtM2(_ceilingAreaM2),
+                      ),
+                      const SizedBox(height: 8),
+                      _MetricPill(
+                        title: 'Room Height',
+                        value: _fmtM(_roomHeightM),
+                      ),
+                      const SizedBox(height: 8),
+                      _MetricPill(
+                        title: 'Trim length',
+                        value: _fmtM(_trimLengthM),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -199,7 +258,7 @@ class _ScanPageState extends State<ScanPage> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              onPressed: () {},
+                              onPressed: _finishScan,
                               child: const Text(
                                 'Finish Scan',
                                 style: TextStyle(
@@ -276,6 +335,113 @@ class _ScanPageState extends State<ScanPage> {
         );
       }),
     );
+  }
+
+  void _onARKitViewCreated(ARKitController controller) {
+    _arkitController = controller;
+    _isScanning = true;
+    controller.onAddNodeForAnchor = (anchor) {
+      if (anchor is ARKitPlaneAnchor) {
+        _planes.add(anchor);
+        setState(() {});
+      }
+    };
+    controller.onUpdateNodeForAnchor = (anchor) {
+      if (anchor is ARKitPlaneAnchor) {
+        final idx = _planes.indexWhere(
+          (a) => a.identifier == anchor.identifier,
+        );
+        if (idx >= 0) {
+          _planes[idx] = anchor;
+        } else {
+          _planes.add(anchor);
+        }
+        setState(() {});
+      }
+    };
+  }
+
+  void _finishScan() {
+    double ceilingArea = 0.0;
+    double sumArea = 0.0;
+    ARKitPlaneAnchor? largest;
+    for (final a in _planes) {
+      final e = a.extent;
+      final area = (e.x.abs()) * (e.z.abs());
+      sumArea += area;
+      if (area > ceilingArea) {
+        ceilingArea = area;
+        largest = a;
+      }
+    }
+    final wallArea = (sumArea - ceilingArea).clamp(0.0, double.infinity);
+    double roomHeight = _estimateHeight();
+    double trimLen = _estimateTrimLength(largest);
+
+    setState(() {
+      _wallAreaM2 = wallArea > 0 ? wallArea : null;
+      _ceilingAreaM2 = ceilingArea > 0 ? ceilingArea : null;
+      _roomHeightM = roomHeight > 0 ? roomHeight : null;
+      _trimLengthM = trimLen > 0 ? trimLen : null;
+      _scanCompleted = true;
+      _isScanning = false;
+    });
+
+    _arkitController?.dispose();
+  }
+
+  double _estimateHeight() {
+    if (_planes.isNotEmpty) {
+      final avgX =
+          _planes.map((a) => a.extent.x.abs()).reduce((a, b) => a + b) /
+          _planes.length;
+      return avgX;
+    }
+    return 2.5;
+  }
+
+  double _estimateTrimLength(ARKitPlaneAnchor? largest) {
+    if (largest != null) {
+      return 2 * (largest.extent.x.abs() + largest.extent.z.abs());
+    }
+    return 0.0;
+  }
+
+  String _fmtM2(double? m2) {
+    if (m2 == null) return '—';
+    return '${m2.toStringAsFixed(2)} m²';
+  }
+
+  String _fmtM(double? m) {
+    if (m == null) return '—';
+    return '${m.toStringAsFixed(2)} m';
+  }
+}
+
+class _BlueprintPainter extends CustomPainter {
+  final List<ARKitPlaneAnchor> planes;
+  _BlueprintPainter({required this.planes});
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bg = Paint()..color = Colors.transparent;
+    canvas.drawRect(Offset.zero & size, bg);
+    final p = Paint()
+      ..color = MyColors.primary
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    for (final a in planes) {
+      final w = a.extent.x.abs();
+      final h = a.extent.z.abs();
+      final rw = w.clamp(0.5, 10.0) / 10.0 * size.width;
+      final rh = h.clamp(0.5, 10.0) / 10.0 * size.height;
+      final rect = Rect.fromLTWH(4, 4, rw - 8, rh - 8);
+      canvas.drawRect(rect, p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BlueprintPainter oldDelegate) {
+    return oldDelegate.planes != planes;
   }
 }
 

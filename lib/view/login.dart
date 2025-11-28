@@ -10,13 +10,14 @@ import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view_model/login_controller.dart';
 import 'package:primechoice/core/services/auth_service.dart';
 import 'package:primechoice/core/utils/popups/loaders.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.put(LoginController());
+    final controller = Get.find<LoginController>();
     return Scaffold(
       body: Stack(
         children: [
@@ -164,11 +165,26 @@ class LoginPage extends StatelessWidget {
                       ),
                       onPressed: () async {
                         try {
-                          final data = await AuthService.instance
+                          final body = await AuthService.instance
                               .loginWithGoogle();
-                          debugPrint(
-                            'Google user: ${data['fullName']} ${data['email']} ${data['photoUrl']}',
-                          );
+                          final data = body['data'] as Map<String, dynamic>?;
+                          final token = data?['token'] as String?;
+                          if (token != null && token.isNotEmpty) {
+                            await MyLocalStorage.instance().writeData(
+                              'auth_token',
+                              token,
+                            );
+                            MyLoaders.successSnackBar(
+                              title: 'Login',
+                              message: body['message'] ?? 'Login successful',
+                            );
+                            Get.offAllNamed(AppRoutes.home);
+                          } else {
+                            MyLoaders.errorSnackBar(
+                              title: 'Login failed',
+                              message: 'Token missing',
+                            );
+                          }
                         } catch (e) {
                           MyLoaders.errorSnackBar(
                             title: 'Google sign-in failed',

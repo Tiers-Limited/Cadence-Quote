@@ -62,7 +62,7 @@ class VerifyAccountPage extends StatelessWidget {
                   Form(
                     key: controller.formKey,
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         _OtpBox(
                           controller: controller.d1,
@@ -78,6 +78,14 @@ class VerifyAccountPage extends StatelessWidget {
                         ),
                         _OtpBox(
                           controller: controller.d4,
+                          onChanged: (_) => controller.onOtpChanged(),
+                        ),
+                        _OtpBox(
+                          controller: controller.d5,
+                          onChanged: (_) => controller.onOtpChanged(),
+                        ),
+                        _OtpBox(
+                          controller: controller.d6,
                           onChanged: (_) => controller.onOtpChanged(),
                         ),
                       ],
@@ -112,8 +120,15 @@ class _OtpBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final horizontalPadding = 48.0; // page padding left+right
+    const spacing = 8.0; // approximate spacing used in Row
+    const count = 6;
+    final available = screenWidth - horizontalPadding - (count - 1) * spacing;
+    final calcWidth = available / count;
+    final boxWidth = calcWidth.clamp(40.0, 56.0);
     return SizedBox(
-      width: 60,
+      width: boxWidth,
       child: TextFormField(
         controller: controller,
         textAlign: TextAlign.center,

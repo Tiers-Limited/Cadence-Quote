@@ -26,11 +26,9 @@ class _SplashState extends State<Splash> {
     if (!mounted) return;
 
     final storage = MyLocalStorage.instance();
-
-    final isFirstTime = storage.readData<bool>('isFirstTime');
-
-    if (isFirstTime == null || isFirstTime == true) {
-      Get.offAllNamed(AppRoutes.onboarding);
+    final token = storage.readData<String>('auth_token');
+    if (token != null && token.isNotEmpty) {
+      Get.offAllNamed(AppRoutes.home);
     } else {
       Get.offAllNamed(AppRoutes.login);
     }

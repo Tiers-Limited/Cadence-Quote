@@ -8,6 +8,7 @@ class MyTextFormFieldTheme {
   static InputDecorationTheme lightInputDecorationTheme = InputDecorationTheme(
     prefixIconColor: MyColors.primary,
     floatingLabelStyle: const TextStyle(color: MyColors.primary),
+    errorMaxLines: 5,
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(MySizes.borderRadiusMd),
       borderSide: const BorderSide(width: 1, color: MyColors.primary),
@@ -42,6 +43,7 @@ class MyTextFormFieldTheme {
       suffixIconColor: Colors.grey,
       floatingLabelStyle: const TextStyle(color: Colors.grey),
       labelStyle: const TextStyle(color: Colors.grey),
+      errorMaxLines: 5,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(MySizes.borderRadiusMd),
         borderSide: const BorderSide(width: 1, color: MyColors.primary),

@@ -7,6 +7,7 @@ import 'package:primechoice/view/height_capture.dart';
 import 'package:primechoice/view/scan.dart';
 import 'package:primechoice/view/home.dart';
 import 'package:primechoice/view/login.dart';
+import 'package:primechoice/view_model/login_controller.dart';
 import 'package:primechoice/view/onboarding.dart';
 import 'package:primechoice/view/profile.dart';
 import 'package:primechoice/view/register.dart';
@@ -17,7 +18,13 @@ class AppPages {
   static final pages = [
     GetPage(name: AppRoutes.splash, page: () => const Splash()),
     GetPage(name: AppRoutes.onboarding, page: () => const OnboardingPage()),
-    GetPage(name: AppRoutes.login, page: () => LoginPage()),
+    GetPage(
+      name: AppRoutes.login,
+      page: () => LoginPage(),
+      binding: BindingsBuilder(() {
+        Get.create<LoginController>(() => LoginController());
+      }),
+    ),
     GetPage(name: AppRoutes.register, page: () => const RegisterPage()),
     GetPage(
       name: AppRoutes.forgotPassword,
