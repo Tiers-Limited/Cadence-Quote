@@ -50,7 +50,7 @@ const createPaymentSession = async (req, res) => {
 
     // Get user and tenant details
     const user = await User.findByPk(userId, {
-      include: [{ model: Tenant }]
+      include: [{ model: Tenant, as: 'tenant' }]
     });
 
     if (!user) {
@@ -60,7 +60,7 @@ const createPaymentSession = async (req, res) => {
       });
     }
 
-    const tenant = user.Tenant;
+    const tenant = user.tenant;
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
 
     // Create payment record

@@ -16,6 +16,7 @@ const PricingScheme = require('./PricingScheme');
 const ContractorSettings = require('./ContractorSettings');
 const Quote = require('./Quote');
 const Brand = require('./Brand');
+const Client = require('./Client');
 
 // Store models in an object
 const models = {
@@ -31,6 +32,7 @@ const models = {
   ContractorSettings,
   Quote,
   Brand,
+  Client,
   sequelize
 };
 
@@ -44,14 +46,8 @@ GlobalProduct.hasMany(ProductConfig, { foreignKey: 'globalProductId', as: 'produ
 Tenant.hasMany(ProductConfig, { foreignKey: 'tenantId', as: 'productConfigs' });
 User.hasMany(ProductConfig, { foreignKey: 'userId', as: 'productConfigs' });
 
-// Quote associations
-Quote.belongsTo(User, { foreignKey: 'userId', as: 'user' });
-Quote.belongsTo(Tenant, { foreignKey: 'tenantId', as: 'tenant' });
-Quote.belongsTo(PricingScheme, { foreignKey: 'pricingSchemeId', as: 'pricingScheme' });
-
-User.hasMany(Quote, { foreignKey: 'userId', as: 'quotes' });
-Tenant.hasMany(Quote, { foreignKey: 'tenantId', as: 'quotes' });
-PricingScheme.hasMany(Quote, { foreignKey: 'pricingSchemeId', as: 'quotes' });
+// Note: Quote associations are now defined in Quote.associate() method
+// Removed duplicate associations from here to avoid "alias tenant in two separate associations" error
 
 // Existing associations
 Object.keys(models).forEach(modelName => {

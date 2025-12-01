@@ -369,6 +369,7 @@ const mobileVerifySignup = async (req, res) => {
           email: user.email,
           phoneNumber: user.phoneNumber,
           address: user.address,
+          profilePicture: user.profilePicture,
           role: user.role,
           emailVerified: user.emailVerified,
           tenantId: user.tenantId,
@@ -589,6 +590,9 @@ const mobileSignin = async (req, res) => {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
+          phoneNumber: user.phoneNumber,
+          address: user.address,
+          profilePicture: user.profilePicture,
           role: user.role,
           emailVerified: user.emailVerified,
           tenantId: user.tenantId,
@@ -1287,6 +1291,140 @@ const mobileVerifyEmail = async (req, res) => {
   }
 };
 
+/**
+ * Update User Profile
+ * PUT /api/mobile/auth/profile
+ * Updates user profile information (fullName, address, phoneNumber, profilePicture)
+ */
+const mobileUpdateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { fullName, address, phoneNumber, profilePicture } = req.body;
+
+    // Find user
+    const user = await User.findByPk(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been deactivated. Please contact support.",
+      });
+    }
+
+    // Prepare update data (only update fields that are provided)
+    const updateData = {};
+    
+    if (fullName !== undefined) {
+      if (!fullName || fullName.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Full name cannot be empty",
+        });
+      }
+      updateData.fullName = fullName.trim();
+    }
+
+    if (address !== undefined) {
+      if (address && address.length > 500) {
+        return res.status(400).json({
+          success: false,
+          message: "Address cannot exceed 500 characters",
+        });
+      }
+      updateData.address = address;
+    }
+
+    if (phoneNumber !== undefined) {
+      // Validate phone number format if provided
+      if (phoneNumber) {
+        const phoneRegex = /^[+]?[(]?\d{1,4}[)]?[-\s.]?[(]?\d{1,4}[)]?[-\s.]?\d{1,9}$/i;
+        if (!phoneRegex.test(phoneNumber)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid phone number format",
+          });
+        }
+      }
+      updateData.phoneNumber = phoneNumber;
+    }
+
+    if (profilePicture !== undefined) {
+      // Validate URL format if provided
+      if (profilePicture) {
+        try {
+          new URL(profilePicture);
+        } catch (error) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid profile picture URL",
+          });
+        }
+      }
+      updateData.profilePicture = profilePicture;
+    }
+
+    // Check if there's anything to update
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields to update",
+      });
+    }
+
+    // Update user
+    await user.update(updateData);
+
+    // Create audit log
+    await createAuditLog({
+      category: 'auth',
+      action: 'Profile updated',
+      userId: user.id,
+      tenantId: user.tenantId,
+      entityType: 'User',
+      entityId: user.id,
+      changes: updateData,
+      metadata: { updatedFields: Object.keys(updateData) },
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+    });
+
+    // Return updated user
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      data: {
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          address: user.address,
+          profilePicture: user.profilePicture,
+          role: user.role,
+          emailVerified: user.emailVerified,
+          tenantId: user.tenantId,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Mobile update profile error:", error);
+    
+    res.status(500).json({
+      success: false,
+      message: "Failed to update profile. Please try again.",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
 module.exports = {
   mobileSignup,
   mobileVerifySignup,
@@ -1298,4 +1436,5 @@ module.exports = {
   mobileResetPassword,
   mobileResendResetCode,
   mobileVerifyEmail,
+  mobileUpdateProfile,
 };

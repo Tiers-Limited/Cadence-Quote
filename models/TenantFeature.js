@@ -49,7 +49,7 @@ const TenantFeature = sequelize.define('TenantFeature', {
   underscored: true,
   indexes: [
     {
-      unique: true,
+     
       fields: ['tenant_id', 'feature_flag_id'],
     },
   ],

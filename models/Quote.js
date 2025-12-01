@@ -15,6 +15,7 @@ const Quote = sequelize.define('Quote', {
   tenantId: {
     type: DataTypes.INTEGER,
     allowNull: false,
+    field: 'tenant_id',
     references: {
       model: 'Tenants',
       key: 'id'
@@ -24,9 +25,20 @@ const Quote = sequelize.define('Quote', {
   userId: {
     type: DataTypes.INTEGER,
     allowNull: false,
+    field: 'user_id',
     comment: 'Contractor/user who created the quote',
     references: {
       model: 'Users',
+      key: 'id'
+    }
+  },
+
+  clientId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'client_id',
+    references: {
+      model: 'clients',
       key: 'id'
     }
   },
@@ -34,6 +46,7 @@ const Quote = sequelize.define('Quote', {
   pricingSchemeId: {
     type: DataTypes.INTEGER,
     allowNull: true,
+    field: 'pricing_scheme_id',
     references: {
       model: 'pricing_schemes',
       key: 'id'
@@ -44,18 +57,22 @@ const Quote = sequelize.define('Quote', {
   quoteNumber: {
     type: DataTypes.STRING(50),
     allowNull: false,
+    unique: true,
+    field: 'quote_number',
     comment: 'Auto-generated quote number (e.g., Q-2024-001)'
   },
   
-  // Customer Information
+  // Customer Information (duplicated for historical accuracy)
   customerName: {
     type: DataTypes.STRING(255),
-    allowNull: false
+    allowNull: false,
+    field: 'customer_name'
   },
   
   customerEmail: {
     type: DataTypes.STRING(255),
     allowNull: true,
+    field: 'customer_email',
     validate: {
       isEmail: true
     }
@@ -63,29 +80,59 @@ const Quote = sequelize.define('Quote', {
   
   customerPhone: {
     type: DataTypes.STRING(20),
-    allowNull: true
+    allowNull: true,
+    field: 'customer_phone'
   },
   
-  propertyAddress: {
-    type: DataTypes.TEXT,
+  street: {
+    type: DataTypes.STRING(500),
+    allowNull: true
+  },
+
+  city: {
+    type: DataTypes.STRING(100),
+    allowNull: true
+  },
+
+  state: {
+    type: DataTypes.STRING(2),
     allowNull: true
   },
   
   zipCode: {
     type: DataTypes.STRING(10),
-    allowNull: true
+    allowNull: true,
+    field: 'zip_code'
   },
   
   // Job Details
   jobType: {
-    type: DataTypes.ENUM('interior', 'exterior'),
-    allowNull: false
+    type: DataTypes.ENUM('interior', 'exterior', 'both'),
+    allowNull: true,
+    field: 'job_type'
   },
   
   jobCategory: {
     type: DataTypes.ENUM('residential', 'commercial'),
     allowNull: true,
-    defaultValue: 'residential'
+    defaultValue: 'residential',
+    field: 'job_category'
+  },
+
+  // Product Strategy
+  productStrategy: {
+    type: DataTypes.ENUM('GBB', 'single'),
+    allowNull: true,
+    defaultValue: 'GBB',
+    field: 'product_strategy',
+    comment: 'Good-Better-Best or Single Product strategy'
+  },
+
+  allowCustomerProductChoice: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'allow_customer_product_choice',
+    comment: 'Allow customer to choose products in portal'
   },
   
   // Areas and Surfaces (stored as JSON)
@@ -93,8 +140,16 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.JSONB,
     allowNull: false,
     defaultValue: [],
-    comment: 'Array of areas with surfaces, measurements, and product selections'
-    // Structure: [{ id, name, jobType, surfaces: [{ type, selected, selectedProduct, selectedSheen, selectedColor, sqft, dimensions }] }]
+    comment: 'Array of areas with surfaces, measurements, substrates, and products'
+  },
+
+  // Product selections per surface type
+  productSets: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: {},
+    field: 'product_sets',
+    comment: 'Product configurations per surface type (walls, trim, ceilings, etc.)'
   },
   
   // Pricing Details
@@ -107,13 +162,15 @@ const Quote = sequelize.define('Quote', {
   laborTotal: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
-    defaultValue: 0.00
+    defaultValue: 0.00,
+    field: 'labor_total'
   },
   
   materialTotal: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
-    defaultValue: 0.00
+    defaultValue: 0.00,
+    field: 'material_total'
   },
   
   markup: {
@@ -125,19 +182,22 @@ const Quote = sequelize.define('Quote', {
   markupPercent: {
     type: DataTypes.DECIMAL(5, 2),
     allowNull: false,
-    defaultValue: 0.00
+    defaultValue: 0.00,
+    field: 'markup_percent'
   },
   
   zipMarkup: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
-    defaultValue: 0.00
+    defaultValue: 0.00,
+    field: 'zip_markup'
   },
   
   zipMarkupPercent: {
     type: DataTypes.DECIMAL(5, 2),
     allowNull: false,
-    defaultValue: 0.00
+    defaultValue: 0.00,
+    field: 'zip_markup_percent'
   },
   
   tax: {
@@ -149,7 +209,8 @@ const Quote = sequelize.define('Quote', {
   taxPercent: {
     type: DataTypes.DECIMAL(5, 2),
     allowNull: false,
-    defaultValue: 0.00
+    defaultValue: 0.00,
+    field: 'tax_percent'
   },
   
   total: {
@@ -161,12 +222,13 @@ const Quote = sequelize.define('Quote', {
   totalSqft: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: true,
+    field: 'total_sqft',
     comment: 'Total square footage of all surfaces'
   },
   
   // Quote Status
   status: {
-    type: DataTypes.ENUM('draft', 'pending', 'approved', 'declined', 'archived'),
+    type: DataTypes.ENUM('draft', 'sent', 'viewed', 'approved', 'declined', 'archived'),
     allowNull: false,
     defaultValue: 'draft'
   },
@@ -181,6 +243,7 @@ const Quote = sequelize.define('Quote', {
   clientNotes: {
     type: DataTypes.TEXT,
     allowNull: true,
+    field: 'client_notes',
     comment: 'Notes visible to client in proposal'
   },
   
@@ -195,29 +258,41 @@ const Quote = sequelize.define('Quote', {
   validUntil: {
     type: DataTypes.DATE,
     allowNull: true,
+    field: 'valid_until',
     comment: 'Quote expiration date'
   },
   
   sentAt: {
     type: DataTypes.DATE,
     allowNull: true,
+    field: 'sent_at',
     comment: 'When quote was sent to client'
+  },
+  
+  viewedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'viewed_at',
+    comment: 'When client first viewed the quote'
   },
   
   approvedAt: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: true,
+    field: 'approved_at'
   },
   
   declinedAt: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: true,
+    field: 'declined_at'
   },
   
   // Metadata
   isActive: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_active'
   },
   
   createdAt: {
@@ -234,17 +309,29 @@ const Quote = sequelize.define('Quote', {
 }, {
   tableName: 'quotes',
   timestamps: true,
+  underscored: true,
   indexes: [
-    { fields: ['tenantId'] },
-    { fields: ['userId'] },
-    { fields: ['quoteNumber'], unique: true },
+    { fields: ['tenant_id'] },
+    { fields: ['user_id'] },
+    { fields: ['client_id'] },
+    { fields: ['pricing_scheme_id'] },
+    { fields: ['quote_number'] },
     { fields: ['status'] },
-    { fields: ['jobType'] },
-    { fields: ['createdAt'] },
-    { fields: ['customerEmail'] },
-    { fields: ['customerPhone'] }
+    { fields: ['job_type'] },
+    { fields: ['created_at'] },
+    { fields: ['customer_email'] },
+    { fields: ['customer_phone'] },
+    { fields: ['zip_code'] },
   ]
 });
+
+// Associations
+Quote.associate = (models) => {
+  Quote.belongsTo(models.Tenant, { foreignKey: 'tenantId', as: 'tenant' });
+  Quote.belongsTo(models.User, { foreignKey: 'userId', as: 'user' });
+  Quote.belongsTo(models.Client, { foreignKey: 'clientId', as: 'client' });
+  Quote.belongsTo(models.PricingScheme, { foreignKey: 'pricingSchemeId', as: 'pricingScheme' });
+};
 
 // Class methods
 Quote.generateQuoteNumber = async function(tenantId) {
@@ -271,27 +358,40 @@ Quote.generateQuoteNumber = async function(tenantId) {
 };
 
 // Instance methods
-Quote.prototype.markAsSent = function() {
-  this.status = 'pending';
+Quote.prototype.markAsSent = async function() {
+  this.status = 'sent';
   this.sentAt = new Date();
-  return this.save();
+  await this.save();
+  return this;
 };
 
-Quote.prototype.approve = function() {
+Quote.prototype.markAsViewed = async function() {
+  if (this.status === 'sent' && !this.viewedAt) {
+    this.status = 'viewed';
+    this.viewedAt = new Date();
+    await this.save();
+  }
+  return this;
+};
+
+Quote.prototype.approve = async function() {
   this.status = 'approved';
   this.approvedAt = new Date();
-  return this.save();
+  await this.save();
+  return this;
 };
 
-Quote.prototype.decline = function() {
+Quote.prototype.decline = async function() {
   this.status = 'declined';
   this.declinedAt = new Date();
-  return this.save();
+  await this.save();
+  return this;
 };
 
-Quote.prototype.archive = function() {
+Quote.prototype.archive = async function() {
   this.status = 'archived';
-  return this.save();
+  await this.save();
+  return this;
 };
 
 Quote.prototype.calculateTotals = function() {

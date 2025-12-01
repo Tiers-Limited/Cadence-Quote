@@ -38,6 +38,7 @@ module.exports = function(passport) {
             where: { googleId: profile.id },
             include: [{
               model: Tenant,
+              as: 'tenant',
               attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
             }]
           });
@@ -48,6 +49,7 @@ module.exports = function(passport) {
               where: { email },
               include: [{
                 model: Tenant,
+                as: 'tenant',
                 attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
               }]
             });
@@ -55,7 +57,7 @@ module.exports = function(passport) {
             // If user exists with email
             if (user) {
               // Check if user has pending payment (incomplete registration)
-              if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+              if (!user.isActive && user.tenant && user.tenant.paymentStatus === 'pending') {
                 // Don't activate - return as pending payment user
                 return done(null, {
                   user,
@@ -80,7 +82,7 @@ module.exports = function(passport) {
           // Return existing user
           if (user) {
             // Check for pending payment
-            if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+            if (!user.isActive && user.tenant && user.tenant.paymentStatus === 'pending') {
               return done(null, {
                 user,
                 isNewUser: false,
@@ -143,6 +145,7 @@ module.exports = function(passport) {
             where: { appleId },
             include: [{
               model: Tenant,
+              as: 'tenant',
               attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
             }]
           });
@@ -153,6 +156,7 @@ module.exports = function(passport) {
               where: { email },
               include: [{
                 model: Tenant,
+                as: 'tenant',
                 attributes: ['id', 'companyName', 'subscriptionPlan', 'paymentStatus', 'isActive']
               }]
             });
@@ -160,7 +164,7 @@ module.exports = function(passport) {
             // If user exists with email
             if (user) {
               // Check if user has pending payment (incomplete registration)
-              if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+              if (!user.isActive && user.tenant && user.tenant.paymentStatus === 'pending') {
                 // Don't activate - return as pending payment user
                 return done(null, {
                   user,
@@ -184,7 +188,7 @@ module.exports = function(passport) {
           // Return existing user
           if (user) {
             // Check for pending payment
-            if (!user.isActive && user.Tenant && user.Tenant.paymentStatus === 'pending') {
+            if (!user.isActive && user.tenant && user.tenant.paymentStatus === 'pending') {
               return done(null, {
                 user,
                 isNewUser: false,

@@ -166,7 +166,7 @@ const ProductConfig = sequelize.define('ProductConfig', {
     },
     {
       name: 'product_configs_tenant_global_product_unique',
-      unique: true,
+     
       fields: ['tenant_id', 'global_product_id'],
       where: {
         is_active: true,

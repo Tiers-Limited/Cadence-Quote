@@ -119,12 +119,20 @@ const User = sequelize.define('User', {
     validate: {
       is: /^[+]?[(]?\d{1,4}[)]?[-\s.]?[(]?\d{1,4}[)]?[-\s.]?\d{1,9}$/i
     }
+  },
+  profilePicture: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'profile_picture',
+    validate: {
+      isUrl: true
+    }
   }
 }, {
   timestamps: true,
   indexes: [
     { fields: ['tenantId'] },
-    { unique: true, fields: ['email'] },
+    { fields: ['email'] },
     { fields: ['google_id'] },
     { fields: ['apple_id'] }
   ]
@@ -161,6 +169,7 @@ User.associate = (models) => {
   User.belongsTo(models.Tenant, { foreignKey: 'tenantId', as: 'tenant' });
   User.belongsTo(models.Role, { foreignKey: 'roleId', as: 'userRole' });
   User.hasMany(models.Payment, { foreignKey: 'userId' });
+  User.hasMany(models.Quote, { foreignKey: 'userId', as: 'quotes' });
 };
 
 module.exports = User;

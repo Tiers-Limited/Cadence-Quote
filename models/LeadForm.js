@@ -167,7 +167,7 @@ const LeadForm = sequelize.define('LeadForm', {
       fields: ['tenant_id']
     },
     {
-      unique: true,
+      
       fields: ['public_url']
     }
   ]

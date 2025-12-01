@@ -89,11 +89,11 @@ const Tenant = sequelize.define('Tenant', {
   timestamps: true,
   indexes: [
     {
-      unique: true,
+    
       fields: ['email']
     },
     {
-      unique: true,
+      
       fields: ['stripeCustomerId']
     },
     {
@@ -116,6 +116,10 @@ Tenant.associate = (models) => {
   });
   Tenant.hasMany(models.Payment, {
     foreignKey: 'tenantId'
+  });
+  Tenant.hasMany(models.Quote, {
+    foreignKey: 'tenantId',
+    as: 'quotes'
   });
 };
 

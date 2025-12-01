@@ -13,7 +13,9 @@ const {
   mobileResetPassword,
   mobileResendResetCode,
   mobileVerifyEmail,
+  mobileUpdateProfile,
 } = require('../controllers/mobileAuthController');
+const { auth } = require('../middleware/auth');
 
 // Rate limiting for authentication endpoints
 const authLimiter = rateLimit({
@@ -118,5 +120,12 @@ router.post('/resend-reset-code', passwordResetLimiter, mobileResendResetCode);
  * @access  Public
  */
 router.get('/verify-email/:token', mobileVerifyEmail);
+
+/**
+ * @route   PUT /api/mobile/auth/profile
+ * @desc    Update user profile (fullName, address, phoneNumber, profilePicture)
+ * @access  Private (requires JWT token)
+ */
+router.put('/profile', auth, mobileUpdateProfile);
 
 module.exports = router;

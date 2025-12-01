@@ -26,6 +26,7 @@ const webhooksRouter = require('./routes/webhooks');
 const mobileAuthRouter = require('./routes/mobileAuth');
 const contractorRouter = require('./routes/contractorRouter'); // NEW FEATURE: Contractor product configs
 const quotesRouter = require('./routes/quotes'); // NEW FEATURE: Quote Builder optimized APIs
+const quoteBuilderRouter = require('./routes/quoteBuilder'); // NEW FEATURE: Enhanced Quote Builder
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 // Load all models and associations
@@ -85,6 +86,7 @@ app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/subscriptions', subscriptionsRouter);
 app.use('/api/v1/contractor', contractorRouter); // Contractor product configs
 app.use('/api/v1/quotes', quotesRouter); // Quote Builder APIs
+app.use('/api/v1/quote-builder', quoteBuilderRouter); // Enhanced Quote Builder
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler
@@ -107,11 +109,12 @@ app.use(function(err, req, res, next) {
 // Wrapped in async to handle errors gracefully
 (async () => {
   try {
-    // In development, alter existing tables instead of dropping them
+    // In development, validate models without altering tables
+    // Use migrations for schema changes to avoid Sequelize USING syntax errors
     
-    const syncOptions = process.env.NODE_ENV === 'development' 
+   const syncOptions = process.env.NODE_ENV === 'development' 
       ? { alter: true } // Don't alter - schema is now stable
-      : { force: false }; // In production, don't sync at all
+      : { force: false };
     
     await sequelize.sync(syncOptions);
     console.log('✓ Database models synchronized');

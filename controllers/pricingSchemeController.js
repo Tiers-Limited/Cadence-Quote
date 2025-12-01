@@ -9,16 +9,16 @@ const bcrypt = require('bcryptjs');
  */
 const getPricingSchemes = async (req, res) => {
   try {
-    const tenantId = req.user.tenantId;
+   
     const { isActive } = req.query;
 
-    const where = { tenantId };
+   
     if (isActive !== undefined) {
       where.isActive = isActive === 'true';
     }
 
     const schemes = await PricingScheme.findAll({
-      where,
+    
       order: [['isDefault', 'DESC'], ['name', 'ASC']]
     });
 

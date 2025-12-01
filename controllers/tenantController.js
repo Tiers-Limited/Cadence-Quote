@@ -341,7 +341,7 @@ exports.impersonateUser = async (req, res) => {
     const { userId } = req.params;
 
     const user = await User.findByPk(userId, {
-      include: [{ model: Tenant, foreignKey: 'tenantId' }],
+      include: [{ model: Tenant, as: 'tenant', foreignKey: 'tenantId' }],
     });
 
     if (!user) {
@@ -374,7 +374,7 @@ exports.impersonateUser = async (req, res) => {
           fullName: user.fullName,
           email: user.email,
           role: user.role,
-          tenant: user.Tenant,
+          tenant: user.tenant,
         },
       },
     });

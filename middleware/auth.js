@@ -26,6 +26,7 @@ const auth = async (req, res, next) => {
       },
       include: [{
         model: Tenant,
+        as: 'tenant',
         attributes: ['id', 'companyName', 'subscriptionPlan']
       }]
     });
@@ -52,7 +53,7 @@ const auth = async (req, res, next) => {
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
-      tenant: user.Tenant
+      tenant: user.tenant
     };
 
     next();

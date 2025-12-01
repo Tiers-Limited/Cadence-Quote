@@ -111,8 +111,8 @@ const Subscription = sequelize.define('Subscription', {
       fields: ['tenant_id']
     },
     {
-      fields: ['stripe_subscription_id'],
-      unique: true
+      fields: ['stripe_subscription_id']
+      
     },
     {
       fields: ['stripe_customer_id']

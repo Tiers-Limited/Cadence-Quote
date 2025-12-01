@@ -104,7 +104,7 @@ const Payment = sequelize.define('Payment', {
       fields: ['userId']
     },
     {
-      unique: true,
+      
       fields: ['stripeSessionId']
     },
     {

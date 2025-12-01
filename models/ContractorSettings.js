@@ -110,7 +110,7 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
   tableName: 'contractor_settings',
   indexes: [
     {
-      unique: true,
+      
       fields: ['tenant_id']
     }
   ]

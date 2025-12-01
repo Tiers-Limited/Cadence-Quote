@@ -128,4 +128,8 @@ const PricingScheme = sequelize.define('PricingScheme', {
 PricingScheme.belongsTo(Tenant, { foreignKey: 'tenantId' });
 Tenant.hasMany(PricingScheme, { foreignKey: 'tenantId' });
 
+PricingScheme.associate = (models) => {
+  PricingScheme.hasMany(models.Quote, { foreignKey: 'pricingSchemeId', as: 'quotes' });
+};
+
 module.exports = PricingScheme;

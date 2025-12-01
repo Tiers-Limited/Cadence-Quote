@@ -326,6 +326,7 @@ const login = async (req, res) => {
       include: [
         {
           model: Tenant,
+          as: 'tenant',
           attributes: ["id", "companyName", "paymentStatus", "subscriptionPlan"],
           required: true,
         },
@@ -333,7 +334,7 @@ const login = async (req, res) => {
     });
 
     // If user exists but payment is pending, handle payment completion flow
-    if (pendingUser && !pendingUser.isActive && pendingUser.Tenant.paymentStatus === 'pending') {
+    if (pendingUser && !pendingUser.isActive && pendingUser.tenant.paymentStatus === 'pending') {
       // Find the pending payment
       const pendingPayment = await Payment.findOne({
         where: {
@@ -352,7 +353,7 @@ const login = async (req, res) => {
             userId: pendingUser.id,
             tenantId: pendingUser.tenantId,
             email: pendingUser.email,
-            subscriptionPlan: pendingUser.Tenant.subscriptionPlan,
+            subscriptionPlan: pendingUser.tenant.subscriptionPlan,
             stripeSessionId: pendingPayment.stripeSessionId,
             // Generate a temporary token for payment completion
             tempToken: generateToken(pendingUser.id, pendingUser.tenantId)
@@ -390,6 +391,7 @@ const login = async (req, res) => {
       include: [
         {
           model: Tenant,
+          as: 'tenant',
           where: { isActive: true },
           attributes: ["id", "companyName", "tradeType", "subscriptionPlan"],
           required: true,
@@ -437,16 +439,16 @@ const login = async (req, res) => {
             emailVerified: user.emailVerified,
           },
           tenant: {
-            id: user.Tenant.id,
-            companyName: user.Tenant.companyName,
-            tradeType: user.Tenant.tradeType,
-            subscriptionPlan: user.Tenant.subscriptionPlan,
+            id: user.tenant.id,
+            companyName: user.tenant.companyName,
+            tradeType: user.tenant.tradeType,
+            subscriptionPlan: user.tenant.subscriptionPlan,
           },
           token,
           refreshToken,
           accessUrl: `${
             process.env.FRONTEND_URL || "http://localhost:5173"
-          }/tenant/${user.Tenant.id}`,
+          }/tenant/${user.tenant.id}`,
         },
       });
     }
@@ -528,16 +530,16 @@ const login = async (req, res) => {
           emailVerified: user.emailVerified,
         },
         tenant: {
-          id: user.Tenant.id,
-          companyName: user.Tenant.companyName,
-          tradeType: user.Tenant.tradeType,
-          subscriptionPlan: user.Tenant.subscriptionPlan,
+          id: user.tenant.id,
+          companyName: user.tenant.companyName,
+          tradeType: user.tenant.tradeType,
+          subscriptionPlan: user.tenant.subscriptionPlan,
         },
         token,
         refreshToken,
         accessUrl: `${
           process.env.FRONTEND_URL || "http://localhost:5173"
-        }/tenant/${user.Tenant.id}`,
+        }/tenant/${user.tenant.id}`,
       },
     });
   } catch (error) {
@@ -628,16 +630,16 @@ const verifyTwoFactorCode = async (req, res) => {
           emailVerified: user.emailVerified,
         },
         tenant: {
-          id: user.Tenant.id,
-          companyName: user.Tenant.companyName,
-          tradeType: user.Tenant.tradeType,
-          subscriptionPlan: user.Tenant.subscriptionPlan,
+          id: user.tenant.id,
+          companyName: user.tenant.companyName,
+          tradeType: user.tenant.tradeType,
+          subscriptionPlan: user.tenant.subscriptionPlan,
         },
         token,
         refreshToken,
         accessUrl: `${
           process.env.FRONTEND_URL || "http://localhost:5173"
-        }/tenant/${user.Tenant.id}`,
+        }/tenant/${user.tenant.id}`,
       },
     });
   } catch (error) {
@@ -771,6 +773,7 @@ const getProfile = async (req, res) => {
       include: [
         {
           model: Tenant,
+          as: 'tenant',
           attributes: [
             "id",
             "companyName",
@@ -796,7 +799,7 @@ const getProfile = async (req, res) => {
           emailVerified: user.emailVerified,
           createdAt: user.createdAt,
         },
-        tenant: user.Tenant,
+        tenant: user.tenant,
       },
     });
   } catch (error) {
