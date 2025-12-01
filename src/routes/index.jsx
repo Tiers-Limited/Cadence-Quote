@@ -26,6 +26,7 @@ import PublicLeadFormPage from '../pages/PublicLeadFormPage';
 import { Spin } from 'antd';
 import BrandProductManager from '../features/admin/BrandProductManager';
 import QuoteBuilderPage from '../pages/QuoteBuilderPage';
+import QuotesListPage from '../pages/QuotesListPage';
 
 // Admin Components
 import RoleProtectedRoute from '../components/RoleProtectedRoute';
@@ -90,6 +91,7 @@ const AppRoutes = () => {
         }
       >
         <Route path='/dashboard' element={<DashboardPage />} />
+        <Route path='/quotes' element={<QuotesListPage />} />
         <Route path='/quotes/new' element={<QuoteBuilderPage />} />
         <Route path='/products/catalog' element={<ContractorProductConfigManager />} />
         <Route path='/products/colors' element={<ColorLibrary />} />

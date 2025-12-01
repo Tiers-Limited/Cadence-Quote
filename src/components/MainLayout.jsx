@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { FiLogOut, FiHome, FiSettings, FiUsers, FiPackage, FiSidebar, FiMenu, FiX, FiDroplet, FiDollarSign, FiFileText, FiToggleLeft, FiCreditCard } from 'react-icons/fi'
+import { FiLogOut, FiHome, FiSettings, FiUsers, FiPackage, FiSidebar, FiMenu, FiX, FiDroplet, FiDollarSign, FiFileText, FiToggleLeft, FiCreditCard, FiClipboard } from 'react-icons/fi'
 import { message, Layout, Menu, Button, theme, Drawer, Badge } from 'antd'
 import { useAuth } from '../hooks/useAuth'
 import { useState, useEffect } from 'react'
@@ -48,54 +48,63 @@ function MainLayout({ children }) {
   const adminMenuItems = [
     {
       key: 'dashboard',
+      path: '/admin/dashboard',
       icon: <FiHome size={20} />,
       label: 'Dashboard',
       onClick: () => handleMenuClick('/admin/dashboard')
     },
     {
       key: 'products',
+      path: '/admin/products',
       icon: <FiPackage size={20} />,
       label: 'Product Management',
       onClick: () => handleMenuClick('/admin/products')
     },
     {
       key: 'colors',
+      path: '/admin/colors',
       icon: <FiDroplet size={20} />,
       label: 'Color Management',
       onClick: () => handleMenuClick('/admin/colors')
     },
     {
       key: 'pricing-schemes',
+      path: '/admin/pricing-schemes',
       icon: <FiDollarSign size={20} />,
       label: 'Pricing Schemes',
       onClick: () => handleMenuClick('/admin/pricing-schemes')
     },
     {
       key: 'audit-logs',
+      path: '/admin/audit-logs',
       icon: <FiFileText size={20} />,
       label: 'Audit Logs',
       onClick: () => handleMenuClick('/admin/audit-logs')
     },
     {
       key: 'tenants',
+      path: '/admin/tenants',
       icon: <FiUsers size={20} />,
       label: 'Tenant Management',
       onClick: () => handleMenuClick('/admin/tenants')
     },
     {
       key: 'features',
+      path: '/admin/features',
       icon: <FiToggleLeft size={20} />,
       label: 'Feature Flags / Add-ons',
       onClick: () => handleMenuClick('/admin/features')
     },
     {
       key: 'billing',
+      path: '/admin/billing',
       icon: <FiCreditCard size={20} />,
       label: 'Stripe Billing',
       onClick: () => handleMenuClick('/admin/billing')
     },
     {
       key: 'settings',
+      path: '/admin/settings',
       icon: <FiSettings size={20} />,
       label: 'Settings',
       onClick: () => handleMenuClick('/admin/settings')
@@ -105,32 +114,47 @@ function MainLayout({ children }) {
   const normalMenuItems = [
     {
       key: 'dashboard',
+      path: '/dashboard',
+      exactMatch: true,
       icon: <FiHome size={20} />,
       label: 'Dashboard',
       onClick: () => handleMenuClick('/dashboard')
     },
     {
       key: 'products',
+      path: '/products',
       icon: <FiPackage size={20} />,
       label: 'Product & Rates',
       onClick: () => handleMenuClick('/products/catalog')
     },
-    {
-      label:'New Quote',
-      key: 'quotes',
-      icon: <Badge dot offset={[ -5, 5 ]}>
+     {
+      label: 'New Quote',
+      key: 'quotes-new',
+      path: '/quotes/new',
+      exactMatch: true,
+      icon: <Badge dot offset={[-5, 5]}>
         <FiFileText size={20} />
       </Badge>,
       onClick: () => handleMenuClick('/quotes/new')
     },
     {
+      key: 'quotes',
+      path: '/quotes',
+      icon: <FiClipboard size={20} />,
+      label: 'Quotes',
+      onClick: () => handleMenuClick('/quotes')
+    },
+   
+    {
       key: 'leads',
+      path: '/leads',
       icon: <FiUsers size={20} />,
       label: 'Leads',
       onClick: () => handleMenuClick('/leads/forms')
     },
     {
       key: 'settings',
+      path: '/settings',
       icon: <FiSettings size={20} />,
       label: 'Settings',
       onClick: () => handleMenuClick('/settings'),
@@ -139,9 +163,37 @@ function MainLayout({ children }) {
 
   const menuItems = (user && user.role === 'admin') ? adminMenuItems : normalMenuItems
   
-  const selectedKey = (user && user.role === 'admin')
-    ? (location.pathname.split('/')[2] || 'dashboard')
-    : (location.pathname.split('/')[1] || 'dashboard')
+  // Generic and dynamic selectedKey logic
+  const getSelectedKey = () => {
+    const currentPath = location.pathname
+    
+    // First pass: Check for exact matches (highest priority)
+    const exactMatch = menuItems.find(item => 
+      item.exactMatch && item.path === currentPath
+    )
+    if (exactMatch) return exactMatch.key
+    
+    // Second pass: Find the longest matching path (most specific match)
+    let bestMatch = null
+    let longestMatchLength = 0
+    
+    for (const item of menuItems) {
+      if (currentPath.startsWith(item.path)) {
+        const matchLength = item.path.length
+        if (matchLength > longestMatchLength) {
+          longestMatchLength = matchLength
+          bestMatch = item
+        }
+      }
+    }
+    
+    if (bestMatch) return bestMatch.key
+    
+    // Default to dashboard if no match found
+    return 'dashboard'
+  }
+  
+  const selectedKey = getSelectedKey()
 
   // Sidebar content component (reusable for both desktop and mobile)
   const SidebarContent = () => (

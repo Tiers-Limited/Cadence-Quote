@@ -122,13 +122,13 @@ function SettingsPage () {
         })
 
         // Populate company form
-        if (data.Tenant) {
+        if (data.tenant) {
           companyForm.setFieldsValue({
-            companyName: data.Tenant.companyName,
-            email: data.Tenant.email,
-            phone: data.Tenant.phoneNumber,
-            businessAddress: data.Tenant.businessAddress,
-            tradeType: data.Tenant.tradeType
+            companyName: data.tenant.companyName,
+            email: data.tenant.email,
+            phone: data.tenant.phoneNumber,
+            businessAddress: data.tenant.businessAddress,
+            tradeType: data.tenant.tradeType
           })
         }
       }
