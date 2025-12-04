@@ -28,7 +28,7 @@ const quoteBuilderApi = {
    */
   getQuoteById: async (quoteId) => {
     const response = await apiService.get(`/quote-builder/${quoteId}`);
-    return response.data;
+    return response;
   },
 
   /**
@@ -40,7 +40,7 @@ const quoteBuilderApi = {
       productSets,
       pricingSchemeId,
     });
-    return response.data;
+    return response;
   },
 
   /**
@@ -58,7 +58,7 @@ const quoteBuilderApi = {
     const response = await apiService.get('/quote-builder/drafts', {
       params: { limit },
     });
-    return response.data;
+    return response;
   },
 };
 

@@ -12,12 +12,14 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   const [allowCustomerChoice, setAllowCustomerChoice] = useState(formData.allowCustomerProductChoice || false);
   const [productSets, setProductSets] = useState(formData.productSets || []);
   const [availableProducts, setAvailableProducts] = useState([]);
+  const [gbbDefaults, setGbbDefaults] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const pricingSchemeId = formData.pricingSchemeId;
 
   useEffect(() => {
     fetchProducts();
+    fetchGBBDefaults();
   }, []);
 
   useEffect(() => {
@@ -64,70 +66,176 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     }
   };
 
-  // Group areas by surface type
+  const fetchGBBDefaults = async () => {
+    try {
+      const response = await apiService.get('/gbb-defaults');
+      if (response.success) {
+        setGbbDefaults(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching GBB defaults:', error);
+    }
+  };
+
+  // Group areas by surface type - supports both old (surfaces) and new (laborItems) structure
   const getSurfaceTypes = () => {
     const surfaces = new Set();
     (formData.areas || []).forEach(area => {
-      area.surfaces.forEach(surface => {
-        if (surface.selected) {
-          surfaces.add(surface.type);
-        }
-      });
+      // New structure: laborItems
+      if (area.laborItems) {
+        area.laborItems.forEach(item => {
+          if (item.selected) {
+            surfaces.add(item.categoryName);
+          }
+        });
+      }
+      // Old structure: surfaces (for backward compatibility)
+      else if (area.surfaces) {
+        area.surfaces.forEach(surface => {
+          if (surface.selected) {
+            surfaces.add(surface.type);
+          }
+        });
+      }
     });
     return Array.from(surfaces);
   };
 
   const surfaceTypes = getSurfaceTypes();
 
-  // Initialize product sets if empty
+  // Initialize product sets if empty - auto-populate from GBB defaults
   useEffect(() => {
-    if (productSets.length === 0 && surfaceTypes.length > 0) {
-      const initialSets = surfaceTypes.map(surfaceType => ({
-        surfaceType,
-        products: productStrategy === 'GBB' 
-          ? { good: null, better: null, best: null }
-          : { single: null },
-        gallons: null
-      }));
+    if (productSets.length === 0 && surfaceTypes.length > 0 && gbbDefaults.length > 0) {
+      const initialSets = surfaceTypes.map(surfaceType => {
+        // Map surface type name to GBB defaults surface type enum
+        // Supports both old surface names and new labor category names
+        const surfaceTypeMap = {
+          // Old surface names
+          'Walls': 'interior_walls',
+          'Ceiling': 'interior_ceilings',
+          'Ceilings': 'interior_ceilings',
+          'Trim': 'interior_trim_doors',
+          'Doors': 'interior_trim_doors',
+          'Cabinets': 'cabinets',
+          'Siding': 'exterior_siding',
+          'Windows': 'exterior_trim',
+          'Soffit & Fascia': 'exterior_trim',
+          // New labor category names
+          'Accent Walls': 'interior_walls',
+          'Drywall Repair': 'interior_walls',
+          'Exterior Walls': 'exterior_siding',
+          'Exterior Trim': 'exterior_trim',
+          'Exterior Doors': 'exterior_trim',
+          'Shutters': 'exterior_trim',
+          'Decks & Railings': 'exterior_siding',
+          'Prep Work': 'exterior_siding'
+        };
+
+        const mappedType = surfaceTypeMap[surfaceType] || 'interior_walls';
+        const defaults = gbbDefaults.find(d => d.surfaceType === mappedType);
+
+        return {
+          surfaceType,
+          products: productStrategy === 'GBB' 
+            ? { 
+                good: defaults?.goodProductId || null, 
+                better: defaults?.betterProductId || null, 
+                best: defaults?.bestProductId || null 
+              }
+            : { single: null },
+          prices: productStrategy === 'GBB' && defaults
+            ? {
+                good: defaults.goodPricePerGallon,
+                better: defaults.betterPricePerGallon,
+                best: defaults.bestPricePerGallon
+              }
+            : null,
+          gallons: null
+        };
+      });
       setProductSets(initialSets);
     }
-  }, [surfaceTypes]);
+  }, [surfaceTypes, gbbDefaults]);
 
   const updateProductSet = (surfaceType, tier, productId) => {
     setProductSets(productSets.map(set => {
       if (set.surfaceType === surfaceType) {
-        return {
+        const updatedSet = {
           ...set,
           products: {
             ...set.products,
             [tier]: productId
           }
         };
+        // Auto-calculate material cost when product is selected
+        if (productId) {
+          calculateMaterialCost(surfaceType, tier, productId, updatedSet);
+        }
+        return updatedSet;
       }
       return set;
     }));
   };
 
-  const calculateGallons = (surfaceType) => {
-    let totalSqft = 0;
+  // Auto-calculate material cost based on gallons and product price
+  const calculateMaterialCost = (surfaceType, tier, productId, currentSet) => {
+    const product = getProductById(productId);
+    if (!product) return;
+
+    // Get gallons from areas
+    let totalGallons = 0;
     (formData.areas || []).forEach(area => {
-      area.surfaces.forEach(surface => {
-        console.log('Calculating for surface:', surface);
-        if (surface.selected && surface.type === surfaceType && surface.sqft) {
-          totalSqft += parseFloat(surface.sqft) || 0;
-        }
-      });
+      if (area.laborItems) {
+        area.laborItems.forEach(item => {
+          if (item.selected && item.categoryName === surfaceType && item.gallons) {
+            totalGallons += parseFloat(item.gallons) || 0;
+          }
+        });
+      }
     });
 
-    // Assuming 400 sqft per gallon coverage (adjust as needed)
-    const gallons = Math.ceil(totalSqft / 400);
+    // Apply waste factor (default 10% = 1.1)
+    const wasteFactor = 1.1;
+    const gallonsWithWaste = totalGallons * wasteFactor;
     
-    setProductSets(productSets.map(set => {
+    // Round up to nearest 0.25 gallon
+    const finalGallons = Math.ceil(gallonsWithWaste * 4) / 4;
+    
+    // Calculate material cost
+    const materialCost = finalGallons * parseFloat(product.pricePerGallon || 0);
+
+    // Update the set with calculated values
+    setProductSets(prev => prev.map(set => {
       if (set.surfaceType === surfaceType) {
-        return { ...set, gallons };
+        return {
+          ...set,
+          gallons: finalGallons,
+          materialCost: materialCost.toFixed(2),
+          wasteFactor,
+          rawGallons: totalGallons.toFixed(2)
+        };
       }
       return set;
     }));
+  };
+
+  // Get available products filtered by what's already selected in other tiers for this surface
+  const getAvailableProductsForTier = (surfaceType, currentTier) => {
+    const currentSet = productSets.find(set => set.surfaceType === surfaceType);
+    if (!currentSet) return availableProducts;
+
+    const selectedInOtherTiers = [];
+    if (currentTier !== 'good' && currentSet.products.good) {
+      selectedInOtherTiers.push(currentSet.products.good);
+    }
+    if (currentTier !== 'better' && currentSet.products.better) {
+      selectedInOtherTiers.push(currentSet.products.better);
+    }
+    if (currentTier !== 'best' && currentSet.products.best) {
+      selectedInOtherTiers.push(currentSet.products.best);
+    }
+
+    return availableProducts.filter(product => !selectedInOtherTiers.includes(product.id));
   };
 
   const quickApplyToAll = (tier, productId) => {
@@ -246,10 +354,15 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                         value={set.products.good}
                         onChange={(value) => updateProductSet(set.surfaceType, 'good', value)}
                         loading={loading}
+                        showSearch
+                        filterOption={(input, option) =>
+                          option.children.toLowerCase().includes(input.toLowerCase())
+                        }
                       >
-                        {availableProducts.map(product => (
+                        {getAvailableProductsForTier(set.surfaceType, 'good').map(product => (
                           <Option key={product.id} value={product.id}>
                             {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                            {set.products.good === product.id && ' ✓'}
                           </Option>
                         ))}
                       </Select>
@@ -292,10 +405,15 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                         value={set.products.better}
                         onChange={(value) => updateProductSet(set.surfaceType, 'better', value)}
                         loading={loading}
+                        showSearch
+                        filterOption={(input, option) =>
+                          option.children.toLowerCase().includes(input.toLowerCase())
+                        }
                       >
-                        {availableProducts.map(product => (
+                        {getAvailableProductsForTier(set.surfaceType, 'better').map(product => (
                           <Option key={product.id} value={product.id}>
                             {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                            {set.products.better === product.id && ' ✓'}
                           </Option>
                         ))}
                       </Select>
@@ -338,10 +456,15 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                         value={set.products.best}
                         onChange={(value) => updateProductSet(set.surfaceType, 'best', value)}
                         loading={loading}
+                        showSearch
+                        filterOption={(input, option) =>
+                          option.children.toLowerCase().includes(input.toLowerCase())
+                        }
                       >
-                        {availableProducts.map(product => (
+                        {getAvailableProductsForTier(set.surfaceType, 'best').map(product => (
                           <Option key={product.id} value={product.id}>
                             {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                            {set.products.best === product.id && ' ✓'}
                           </Option>
                         ))}
                       </Select>
@@ -394,32 +517,27 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                 </Row>
               )}
 
-              <Divider />
-
-              <Row gutter={16} align="middle">
-                <Col xs={12}>
-                  <Button 
-                    icon={<ThunderboltOutlined />}
-                    onClick={() => calculateGallons(set.surfaceType)}
-                  >
-                    Auto-Calculate Gallons
-                  </Button>
-                </Col>
-                <Col xs={12}>
-                  <InputNumber
-                    placeholder="Gallons needed"
-                    style={{ width: '100%' }}
-                    min={0}
-                    value={set.gallons}
-                    onChange={(value) => {
-                      setProductSets(productSets.map(s => 
-                        s.surfaceType === set.surfaceType ? { ...s, gallons: value } : s
-                      ));
-                    }}
-                    addonAfter="gallons"
-                  />
-                </Col>
-              </Row>
+              {set.gallons > 0 && (
+                <div style={{ marginTop: 16, padding: 12, background: '#f0f9ff', borderRadius: 4, border: '1px solid #91d5ff' }}>
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>Raw Gallons:</Text>
+                      <div><Text strong>{set.rawGallons || '0.00'}</Text></div>
+                    </Col>
+                    <Col span={8}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>+ Waste (10%):</Text>
+                      <div><Text strong>{set.gallons?.toFixed(2)} gal</Text></div>
+                    </Col>
+                    <Col span={8}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>Material Cost:</Text>
+                      <div><Text strong style={{ fontSize: 16, color: '#1890ff' }}>${set.materialCost || '0.00'}</Text></div>
+                    </Col>
+                  </Row>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
+                    Formula: ({set.rawGallons} × {set.wasteFactor}) = {set.gallons?.toFixed(2)} gal × ${getProductById(set.products.good || set.products.better || set.products.best)?.pricePerGallon || 0}/gal
+                  </Text>
+                </div>
+              )}
             </Card>
           ))}
         </div>

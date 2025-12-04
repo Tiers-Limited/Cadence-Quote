@@ -153,6 +153,27 @@ function MainLayout({ children }) {
       onClick: () => handleMenuClick('/leads/forms')
     },
     {
+      key: 'proposal-defaults',
+      path: '/proposal-defaults',
+      icon: <FiFileText size={20} />,
+      label: 'Proposal Defaults',
+      onClick: () => handleMenuClick('/proposal-defaults')
+    },
+    // {
+    //   key: 'service-types',
+    //   path: '/service-types',
+    //   icon: <FiPackage size={20} />,
+    //   label: 'Service Types',
+    //   onClick: () => handleMenuClick('/service-types')
+    // },
+    {
+      key: 'labor-rates',
+      path: '/labor-rates',
+      icon: <FiDollarSign size={20} />,
+      label: 'Labor Rates',
+      onClick: () => handleMenuClick('/labor-rates')
+    },
+    {
       key: 'settings',
       path: '/settings',
       icon: <FiSettings size={20} />,

@@ -27,6 +27,9 @@ import { Spin } from 'antd';
 import BrandProductManager from '../features/admin/BrandProductManager';
 import QuoteBuilderPage from '../pages/QuoteBuilderPage';
 import QuotesListPage from '../pages/QuotesListPage';
+import ProposalDefaultsPage from '../pages/ProposalDefaultsPage';
+import ServiceTypesPage from '../pages/ServiceTypesPage';
+import LaborRatesPage from '../pages/LaborRatesPage';
 
 // Admin Components
 import RoleProtectedRoute from '../components/RoleProtectedRoute';
@@ -101,6 +104,9 @@ const AppRoutes = () => {
           path='/leads/management'
           element={<LeadFormBuilder initialTab='leads' />}
         />
+        <Route path='/proposal-defaults' element={<ProposalDefaultsPage />} />
+        <Route path='/service-types' element={<ServiceTypesPage />} />
+        <Route path='/labor-rates' element={<LaborRatesPage />} />
       </Route>
 
       {/* Settings Route - Accessible to both contractor_admin and business_admin */}

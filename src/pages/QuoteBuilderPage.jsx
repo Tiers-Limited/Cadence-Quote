@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons';
 import CustomerInfoStep from '../components/QuoteBuilder/CustomerInfoStep';
 import JobTypeStep from '../components/QuoteBuilder/JobTypeStep';
-import AreasStep from '../components/QuoteBuilder/AreasStep';
+import AreasStepEnhanced from '../components/QuoteBuilder/AreasStepEnhanced';
 import ProductsStep from '../components/QuoteBuilder/ProductsStep';
 import SummaryStep from '../components/QuoteBuilder/SummaryStep';
 import { quoteBuilderApi } from '../services/quoteBuilderApi';
@@ -91,7 +91,16 @@ function QuoteBuilderPage() {
       setLoadingSchemes(true);
       const response = await apiService.getPricingSchemes();
       if (response.success) {
-        setPricingSchemes(response.data || []);
+        const schemes = response.data || [];
+        setPricingSchemes(schemes);
+        
+        // Auto-select first pricing scheme if none is selected
+        if (schemes.length > 0 && !formData.pricingSchemeId) {
+          setFormData(prev => ({
+            ...prev,
+            pricingSchemeId: schemes[0].id
+          }));
+        }
       }
     } catch (error) {
       console.error('Error fetching pricing schemes:', error);
@@ -104,7 +113,8 @@ function QuoteBuilderPage() {
   const checkForExistingDraft = async () => {
     try {
       const response = await quoteBuilderApi.getDrafts();
-      const drafts = response.data || [];
+      console.log("Response",response)
+      const drafts = response.drafts || [];
       
       if (drafts.length > 0) {
         // Show modal asking if user wants to continue the draft
@@ -125,7 +135,7 @@ function QuoteBuilderPage() {
   const loadDraft = async (quoteId) => {
     try {
       const response = await quoteBuilderApi.getQuoteById(quoteId);
-      const draft = response.data;
+      const draft = response.quote;
       
       setFormData({
         ...formData,
@@ -252,7 +262,7 @@ function QuoteBuilderPage() {
       
       case 2:
         return (
-          <AreasStep
+          <AreasStepEnhanced
             formData={formData}
             onUpdate={handleStepDataUpdate}
             onNext={handleNext}

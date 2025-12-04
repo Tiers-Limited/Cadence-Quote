@@ -1,7 +1,8 @@
 // src/components/QuoteBuilder/AreasStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Input, Select, Checkbox, InputNumber, Space, Modal, Form } from 'antd';
+import { Card, Button, Alert, Row, Col, Typography, Input, Select, Checkbox, InputNumber, Space, Modal, Form, Switch } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { apiService } from '../../services/apiService';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -63,26 +64,47 @@ const AreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   const [showCustomAreaModal, setShowCustomAreaModal] = useState(false);
   const [customAreaName, setCustomAreaName] = useState('');
   const [editingArea, setEditingArea] = useState(null);
+  const [serviceTypes, setServiceTypes] = useState([]);
 
   const jobType = formData.jobType || 'interior';
   const availableRooms = COMMON_ROOMS[jobType] || [];
   const availableSurfaces = SURFACE_TYPES[jobType] || [];
 
   useEffect(() => {
+    fetchServiceTypes();
+  }, []);
+
+  useEffect(() => {
     onUpdate({ areas });
   }, [areas]);
 
+  const fetchServiceTypes = async () => {
+    try {
+      const response = await apiService.get('/service-types');
+      if (response.success) {
+        setServiceTypes(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching service types:', error);
+    }
+  };
   const addArea = (areaName) => {
     const newArea = {
       id: Date.now(),
       name: areaName,
       jobType,
+      serviceTypeId: null,
       surfaces: availableSurfaces.map(surfaceType => ({
         type: surfaceType,
         selected: false,
         substrate: null,
         sqft: null,
-        dimensions: null
+        dimensions: null,
+        condition: 'smooth',
+        textured: false,
+        highCeiling: false,
+        vaulted: false,
+        needsPrep: false
       }))
     };
     setAreas([...areas, newArea]);
@@ -214,6 +236,34 @@ const AreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
               }
               style={{ marginBottom: 16 }}
             >
+              {/* Service Type Selection for Area */}
+              <div style={{ marginBottom: 16, padding: 12, background: '#e6f7ff', borderRadius: 4 }}>
+                <Row gutter={16} align="middle">
+                  <Col xs={24} sm={12}>
+                    <Text strong>Service Type: </Text>
+                    <Select
+                      placeholder="Select Service Type (Optional)"
+                      style={{ width: '100%', marginTop: 8 }}
+                      value={area.serviceTypeId}
+                      onChange={(value) => {
+                        setAreas(areas.map(a => 
+                          a.id === area.id ? { ...a, serviceTypeId: value } : a
+                        ));
+                      }}
+                      allowClear
+                    >
+                      {serviceTypes
+                        .filter(st => st.serviceType === `${jobType}_painting`)
+                        .map(st => (
+                          <Option key={st.id} value={st.id}>
+                            {st.displayName} - ${st.laborRate}/{st.laborRateType.replace('per_', '')}
+                          </Option>
+                        ))}
+                    </Select>
+                  </Col>
+                </Row>
+              </div>
+
               {area.surfaces.map(surface => (
                 <div key={surface.type} style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 4 }}>
                   <Row gutter={16} align="middle">
@@ -262,6 +312,50 @@ const AreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                       </>
                     )}
                   </Row>
+                  
+                  {/* Surface Condition and Add-ons */}
+                  {surface.selected && (
+                    <Row gutter={16} style={{ marginTop: 12 }}>
+                      <Col xs={12} sm={6}>
+                        <Select
+                          placeholder="Condition"
+                          size="small"
+                          style={{ width: '100%' }}
+                          value={surface.condition || 'smooth'}
+                          onChange={(value) => updateSurface(area.id, surface.type, 'condition', value)}
+                        >
+                          <Option value="smooth">Smooth</Option>
+                          <Option value="textured">Textured</Option>
+                          <Option value="patched">Patched</Option>
+                          <Option value="damaged">Damaged</Option>
+                        </Select>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Checkbox
+                          checked={surface.textured}
+                          onChange={(e) => updateSurface(area.id, surface.type, 'textured', e.target.checked)}
+                        >
+                          Textured (+$0.10/sqft)
+                        </Checkbox>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Checkbox
+                          checked={surface.highCeiling}
+                          onChange={(e) => updateSurface(area.id, surface.type, 'highCeiling', e.target.checked)}
+                        >
+                          High Ceiling (+$0.20/sqft)
+                        </Checkbox>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Checkbox
+                          checked={surface.needsPrep}
+                          onChange={(e) => updateSurface(area.id, surface.type, 'needsPrep', e.target.checked)}
+                        >
+                          Needs Prep
+                        </Checkbox>
+                      </Col>
+                    </Row>
+                  )}
                 </div>
               ))}
             </Card>
