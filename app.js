@@ -27,6 +27,10 @@ const mobileAuthRouter = require('./routes/mobileAuth');
 const contractorRouter = require('./routes/contractorRouter'); // NEW FEATURE: Contractor product configs
 const quotesRouter = require('./routes/quotes'); // NEW FEATURE: Quote Builder optimized APIs
 const quoteBuilderRouter = require('./routes/quoteBuilder'); // NEW FEATURE: Enhanced Quote Builder
+const proposalDefaultsRouter = require('./routes/proposalDefaults'); // NEW FEATURE: Proposal Defaults
+const gbbDefaultsRouter = require('./routes/gbbDefaults'); // NEW FEATURE: GBB Product Defaults
+const serviceTypesRouter = require('./routes/serviceTypes'); // NEW FEATURE: Service Types
+const surfaceTypesRouter = require('./routes/surfaceTypes'); // NEW FEATURE: Surface Types
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 // Load all models and associations
@@ -87,6 +91,10 @@ app.use('/api/v1/subscriptions', subscriptionsRouter);
 app.use('/api/v1/contractor', contractorRouter); // Contractor product configs
 app.use('/api/v1/quotes', quotesRouter); // Quote Builder APIs
 app.use('/api/v1/quote-builder', quoteBuilderRouter); // Enhanced Quote Builder
+app.use('/api/v1/proposal-defaults', proposalDefaultsRouter); // Proposal Defaults
+app.use('/api/v1/gbb-defaults', gbbDefaultsRouter); // GBB Product Defaults
+app.use('/api/v1/service-types', serviceTypesRouter); // Service Types
+app.use('/api/v1/surface-types', surfaceTypesRouter); // Surface Types
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler

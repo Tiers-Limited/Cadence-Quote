@@ -7,6 +7,9 @@ const PricingScheme = require('../models/PricingScheme');
 const ProductConfig = require('../models/ProductConfig');
 const GlobalProduct = require('../models/GlobalProduct');
 const Brand = require('../models/Brand');
+const ContractorSettings = require('../models/ContractorSettings');
+const ServiceType = require('../models/ServiceType');
+const SurfaceType = require('../models/SurfaceType');
 const { createAuditLog } = require('./auditLogController');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
@@ -268,12 +271,12 @@ exports.getQuoteById = async (req, res) => {
 };
 
 /**
- * Calculate quote totals
+ * Calculate quote totals with comprehensive pricing engine
  * POST /api/quote-builder/calculate
  */
 exports.calculateQuote = async (req, res) => {
   try {
-    const { areas, productSets, pricingSchemeId } = req.body;
+    const { areas, productSets, pricingSchemeId, jobType, serviceArea } = req.body;
     const tenantId = req.user.tenantId;
 
     // Get pricing scheme
@@ -288,8 +291,18 @@ exports.calculateQuote = async (req, res) => {
       });
     }
 
+    // Get contractor settings for markup, tax, etc.
+    const settings = await ContractorSettings.findOne({
+      where: { tenantId }
+    });
+
+    const markup = settings?.defaultMarkupPercentage || 30;
+    const taxRate = settings?.taxRatePercentage || 0;
+
     let laborTotal = 0;
     let materialTotal = 0;
+    let prepTotal = 0;
+    let addOnsTotal = 0;
     const breakdown = [];
 
     // Calculate for each area
@@ -303,40 +316,108 @@ exports.calculateQuote = async (req, res) => {
       for (const surface of area.surfaces || []) {
         if (!surface.selected || !surface.sqft) continue;
 
+        const sqft = parseFloat(surface.sqft) || 0;
         const surfaceBreakdown = {
           type: surface.type,
-          sqft: parseFloat(surface.sqft) || 0,
+          sqft,
           laborCost: 0,
           materialCost: 0,
+          prepCost: 0,
+          addOnCost: 0,
         };
 
-        // Get product config for this surface type
+        // Get product for this surface
         const productSet = productSets?.[surface.type];
-        if (productSet) {
-          const product = productSet.good || productSet.single;
-          if (product) {
-            // Calculate material cost
-            const coats = product.default_coats || 2;
-            const coverage = product.coverage_sqft_per_gal || 350;
-            const costPerGallon = product.cost_per_gallon || 0;
+        let product = null;
+        let pricePerGallon = 0;
+        let coats = 2;
+        let coverage = 350;
 
-            const gallons = Math.ceil((surfaceBreakdown.sqft * coats) / coverage * 4) / 4; // Round to nearest 0.25
-            surfaceBreakdown.gallons = gallons;
-            surfaceBreakdown.materialCost = gallons * costPerGallon;
+        if (productSet) {
+          // Determine which tier product to use
+          const tierProduct = productSet.good || productSet.better || productSet.best || productSet.single;
+          
+          if (tierProduct) {
+            product = tierProduct;
+            pricePerGallon = parseFloat(tierProduct.price_per_gallon || tierProduct.cost_per_gallon || 35);
+            coats = parseInt(tierProduct.default_coats || 2);
+            coverage = parseInt(tierProduct.coverage_sqft_per_gal || 350);
           }
         }
 
-        // Calculate labor cost based on pricing scheme
-        const pricingRules = pricingScheme.pricingRules || {};
-        const surfaceRule = pricingRules[surface.type.toLowerCase()] || pricingRules.walls || {};
+        // Calculate material cost
+        const wasteFactor = 1.10; // 10% waste
+        const gallons = Math.ceil((sqft * coats / coverage * wasteFactor) * 4) / 4; // Round to nearest 0.25
+        surfaceBreakdown.gallons = gallons;
+        surfaceBreakdown.materialCost = gallons * pricePerGallon;
 
-        if (pricingScheme.type === 'sqft_turnkey' || pricingScheme.type === 'sqft_labor_paint') {
-          const rate = parseFloat(surfaceRule.price || 0);
-          surfaceBreakdown.laborCost = surfaceBreakdown.sqft * rate;
+        // Calculate labor cost based on pricing scheme type
+        const pricingRules = pricingScheme.pricingRules || {};
+        const surfaceKey = surface.type.toLowerCase().replace(/\s+/g, '_');
+        const surfaceRule = pricingRules[surfaceKey] || pricingRules.walls || {};
+
+        switch (pricingScheme.type) {
+          case 'sqft_turnkey':
+            // All-in price per sqft (labor + materials)
+            const turnkeyRate = parseFloat(surfaceRule.price || 1.15);
+            surfaceBreakdown.laborCost = sqft * turnkeyRate;
+            break;
+
+          case 'sqft_labor_paint':
+            // Separate labor per sqft
+            const laborRate = parseFloat(surfaceRule.price || 0.55);
+            surfaceBreakdown.laborCost = sqft * laborRate;
+            break;
+
+          case 'hourly_time_materials':
+            // Calculate hours based on productivity
+            const hourlyRate = parseFloat(pricingRules.hourly_rate?.price || 50);
+            const productivity = parseFloat(pricingRules.productivity_rate || 250); // sqft per hour
+            const crewSize = parseInt(pricingRules.crew_size?.value || 2);
+            const hours = Math.ceil((sqft / productivity) * 10) / 10; // Round to 0.1
+            surfaceBreakdown.hours = hours;
+            surfaceBreakdown.laborCost = hours * hourlyRate * crewSize;
+            break;
+
+          case 'unit_pricing':
+            // Price per unit (doors, windows, etc.)
+            const unitPrice = parseFloat(surfaceRule.price || 85);
+            const units = parseInt(surface.units || 1);
+            surfaceBreakdown.units = units;
+            surfaceBreakdown.laborCost = units * unitPrice;
+            break;
+
+          case 'room_flat_rate':
+            // Flat rate per room/area
+            const flatRate = parseFloat(surfaceRule.price || 325);
+            surfaceBreakdown.laborCost = flatRate;
+            break;
+
+          default:
+            // Default to sqft labor rate
+            const defaultRate = parseFloat(surfaceRule.price || 0.75);
+            surfaceBreakdown.laborCost = sqft * defaultRate;
         }
 
-        materialTotal += surfaceBreakdown.materialCost;
+        // Add prep costs if applicable
+        if (surface.condition === 'damaged' || surface.needsPrep) {
+          const prepRate = parseFloat(surfaceRule.prep_rate || 0.25);
+          surfaceBreakdown.prepCost = sqft * prepRate;
+        }
+
+        // Add-on costs (texture, height, etc.)
+        if (surface.textured) {
+          surfaceBreakdown.addOnCost += sqft * 0.10;
+        }
+        if (surface.highCeiling || surface.vaulted) {
+          surfaceBreakdown.addOnCost += sqft * 0.20;
+        }
+
+        // Accumulate totals
         laborTotal += surfaceBreakdown.laborCost;
+        materialTotal += surfaceBreakdown.materialCost;
+        prepTotal += surfaceBreakdown.prepCost;
+        addOnsTotal += surfaceBreakdown.addOnCost;
 
         areaBreakdown.surfaces.push(surfaceBreakdown);
       }
@@ -344,17 +425,46 @@ exports.calculateQuote = async (req, res) => {
       breakdown.push(areaBreakdown);
     }
 
-    const subtotal = laborTotal + materialTotal;
-    const total = subtotal;
+    // Calculate overhead (optional travel, cleanup, etc.)
+    const travelCost = serviceArea?.distance ? serviceArea.distance * 0.50 : 0;
+    const cleanupCost = 100; // Flat cleanup fee
+
+    const overhead = travelCost + cleanupCost;
+
+    // Subtotal before markup
+    const subtotalBeforeMarkup = laborTotal + materialTotal + prepTotal + addOnsTotal + overhead;
+
+    // Apply markup
+    const markupAmount = (materialTotal + prepTotal) * (markup / 100);
+
+    // Subtotal after markup
+    const subtotal = subtotalBeforeMarkup + markupAmount;
+
+    // Calculate tax (typically only on materials)
+    const taxableAmount = materialTotal + markupAmount;
+    const taxAmount = taxableAmount * (taxRate / 100);
+
+    // Final total
+    const total = subtotal + taxAmount;
 
     res.json({
       success: true,
       calculation: {
         laborTotal: parseFloat(laborTotal.toFixed(2)),
         materialTotal: parseFloat(materialTotal.toFixed(2)),
+        prepTotal: parseFloat(prepTotal.toFixed(2)),
+        addOnsTotal: parseFloat(addOnsTotal.toFixed(2)),
+        overhead: parseFloat(overhead.toFixed(2)),
+        subtotalBeforeMarkup: parseFloat(subtotalBeforeMarkup.toFixed(2)),
+        markupAmount: parseFloat(markupAmount.toFixed(2)),
+        markupPercent: parseFloat(markup),
         subtotal: parseFloat(subtotal.toFixed(2)),
+        taxAmount: parseFloat(taxAmount.toFixed(2)),
+        taxRate: parseFloat(taxRate),
         total: parseFloat(total.toFixed(2)),
         breakdown,
+        travelCost: parseFloat(travelCost.toFixed(2)),
+        cleanupCost: parseFloat(cleanupCost.toFixed(2))
       },
     });
   } catch (error) {

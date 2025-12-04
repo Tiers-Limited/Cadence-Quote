@@ -353,8 +353,8 @@ const mobileVerifySignup = async (req, res) => {
 
     // Generate tokens
     console.log("🔑 Generating tokens...");
-    const token = generateToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const token = generateToken(user.id, user.tenantId);
+    const refreshToken = generateRefreshToken(user.id, user.tenantId);
     console.log("✅ Tokens generated");
 
     // Return success response
@@ -579,8 +579,8 @@ const mobileSignin = async (req, res) => {
     });
 
     // Generate tokens
-    const token = generateToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const token = generateToken(user.id, user.tenantId);
+    const refreshToken = generateRefreshToken(user.id, user.tenantId);
 
     res.status(200).json({
       success: true,
@@ -723,8 +723,8 @@ const mobileGoogleSignIn = async (req, res) => {
     await transaction.commit();
 
     // Generate tokens
-    const token = generateToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const token = generateToken(user.id, user.tenantId);
+    const refreshToken = generateRefreshToken(user.id, user.tenantId);
 
     res.status(isNewUser ? 201 : 200).json({
       success: true,
@@ -859,8 +859,8 @@ const mobileAppleSignIn = async (req, res) => {
     await transaction.commit();
 
     // Generate tokens
-    const token = generateToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const token = generateToken(user.id, user.tenantId);
+    const refreshToken = generateRefreshToken(user.id, user.tenantId);
 
     res.status(isNewUser ? 201 : 200).json({
       success: true,

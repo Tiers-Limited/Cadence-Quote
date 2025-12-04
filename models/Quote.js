@@ -57,7 +57,6 @@ const Quote = sequelize.define('Quote', {
   quoteNumber: {
     type: DataTypes.STRING(50),
     allowNull: false,
-    unique: true,
     field: 'quote_number',
     comment: 'Auto-generated quote number (e.g., Q-2024-001)'
   },
@@ -107,13 +106,13 @@ const Quote = sequelize.define('Quote', {
   
   // Job Details
   jobType: {
-    type: DataTypes.ENUM('interior', 'exterior', 'both'),
+    type: DataTypes.STRING(20),
     allowNull: true,
     field: 'job_type'
   },
   
   jobCategory: {
-    type: DataTypes.ENUM('residential', 'commercial'),
+    type: DataTypes.STRING(20),
     allowNull: true,
     defaultValue: 'residential',
     field: 'job_category'
@@ -121,7 +120,7 @@ const Quote = sequelize.define('Quote', {
 
   // Product Strategy
   productStrategy: {
-    type: DataTypes.ENUM('GBB', 'single'),
+    type: DataTypes.STRING(20),
     allowNull: true,
     defaultValue: 'GBB',
     field: 'product_strategy',
@@ -228,7 +227,7 @@ const Quote = sequelize.define('Quote', {
   
   // Quote Status
   status: {
-    type: DataTypes.ENUM('draft', 'sent', 'viewed', 'approved', 'declined', 'archived'),
+    type: DataTypes.STRING(20),
     allowNull: false,
     defaultValue: 'draft'
   },

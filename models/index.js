@@ -17,6 +17,10 @@ const ContractorSettings = require('./ContractorSettings');
 const Quote = require('./Quote');
 const Brand = require('./Brand');
 const Client = require('./Client');
+const ProposalDefaults = require('./ProposalDefaults');
+const GBBProductDefaults = require('./GBBProductDefaults');
+const ServiceType = require('./ServiceType');
+const SurfaceType = require('./SurfaceType');
 
 // Store models in an object
 const models = {
@@ -33,6 +37,10 @@ const models = {
   Quote,
   Brand,
   Client,
+  ProposalDefaults,
+  GBBProductDefaults,
+  ServiceType,
+  SurfaceType,
   sequelize
 };
 
