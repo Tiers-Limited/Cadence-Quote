@@ -6,12 +6,15 @@ import 'package:get/get.dart';
 import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
+import 'package:primechoice/core/services/profile_service.dart';
+import 'package:primechoice/view_model/profile_controller.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final profile = Get.put(ProfileController());
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Column(
@@ -29,36 +32,123 @@ class ProfilePage extends StatelessWidget {
               children: [
                 const AvatarWithCamera(),
                 const SizedBox(height: 8),
-                Text(
-                  'Abrar Haider',
-                  style: Theme.of(context).textTheme.titleLarge,
+                Obx(
+                  () => Text(
+                    profile.fullName.value.isNotEmpty
+                        ? profile.fullName.value
+                        : 'Your Name',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'abrarhaider987@gmail.com',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                Obx(
+                  () => Text(
+                    profile.email.value.isNotEmpty
+                        ? profile.email.value
+                        : 'Email not set',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          const _ProfileTile(
+          _ProfileTile(
             icon: Iconsax.user,
             title: 'Name',
             color: Colors.black,
+            onTap: () async {
+              final newVal = await _showEditFieldDialog(
+                context,
+                title: 'Update Name',
+                hint: 'John Doe',
+                initial: profile.fullName.value,
+              );
+              if (newVal == null || newVal.trim().isEmpty) return;
+              try {
+                final res = await ProfileService.instance.updateProfile(
+                  fullName: newVal.trim(),
+                );
+                await profile.updateName(newVal.trim());
+                final msg = res['message'] ?? 'Profile updated successfully';
+                Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
+              } catch (e) {
+                Get.snackbar(
+                  'Profile',
+                  e.toString(),
+                  snackPosition: SnackPosition.TOP,
+                  backgroundColor: Colors.red.shade50,
+                );
+              }
+            },
           ),
-          const SizedBox(height: 12),
-          const _ProfileTile(
-            icon: Iconsax.sms,
-            title: 'Email',
-            color: Colors.black,
-          ),
+          // const SizedBox(height: 12),
+          // const _ProfileTile(
+          //   icon: Iconsax.sms,
+          //   title: 'Email',
+          //   color: Colors.black,
+          // ),
           const SizedBox(height: 12),
           _ProfileTile(
             icon: Iconsax.location,
             title: 'Address',
             color: Colors.black,
-            onTap: () {},
+            onTap: () async {
+              final newVal = await _showEditFieldDialog(
+                context,
+                title: 'Update Address',
+                hint: '123 Main St, City',
+                initial: profile.address.value,
+                maxLines: 3,
+              );
+              if (newVal == null || newVal.trim().isEmpty) return;
+              try {
+                final res = await ProfileService.instance.updateProfile(
+                  address: newVal.trim(),
+                );
+                await profile.updateAddress(newVal.trim());
+                final msg = res['message'] ?? 'Profile updated successfully';
+                Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
+              } catch (e) {
+                Get.snackbar(
+                  'Profile',
+                  e.toString(),
+                  snackPosition: SnackPosition.TOP,
+                  backgroundColor: Colors.red.shade50,
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          _ProfileTile(
+            icon: Iconsax.call,
+            title: 'Phone',
+            color: Colors.black,
+            onTap: () async {
+              final newVal = await _showEditFieldDialog(
+                context,
+                title: 'Update Phone',
+                hint: '+1234567890',
+                initial: profile.phone.value,
+                keyboardType: TextInputType.phone,
+              );
+              if (newVal == null || newVal.trim().isEmpty) return;
+              try {
+                final res = await ProfileService.instance.updateProfile(
+                  phoneNumber: newVal.trim(),
+                );
+                await profile.updatePhone(newVal.trim());
+                final msg = res['message'] ?? 'Profile updated successfully';
+                Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
+              } catch (e) {
+                Get.snackbar(
+                  'Profile',
+                  e.toString(),
+                  snackPosition: SnackPosition.TOP,
+                  backgroundColor: Colors.red.shade50,
+                );
+              }
+            },
           ),
           const SizedBox(height: 12),
           _ProfileTile(
@@ -240,7 +330,10 @@ Future<bool> _showLogoutConfirmDialog(BuildContext context) async {
                   ),
                   const SizedBox(height: 16),
                   Padding(
-                    padding: const EdgeInsets.all(18.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
                     child: Column(
                       children: [
                         Text(
@@ -298,4 +391,124 @@ Future<bool> _showLogoutConfirmDialog(BuildContext context) async {
         },
       ) ??
       false;
+}
+
+Future<String?> _showEditFieldDialog(
+  BuildContext context, {
+  required String title,
+  required String hint,
+  String initial = '',
+  int maxLines = 1,
+  TextInputType keyboardType = TextInputType.text,
+}) async {
+  final controller = TextEditingController(text: initial);
+  final result = await showDialog<String?>(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) {
+      return Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Container(
+          padding: EdgeInsets.zero,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 12,
+                ),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [MyColors.primary, MyColors.secondary],
+                  ),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: TextFormField(
+                  controller: controller,
+                  maxLines: maxLines,
+                  keyboardType: keyboardType,
+                  decoration: InputDecoration(
+                    hintText: hint,
+                    hintStyle: const TextStyle(
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.grey.withOpacity(0.4)),
+                          backgroundColor: Colors.grey.withOpacity(0.1),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () => Navigator.of(ctx).pop(null),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GradientElevatedButton(
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(controller.text.trim()),
+                        radius: 8,
+                        child: const Text(
+                          'Update',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+  controller.dispose();
+  return result;
 }

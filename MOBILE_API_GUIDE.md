@@ -337,6 +337,84 @@ http://localhost:4001/api/v1/mbl/auth
 
 ---
 
+## 10. Update Profile
+
+**Endpoint:** `PUT /profile`
+
+**Authentication:** Required (Bearer Token)
+
+**Request:**
+```json
+{
+  "fullName": "John Updated Doe",
+  "address": "456 New Street, Austin, TX 78702",
+  "phoneNumber": "+1234567890",
+  "profilePicture": "https://example.com/profile.jpg"
+}
+```
+
+**Field Requirements:**
+- `fullName` (optional): User's full name (cannot be empty if provided)
+- `address` (optional): User's address (max 500 characters)
+- `phoneNumber` (optional): User's phone number (must match phone format)
+- `profilePicture` (optional): URL to profile picture (must be valid URL)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Profile updated successfully",
+  "data": {
+    "user": {
+      "id": 1,
+      "fullName": "John Updated Doe",
+      "email": "john@example.com",
+      "phoneNumber": "+1234567890",
+      "address": "456 New Street, Austin, TX 78702",
+      "profilePicture": "https://example.com/profile.jpg",
+      "role": "customer",
+      "emailVerified": true,
+      "tenantId": 1
+    }
+  }
+}
+```
+
+**Notes:**
+- Only provided fields will be updated
+- At least one field must be provided
+- Requires valid JWT token in Authorization header
+- Phone number must match format: `+1234567890` or similar international formats
+- Profile picture must be a valid URL
+
+**Error Responses:**
+
+**400 - Validation Error:**
+```json
+{
+  "success": false,
+  "message": "Invalid phone number format"
+}
+```
+
+**401 - Unauthorized:**
+```json
+{
+  "success": false,
+  "message": "No token provided"
+}
+```
+
+**404 - User Not Found:**
+```json
+{
+  "success": false,
+  "message": "User not found"
+}
+```
+
+---
+
 ## Common Error Responses
 
 ### 400 Bad Request
@@ -389,4 +467,4 @@ http://localhost:4001/api/v1/mbl/auth
 
 ---
 
-**Last Updated:** November 27, 2025
+**Last Updated:** December 1, 2025

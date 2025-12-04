@@ -276,6 +276,25 @@ class _RegisterPageState extends State<RegisterPage> {
                               'auth_token',
                               token,
                             );
+                            final user = data?['user'] as Map<String, dynamic>?;
+                            if (user != null) {
+                              await MyLocalStorage.instance().writeData(
+                                'user_full_name',
+                                (user['fullName'] ?? '').toString(),
+                              );
+                              await MyLocalStorage.instance().writeData(
+                                'user_email',
+                                (user['email'] ?? '').toString(),
+                              );
+                              await MyLocalStorage.instance().writeData(
+                                'user_address',
+                                (user['address'] ?? '').toString(),
+                              );
+                              await MyLocalStorage.instance().writeData(
+                                'user_phone',
+                                (user['phoneNumber'] ?? '').toString(),
+                              );
+                            }
                             MyLoaders.successSnackBar(
                               title: 'Signup',
                               message: body['message'] ?? 'Account created',

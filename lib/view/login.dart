@@ -17,7 +17,9 @@ class LoginPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.find<LoginController>();
+    final controller = Get.isRegistered<LoginController>()
+        ? Get.find<LoginController>()
+        : Get.put(LoginController());
     return Scaffold(
       body: Stack(
         children: [
@@ -174,6 +176,25 @@ class LoginPage extends StatelessWidget {
                               'auth_token',
                               token,
                             );
+                            final user = data?['user'] as Map<String, dynamic>?;
+                            if (user != null) {
+                              await MyLocalStorage.instance().writeData(
+                                'user_full_name',
+                                (user['fullName'] ?? '').toString(),
+                              );
+                              await MyLocalStorage.instance().writeData(
+                                'user_email',
+                                (user['email'] ?? '').toString(),
+                              );
+                              await MyLocalStorage.instance().writeData(
+                                'user_address',
+                                (user['address'] ?? '').toString(),
+                              );
+                              await MyLocalStorage.instance().writeData(
+                                'user_phone',
+                                (user['phoneNumber'] ?? '').toString(),
+                              );
+                            }
                             MyLoaders.successSnackBar(
                               title: 'Login',
                               message: body['message'] ?? 'Login successful',

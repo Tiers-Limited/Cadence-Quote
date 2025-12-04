@@ -13,6 +13,7 @@ import 'package:primechoice/view/profile.dart';
 import 'package:primechoice/view/register.dart';
 import 'package:primechoice/view/splash.dart';
 import 'package:primechoice/view/verify_account.dart';
+import 'package:primechoice/view_model/profile_controller.dart';
 
 class AppPages {
   static final pages = [
@@ -46,7 +47,13 @@ class AppPages {
       name: AppRoutes.projectDetail,
       page: () => ProjectDetailPage(project: Get.arguments?['project'] ?? {}),
     ),
-    GetPage(name: AppRoutes.profile, page: () => const ProfilePage()),
+    GetPage(
+      name: AppRoutes.profile,
+      page: () => const ProfilePage(),
+      binding: BindingsBuilder(() {
+        Get.lazyPut(() => ProfileController(), fenix: true);
+      }),
+    ),
     GetPage(
       name: AppRoutes.heightCapture,
       page: () => const HeightCapturePage(),

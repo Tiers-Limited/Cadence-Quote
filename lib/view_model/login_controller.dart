@@ -31,6 +31,25 @@ class LoginController extends GetxController {
           final data = body['data'] as Map<String, dynamic>;
           final token = data['token'];
           await MyLocalStorage.instance().writeData('auth_token', token);
+          final user = data['user'] as Map<String, dynamic>?;
+          if (user != null) {
+            await MyLocalStorage.instance().writeData(
+              'user_full_name',
+              (user['fullName'] ?? '').toString(),
+            );
+            await MyLocalStorage.instance().writeData(
+              'user_email',
+              (user['email'] ?? '').toString(),
+            );
+            await MyLocalStorage.instance().writeData(
+              'user_address',
+              (user['address'] ?? '').toString(),
+            );
+            await MyLocalStorage.instance().writeData(
+              'user_phone',
+              (user['phoneNumber'] ?? '').toString(),
+            );
+          }
           MyLoaders.successSnackBar(title: 'Login', message: msg);
           if (kDebugMode) {
             debugPrint('Login success: $msg');
@@ -48,8 +67,10 @@ class LoginController extends GetxController {
 
   @override
   void onClose() {
-    emailController.dispose();
-    passwordController.dispose();
+    try {
+      emailController.dispose();
+      passwordController.dispose();
+    } catch (_) {}
     super.onClose();
   }
 }
