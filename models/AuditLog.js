@@ -33,7 +33,7 @@ const AuditLog = sequelize.define('AuditLog', {
     field: 'action',
   },
   category: {
-    type: DataTypes.ENUM('auth', 'product', 'color', 'pricing', 'tenant', 'user', 'payment', 'quote', 'system'),
+    type: DataTypes.STRING(50),
     allowNull: false,
     field: 'category',
   },

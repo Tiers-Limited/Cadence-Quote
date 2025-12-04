@@ -99,7 +99,7 @@ exports.createSurfaceType = async (req, res) => {
     });
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Surface type created',
       userId,
       tenantId,
@@ -149,7 +149,7 @@ exports.updateSurfaceType = async (req, res) => {
     await surfaceType.update(req.body);
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Surface type updated',
       userId,
       tenantId,
@@ -199,7 +199,7 @@ exports.deleteSurfaceType = async (req, res) => {
     await surfaceType.update({ isActive: false });
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Surface type deleted',
       userId,
       tenantId,

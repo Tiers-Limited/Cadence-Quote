@@ -60,7 +60,7 @@ exports.updateProposalDefaults = async (req, res) => {
 
     // Create audit log
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Proposal defaults updated',
       userId,
       tenantId,
@@ -127,7 +127,7 @@ exports.updateSection = async (req, res) => {
     await defaults.update(updateData);
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: `Proposal defaults ${section} section updated`,
       userId,
       tenantId,

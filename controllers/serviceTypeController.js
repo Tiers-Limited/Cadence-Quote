@@ -134,7 +134,7 @@ exports.createServiceType = async (req, res) => {
     });
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Service type created',
       userId,
       tenantId,
@@ -185,7 +185,7 @@ exports.updateServiceType = async (req, res) => {
     await serviceType.update(updateData);
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Service type updated',
       userId,
       tenantId,
@@ -235,7 +235,7 @@ exports.deleteServiceType = async (req, res) => {
     await serviceType.update({ isActive: false });
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Service type deleted',
       userId,
       tenantId,
@@ -401,7 +401,7 @@ exports.initializeDefaults = async (req, res) => {
     }
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Default service types initialized',
       userId,
       tenantId,

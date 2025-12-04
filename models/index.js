@@ -21,6 +21,8 @@ const ProposalDefaults = require('./ProposalDefaults');
 const GBBProductDefaults = require('./GBBProductDefaults');
 const ServiceType = require('./ServiceType');
 const SurfaceType = require('./SurfaceType');
+const LaborCategory = require('./LaborCategory');
+const LaborRate = require('./LaborRate');
 
 // Store models in an object
 const models = {
@@ -41,6 +43,8 @@ const models = {
   GBBProductDefaults,
   ServiceType,
   SurfaceType,
+  LaborCategory,
+  LaborRate,
   sequelize
 };
 

@@ -13,6 +13,7 @@ const SurfaceType = require('../models/SurfaceType');
 const { createAuditLog } = require('./auditLogController');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
+const User = require('../models/User');
 
 /**
  * Detect existing client by email or phone
@@ -279,15 +280,19 @@ exports.calculateQuote = async (req, res) => {
     const { areas, productSets, pricingSchemeId, jobType, serviceArea } = req.body;
     const tenantId = req.user.tenantId;
 
-    // Get pricing scheme
-    const pricingScheme = await PricingScheme.findOne({
-      where: { id: pricingSchemeId, tenantId },
-    });
-
+    // Get pricing scheme (optional - use default if not provided)
+    let pricingScheme = null;
+    if (pricingSchemeId) {
+      pricingScheme = await PricingScheme.findOne({
+        where: { id: pricingSchemeId, tenantId },
+      });
+    }
+    
+    // If no pricing scheme provided or not found, get the first available one
     if (!pricingScheme) {
-      return res.status(404).json({
-        success: false,
-        message: 'Pricing scheme not found',
+      pricingScheme = await PricingScheme.findOne({
+        where: { tenantId },
+        order: [['createdAt', 'ASC']],
       });
     }
 
@@ -305,45 +310,220 @@ exports.calculateQuote = async (req, res) => {
     let addOnsTotal = 0;
     const breakdown = [];
 
-    // Calculate for each area
+    // Calculate for each area - supports both laborItems and surfaces
     for (const area of areas || []) {
       const areaBreakdown = {
         areaId: area.id,
         areaName: area.name,
-        surfaces: [],
+        items: [],
       };
 
-      for (const surface of area.surfaces || []) {
-        if (!surface.selected || !surface.sqft) continue;
+      // New structure: laborItems
+      if (area.laborItems) {
+        for (const item of area.laborItems || []) {
+          if (!item.selected) continue;
 
-        const sqft = parseFloat(surface.sqft) || 0;
-        const surfaceBreakdown = {
-          type: surface.type,
-          sqft,
-          laborCost: 0,
-          materialCost: 0,
-          prepCost: 0,
-          addOnCost: 0,
-        };
-
-        // Get product for this surface
-        const productSet = productSets?.[surface.type];
-        let product = null;
-        let pricePerGallon = 0;
-        let coats = 2;
-        let coverage = 350;
-
-        if (productSet) {
-          // Determine which tier product to use
-          const tierProduct = productSet.good || productSet.better || productSet.best || productSet.single;
-          
-          if (tierProduct) {
-            product = tierProduct;
-            pricePerGallon = parseFloat(tierProduct.price_per_gallon || tierProduct.cost_per_gallon || 35);
-            coats = parseInt(tierProduct.default_coats || 2);
-            coverage = parseInt(tierProduct.coverage_sqft_per_gal || 350);
+          // Calculate quantity from dimensions if not provided
+          let quantity = parseFloat(item.quantity) || 0;
+          if (!quantity && item.dimensions) {
+            const { length, width, height } = item.dimensions;
+            const categoryName = item.categoryName.toLowerCase();
+            
+            if (categoryName.includes('wall')) {
+              // Walls: 2 × (L + W) × H
+              quantity = 2 * (parseFloat(length) + parseFloat(width)) * parseFloat(height);
+            } else if (categoryName.includes('ceiling')) {
+              // Ceiling: L × W
+              quantity = parseFloat(length) * parseFloat(width);
+            } else if (categoryName.includes('trim')) {
+              // Trim: 2 × (L + W)
+              quantity = 2 * (parseFloat(length) + parseFloat(width));
+            } else {
+              // Default: L × W
+              quantity = parseFloat(length) * parseFloat(width);
+            }
+            quantity = Math.ceil(quantity); // Round up
           }
+          
+          if (!quantity) continue; // Skip if still no quantity
+          const itemBreakdown = {
+            categoryName: item.categoryName,
+            measurementUnit: item.measurementUnit,
+            quantity,
+            numberOfCoats: item.numberOfCoats || 0,
+            laborCost: 0,
+            materialCost: 0,
+            gallons: item.gallons || 0,
+          };
+
+          // Get pricing scheme rules
+          const pricingRules = pricingScheme?.pricingRules || {};
+          const categoryKey = item.categoryName.toLowerCase().replace(/\s+/g, '_');
+          const categoryRule = pricingRules[categoryKey] || pricingRules.walls || {};
+
+          // Calculate labor cost based on pricing scheme type
+          if (pricingScheme) {
+            switch (pricingScheme.type) {
+              case 'sqft_turnkey':
+                // All-in price per sqft (labor + materials included)
+                const turnkeyRate = parseFloat(categoryRule.price || 1.15);
+                if (item.measurementUnit === 'sqft') {
+                  itemBreakdown.laborCost = quantity * turnkeyRate;
+                } else {
+                  // For non-sqft units, use the labor rate from item
+                  itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+                }
+                break;
+
+              case 'sqft_labor_paint':
+                // Separate labor per sqft
+                const laborPerSqft = parseFloat(categoryRule.price || 0.55);
+                if (item.measurementUnit === 'sqft') {
+                  itemBreakdown.laborCost = quantity * laborPerSqft;
+                } else if (item.measurementUnit === 'linear_foot') {
+                  // Linear foot pricing (e.g., trim)
+                  const lfRate = parseFloat(pricingRules.trim?.price || 2.50);
+                  itemBreakdown.laborCost = quantity * lfRate;
+                } else {
+                  // For hours or units, use labor rate from item
+                  itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+                }
+                break;
+
+              case 'hourly_time_materials':
+                // Calculate based on hourly rate
+                const hourlyRate = parseFloat(pricingRules.hourly_rate?.price || 50);
+                const crewSize = parseInt(pricingRules.crew_size?.value || 2);
+                
+                if (item.measurementUnit === 'hour') {
+                  // Direct hours
+                  itemBreakdown.laborCost = quantity * hourlyRate * crewSize;
+                } else if (item.measurementUnit === 'sqft') {
+                  // Convert sqft to hours based on productivity
+                  const productivity = parseFloat(pricingRules.productivity_rate || 250); // sqft per hour
+                  const hours = Math.ceil((quantity / productivity) * 10) / 10;
+                  itemBreakdown.hours = hours;
+                  itemBreakdown.laborCost = hours * hourlyRate * crewSize;
+                } else {
+                  // For other units, use labor rate from item
+                  itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+                }
+                break;
+
+              case 'unit_pricing':
+                // Price per unit (doors, windows, cabinets, etc.)
+                const unitPrice = parseFloat(categoryRule.price || 85);
+                if (item.measurementUnit === 'unit') {
+                  itemBreakdown.laborCost = quantity * unitPrice;
+                } else {
+                  // For sqft or linear_foot, use per-unit calculation
+                  itemBreakdown.laborCost = quantity * (parseFloat(categoryRule.price) || parseFloat(item.laborRate) || 0);
+                }
+                break;
+
+              case 'room_flat_rate':
+                // Flat rate per room (applies once per area, not per item)
+                // Only charge once for the primary surface in the area
+                const flatRate = parseFloat(pricingRules.room_flat_rate?.price || 325);
+                itemBreakdown.laborCost = flatRate;
+                break;
+
+              default:
+                // Fallback to labor rate from item
+                itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+            }
+          } else {
+            // No pricing scheme - use labor rate from item
+            itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+          }
+
+          // Calculate material cost if gallons are provided
+          if (item.gallons && item.gallons > 0) {
+            // Get product for this surface type
+            const productSet = (productSets || []).find(ps => 
+              ps.surfaceType === item.categoryName || 
+              ps.surfaceType.toLowerCase().includes(item.categoryName.toLowerCase())
+            );
+            
+            let pricePerGallon = 35; // Default price
+            
+            if (productSet) {
+              // Get the selected product ID from the tier
+              const selectedProductId = productSet.products?.good || productSet.products?.better || 
+                                       productSet.products?.best || productSet.products?.single;
+              
+              if (selectedProductId) {
+                // Fetch actual product price from database
+                try {
+                  const productConfig = await ProductConfig.findOne({
+                    where: { id: selectedProductId, tenantId },
+                    include: [{
+                      model: GlobalProduct,
+                      as: 'globalProduct'
+                    }]
+                  });
+                  
+                  if (productConfig && productConfig.sheens && productConfig.sheens.length > 0) {
+                    // Use the price from the first sheen (or average)
+                    pricePerGallon = parseFloat(productConfig.sheens[0].price || 35);
+                  }
+                } catch (err) {
+                  console.error('Error fetching product price:', err);
+                  pricePerGallon = 35; // Fallback
+                }
+              }
+              
+              // If productSet has materialCost calculated from frontend, use that
+              if (productSet.materialCost) {
+                itemBreakdown.materialCost = parseFloat(productSet.materialCost);
+              } else {
+                itemBreakdown.materialCost = item.gallons * pricePerGallon;
+              }
+            } else {
+              itemBreakdown.materialCost = item.gallons * pricePerGallon;
+            }
+          }
+
+          // Accumulate totals
+          laborTotal += itemBreakdown.laborCost;
+          materialTotal += itemBreakdown.materialCost;
+
+          areaBreakdown.items.push(itemBreakdown);
         }
+      }
+      // Old structure: surfaces (backward compatibility)
+      else if (area.surfaces) {
+        for (const surface of area.surfaces || []) {
+          if (!surface.selected || !surface.sqft) continue;
+
+          const sqft = parseFloat(surface.sqft) || 0;
+          const surfaceBreakdown = {
+            type: surface.type,
+            sqft,
+            laborCost: 0,
+            materialCost: 0,
+            prepCost: 0,
+            addOnCost: 0,
+          };
+
+          // Get product for this surface
+          const productSet = productSets?.[surface.type];
+          let product = null;
+          let pricePerGallon = 0;
+          let coats = 2;
+          let coverage = 350;
+
+          if (productSet) {
+            // Determine which tier product to use
+            const tierProduct = productSet.good || productSet.better || productSet.best || productSet.single;
+            
+            if (tierProduct) {
+              product = tierProduct;
+              pricePerGallon = parseFloat(tierProduct.price_per_gallon || tierProduct.cost_per_gallon || 35);
+              coats = parseInt(tierProduct.default_coats || 2);
+              coverage = parseInt(tierProduct.coverage_sqft_per_gal || 350);
+            }
+          }
 
         // Calculate material cost
         const wasteFactor = 1.10; // 10% waste
@@ -419,7 +599,8 @@ exports.calculateQuote = async (req, res) => {
         prepTotal += surfaceBreakdown.prepCost;
         addOnsTotal += surfaceBreakdown.addOnCost;
 
-        areaBreakdown.surfaces.push(surfaceBreakdown);
+        areaBreakdown.items.push(surfaceBreakdown);
+      }
       }
 
       breakdown.push(areaBreakdown);

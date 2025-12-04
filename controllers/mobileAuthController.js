@@ -679,6 +679,7 @@ const mobileGoogleSignIn = async (req, res) => {
           emailVerified: true, // Google emails are pre-verified
           googleId,
           profilePicture: picture,
+          authProvider: 'google',
         },
         { transaction }
       );
@@ -736,6 +737,8 @@ const mobileGoogleSignIn = async (req, res) => {
           email: user.email,
           role: user.role,
           emailVerified: user.emailVerified,
+           phoneNumber: user.phoneNumber,
+          address: user.address,
           profilePicture: user.profilePicture,
           tenantId: user.tenantId,
           tenant: {
@@ -816,6 +819,7 @@ const mobileAppleSignIn = async (req, res) => {
           role: "customer",
           tenantId: bobbyTenant.id,
           isActive: true,
+          authProvider: 'apple',
           emailVerified: true, // Apple emails are pre-verified
           appleId: identityToken.substring(0, 50), // Store partial token as ID
         },
@@ -871,6 +875,9 @@ const mobileAppleSignIn = async (req, res) => {
           fullName: user.fullName,
           email: user.email,
           role: user.role,
+           phoneNumber: user.phoneNumber,
+          address: user.address,
+          profilePicture: user.profilePicture,
           emailVerified: user.emailVerified,
           tenantId: user.tenantId,
           tenant: {

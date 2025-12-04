@@ -144,7 +144,7 @@ exports.updateGBBDefaults = async (req, res) => {
     }
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: `GBB defaults updated for ${surfaceType}`,
       userId,
       tenantId,
@@ -211,7 +211,7 @@ exports.bulkUpdateGBBDefaults = async (req, res) => {
     }
 
     await createAuditLog({
-      category: 'settings',
+      category: 'system',
       action: 'Bulk GBB defaults update',
       userId,
       tenantId,
