@@ -194,6 +194,10 @@ class LoginPage extends StatelessWidget {
                                 'user_phone',
                                 (user['phoneNumber'] ?? '').toString(),
                               );
+                              await MyLocalStorage.instance().writeData(
+                                'user_profile_picture',
+                                (user['profilePicture'] ?? '').toString(),
+                              );
                             }
                             MyLoaders.successSnackBar(
                               title: 'Login',

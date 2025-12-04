@@ -40,10 +40,26 @@ class VerifyAccountController extends GetxController {
           }
           final user = data?['user'] as Map<String, dynamic>?;
           if (user != null) {
-            await MyLocalStorage.instance().writeData('user_full_name', (user['fullName'] ?? '').toString());
-            await MyLocalStorage.instance().writeData('user_email', (user['email'] ?? '').toString());
-            await MyLocalStorage.instance().writeData('user_address', (user['address'] ?? '').toString());
-            await MyLocalStorage.instance().writeData('user_phone', (user['phoneNumber'] ?? '').toString());
+            await MyLocalStorage.instance().writeData(
+              'user_full_name',
+              (user['fullName'] ?? '').toString(),
+            );
+            await MyLocalStorage.instance().writeData(
+              'user_email',
+              (user['email'] ?? '').toString(),
+            );
+            await MyLocalStorage.instance().writeData(
+              'user_address',
+              (user['address'] ?? '').toString(),
+            );
+            await MyLocalStorage.instance().writeData(
+              'user_phone',
+              (user['phoneNumber'] ?? '').toString(),
+            );
+            await MyLocalStorage.instance().writeData(
+              'user_profile_picture',
+              (user['profilePicture'] ?? '').toString(),
+            );
           }
           MyLoaders.successSnackBar(title: 'Verified', message: msg);
           if (kDebugMode) {

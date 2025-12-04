@@ -7,6 +7,7 @@ import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/services/profile_service.dart';
+import 'package:primechoice/core/widgets/profile_image_shimmer.dart';
 import 'package:primechoice/view_model/profile_controller.dart';
 
 class ProfilePage extends StatelessWidget {
@@ -58,28 +59,29 @@ class ProfilePage extends StatelessWidget {
             title: 'Name',
             color: Colors.black,
             onTap: () async {
-              final newVal = await _showEditFieldDialog(
+              final body = await _showEditFieldDialog(
                 context,
                 title: 'Update Name',
                 hint: 'John Doe',
                 initial: profile.fullName.value,
+                onSubmit: (val) =>
+                    ProfileService.instance.updateProfile(fullName: val),
               );
-              if (newVal == null || newVal.trim().isEmpty) return;
-              try {
-                final res = await ProfileService.instance.updateProfile(
-                  fullName: newVal.trim(),
-                );
-                await profile.updateName(newVal.trim());
-                final msg = res['message'] ?? 'Profile updated successfully';
-                Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
-              } catch (e) {
+              if (body == null) return;
+              if (body['error'] != null) {
                 Get.snackbar(
                   'Profile',
-                  e.toString(),
+                  body['error'].toString(),
                   snackPosition: SnackPosition.TOP,
                   backgroundColor: Colors.red.shade50,
                 );
+                return;
               }
+              await profile.updateName(
+                (body['data']?['user']?['fullName'] ?? '').toString(),
+              );
+              final msg = body['message'] ?? 'Name updated successfully';
+              Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
             },
           ),
           // const SizedBox(height: 12),
@@ -94,29 +96,30 @@ class ProfilePage extends StatelessWidget {
             title: 'Address',
             color: Colors.black,
             onTap: () async {
-              final newVal = await _showEditFieldDialog(
+              final body = await _showEditFieldDialog(
                 context,
                 title: 'Update Address',
                 hint: '123 Main St, City',
                 initial: profile.address.value,
                 maxLines: 3,
+                onSubmit: (val) =>
+                    ProfileService.instance.updateProfile(address: val),
               );
-              if (newVal == null || newVal.trim().isEmpty) return;
-              try {
-                final res = await ProfileService.instance.updateProfile(
-                  address: newVal.trim(),
-                );
-                await profile.updateAddress(newVal.trim());
-                final msg = res['message'] ?? 'Profile updated successfully';
-                Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
-              } catch (e) {
+              if (body == null) return;
+              if (body['error'] != null) {
                 Get.snackbar(
                   'Profile',
-                  e.toString(),
+                  body['error'].toString(),
                   snackPosition: SnackPosition.TOP,
                   backgroundColor: Colors.red.shade50,
                 );
+                return;
               }
+              await profile.updateAddress(
+                (body['data']?['user']?['address'] ?? '').toString(),
+              );
+              final msg = body['message'] ?? 'Address updated successfully';
+              Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
             },
           ),
           const SizedBox(height: 12),
@@ -125,29 +128,31 @@ class ProfilePage extends StatelessWidget {
             title: 'Phone',
             color: Colors.black,
             onTap: () async {
-              final newVal = await _showEditFieldDialog(
+              final body = await _showEditFieldDialog(
                 context,
                 title: 'Update Phone',
                 hint: '+1234567890',
                 initial: profile.phone.value,
                 keyboardType: TextInputType.phone,
+                onSubmit: (val) =>
+                    ProfileService.instance.updateProfile(phoneNumber: val),
               );
-              if (newVal == null || newVal.trim().isEmpty) return;
-              try {
-                final res = await ProfileService.instance.updateProfile(
-                  phoneNumber: newVal.trim(),
-                );
-                await profile.updatePhone(newVal.trim());
-                final msg = res['message'] ?? 'Profile updated successfully';
-                Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
-              } catch (e) {
+              if (body == null) return;
+              if (body['error'] != null) {
                 Get.snackbar(
                   'Profile',
-                  e.toString(),
+                  body['error'].toString(),
                   snackPosition: SnackPosition.TOP,
                   backgroundColor: Colors.red.shade50,
                 );
+                return;
               }
+              await profile.updatePhone(
+                (body['data']?['user']?['phoneNumber'] ?? '').toString(),
+              );
+              final msg =
+                  body['message'] ?? 'Phone number updated successfully';
+              Get.snackbar('Profile', msg, snackPosition: SnackPosition.TOP);
             },
           ),
           const SizedBox(height: 12),
@@ -175,6 +180,7 @@ class AvatarWithCamera extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final profile = Get.find<ProfileController>();
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -200,33 +206,69 @@ class AvatarWithCamera extends StatelessWidget {
             ],
           ),
         ),
-        const Positioned(
+        Positioned(
           left: 5,
           top: 5,
-          child: CircleAvatar(
-            radius: 40,
-            backgroundImage: AssetImage(MyImages.user),
-          ),
+          child: Obx(() {
+            final url = profile.profilePicture.value;
+            if (profile.uploading.value) {
+              return ShimmerCircle(size: 80);
+            }
+            if (url.isEmpty) {
+              return const CircleAvatar(
+                radius: 40,
+                backgroundImage: AssetImage(MyImages.user),
+              );
+            }
+            return ClipOval(
+              child: SizedBox(
+                width: 80,
+                height: 80,
+                child: Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (ctx, child, progress) {
+                    if (progress == null) return child;
+                    return const ShimmerCircle(size: 80);
+                  },
+                  errorBuilder: (ctx, err, stack) {
+                    return const CircleAvatar(
+                      radius: 40,
+                      backgroundImage: AssetImage(MyImages.user),
+                    );
+                  },
+                ),
+              ),
+            );
+          }),
         ),
         Positioned(
           right: -2,
           bottom: -2,
-          child: Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: MyColors.primary,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+          child: InkWell(
+            onTap: profile.pickAndUploadProfileImage,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: MyColors.primary,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.camera_alt,
+                color: Colors.white,
+                size: 16,
+              ),
             ),
-            child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
           ),
         ),
       ],
@@ -256,7 +298,7 @@ class _ProfileTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.15)),
+          border: Border.all(color: color.withOpacity(0.3)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
@@ -273,7 +315,7 @@ class _ProfileTile extends StatelessWidget {
               child: Text(
                 title,
                 style: TextStyle(
-                  color: color.withOpacity(0.6),
+                  color: color.withOpacity(0.8),
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -393,119 +435,161 @@ Future<bool> _showLogoutConfirmDialog(BuildContext context) async {
       false;
 }
 
-Future<String?> _showEditFieldDialog(
+Future<Map<String, dynamic>?> _showEditFieldDialog(
   BuildContext context, {
   required String title,
   required String hint,
   String initial = '',
   int maxLines = 1,
   TextInputType keyboardType = TextInputType.text,
+  Future<Map<String, dynamic>> Function(String value)? onSubmit,
 }) async {
   final controller = TextEditingController(text: initial);
-  final result = await showDialog<String?>(
+  bool isLoading = false;
+  final result = await showDialog<Map<String, dynamic>?>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) {
-      return Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Container(
-          padding: EdgeInsets.zero,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 12,
-                  horizontal: 12,
-                ),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [MyColors.primary, MyColors.secondary],
-                  ),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    topRight: Radius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Container(
+              padding: EdgeInsets.zero,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: TextFormField(
-                  controller: controller,
-                  maxLines: maxLines,
-                  keyboardType: keyboardType,
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    hintStyle: const TextStyle(
-                      color: Colors.grey,
-                      fontWeight: FontWeight.w600,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 12,
                     ),
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: Colors.grey.withOpacity(0.4)),
-                          backgroundColor: Colors.grey.withOpacity(0.1),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        onPressed: () => Navigator.of(ctx).pop(null),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [MyColors.primary, MyColors.secondary],
+                      ),
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(12),
+                        topRight: Radius.circular(12),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GradientElevatedButton(
-                        onPressed: () =>
-                            Navigator.of(ctx).pop(controller.text.trim()),
-                        radius: 8,
-                        child: const Text(
-                          'Update',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                    child: Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: TextFormField(
+                      controller: controller,
+                      maxLines: maxLines,
+                      keyboardType: keyboardType,
+                      decoration: InputDecoration(
+                        hintText: hint,
+                        hintStyle: const TextStyle(
+                          color: Colors.grey,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(
+                                color: Colors.grey.withOpacity(0.4),
+                              ),
+                              backgroundColor: Colors.grey.withOpacity(0.1),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            onPressed: isLoading
+                                ? null
+                                : () => Navigator.of(ctx).pop(null),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: GradientElevatedButton(
+                            onPressed: isLoading
+                                ? null
+                                : () async {
+                                    if (onSubmit == null) {
+                                      Navigator.of(
+                                        ctx,
+                                      ).pop({'value': controller.text.trim()});
+                                      return;
+                                    }
+                                    setState(() => isLoading = true);
+                                    Map<String, dynamic> result;
+                                    try {
+                                      final body = await onSubmit(
+                                        controller.text.trim(),
+                                      );
+                                      result = body;
+                                    } catch (e) {
+                                      result = {'error': e.toString()};
+                                    }
+                                    Navigator.of(ctx).pop(result);
+                                  },
+                            radius: 8,
+                            child: isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Text(
+                                    'Update',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       );
     },
   );
