@@ -14,6 +14,7 @@ const { createAuditLog } = require('./auditLogController');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const User = require('../models/User');
+const emailService = require('../services/emailService');
 
 /**
  * Detect existing client by email or phone
@@ -711,7 +712,33 @@ exports.sendQuote = async (req, res) => {
 
     await transaction.commit();
 
-    // TODO: Send email notification
+    // Calculate quote totals for email
+    const calculation = await this.calculateQuoteData(quote);
+
+    // Get contractor info
+    const contractor = await User.findByPk(userId, {
+      include: [{ model: ContractorSettings, as: 'contractorSettings' }]
+    });
+
+    // Send email notification
+    try {
+      await emailService.sendQuoteToCustomer({
+        to: quote.customerEmail,
+        customerName: quote.customerName,
+        quote: quote.toJSON(),
+        calculation,
+        contractor: {
+          name: contractor.fullName,
+          email: contractor.email,
+          phone: contractor.contractorSettings?.phone,
+          companyName: contractor.contractorSettings?.businessName || 'Our Painting Team'
+        },
+        quoteViewUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/customer/quote/${quote.id}`
+      });
+    } catch (emailError) {
+      console.error('Error sending quote email:', emailError);
+      // Don't fail the request if email fails
+    }
 
     res.json({
       success: true,
@@ -727,6 +754,40 @@ exports.sendQuote = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
+};
+
+/**
+ * Helper function to calculate quote totals (reusable)
+ */
+exports.calculateQuoteData = async (quote) => {
+  const { areas, productSets } = quote;
+  const pricingScheme = quote.pricingScheme;
+  
+  let laborTotal = 0;
+  let materialTotal = 0;
+  const breakdown = [];
+
+  for (const area of areas || []) {
+    if (area.laborItems) {
+      for (const item of area.laborItems || []) {
+        if (!item.selected) continue;
+        const quantity = parseFloat(item.quantity) || 0;
+        if (!quantity) continue;
+        
+        laborTotal += quantity * (parseFloat(item.laborRate) || 0);
+        materialTotal += (item.gallons || 0) * 35; // Simplified
+      }
+    }
+  }
+
+  const total = laborTotal + materialTotal;
+  
+  return {
+    laborTotal: parseFloat(laborTotal.toFixed(2)),
+    materialTotal: parseFloat(materialTotal.toFixed(2)),
+    total: parseFloat(total.toFixed(2)),
+    breakdown
+  };
 };
 
 /**

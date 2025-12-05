@@ -662,6 +662,203 @@ class EmailService {
    * @param {string} userName - User's full name
    * @returns {Promise<Object>}
    */
+  /**
+   * Send quote to customer
+   * @param {Object} params
+   * @param {string} params.to - Customer email
+   * @param {string} params.customerName - Customer name
+   * @param {Object} params.quote - Quote data
+   * @param {Object} params.calculation - Calculated totals
+   * @param {Object} params.contractor - Contractor info
+   * @param {string} params.quoteViewUrl - URL to view quote
+   * @returns {Promise<Object>}
+   */
+  async sendQuoteToCustomer({ to, customerName, quote, calculation, contractor, quoteViewUrl }) {
+    if (!this.transporter) {
+      console.warn('Email service not configured, skipping quote email');
+      return { success: false, message: 'Email service not configured' };
+    }
+
+    try {
+      const subject = `Your Painting Quote #${quote.quoteNumber} from ${contractor.companyName}`;
+      const htmlContent = this.getQuoteEmailTemplate({
+        customerName,
+        quote,
+        calculation,
+        contractor,
+        quoteViewUrl
+      });
+
+      const mailOptions = {
+        from: `"${contractor.companyName}" <${process.env.SMTP_USER}>`,
+        to,
+        replyTo: contractor.email,
+        subject,
+        html: htmlContent
+      };
+
+      const info = await this.transporter.sendMail(mailOptions);
+      
+      console.log('Quote email sent:', info.messageId);
+      return {
+        success: true,
+        messageId: info.messageId
+      };
+    } catch (error) {
+      console.error('Error sending quote email:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Quote email template
+   */
+  getQuoteEmailTemplate({ customerName, quote, calculation, contractor, quoteViewUrl }) {
+    const areasHtml = (quote.areas || []).map(area => {
+      const items = area.laborItems || [];
+      const selectedItems = items.filter(i => i.selected);
+      
+      if (selectedItems.length === 0) return '';
+      
+      const itemsHtml = selectedItems.map(item => `
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${item.categoryName}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.quantity} ${item.measurementUnit}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.numberOfCoats || '-'}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.gallons ? item.gallons + ' gal' : '-'}</td>
+        </tr>
+      `).join('');
+      
+      return `
+        <div style="margin-bottom: 24px; background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb;">
+          <div style="background: #f3f4f6; padding: 12px 16px; border-bottom: 2px solid #3b82f6;">
+            <h3 style="margin: 0; color: #1f2937; font-size: 18px;">${area.name}</h3>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f9fafb;">
+                <th style="padding: 10px 8px; text-align: left; font-size: 13px; color: #6b7280; font-weight: 600;">Surface</th>
+                <th style="padding: 10px 8px; text-align: center; font-size: 13px; color: #6b7280; font-weight: 600;">Quantity</th>
+                <th style="padding: 10px 8px; text-align: center; font-size: 13px; color: #6b7280; font-weight: 600;">Coats</th>
+                <th style="padding: 10px 8px; text-align: center; font-size: 13px; color: #6b7280; font-weight: 600;">Gallons</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Painting Quote</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f3f4f6;">
+        <div style="max-width: 700px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          
+          <!-- Header -->
+          <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 40px 30px; text-align: center;">
+            <h1 style="margin: 0 0 10px 0; font-size: 32px; font-weight: bold;">Your Quote is Ready!</h1>
+            <p style="margin: 0; font-size: 18px; opacity: 0.9;">Quote #${quote.quoteNumber}</p>
+          </div>
+
+          <!-- Greeting -->
+          <div style="padding: 30px;">
+            <h2 style="color: #1f2937; margin: 0 0 16px 0; font-size: 24px;">Hi ${customerName},</h2>
+            <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
+              Thank you for choosing ${contractor.companyName} for your painting project! We've prepared a detailed quote based on your requirements. Below you'll find a comprehensive breakdown of your project.
+            </p>
+          </div>
+
+          <!-- Price Summary -->
+          <div style="margin: 0 30px 30px 30px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 2px solid #86efac; border-radius: 12px; padding: 24px;">
+            <div style="text-align: center;">
+              <p style="margin: 0 0 8px 0; color: #166534; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Total Investment</p>
+              <p style="margin: 0; color: #16a34a; font-size: 48px; font-weight: bold; line-height: 1;">$${calculation.total.toLocaleString()}</p>
+            </div>
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #86efac;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span style="color: #166534; font-size: 14px;">Labor:</span>
+                <span style="color: #166534; font-weight: 600; font-size: 14px;">$${calculation.laborTotal.toLocaleString()}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: #166534; font-size: 14px;">Materials:</span>
+                <span style="color: #166534; font-weight: 600; font-size: 14px;">$${calculation.materialTotal.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Project Details -->
+          <div style="padding: 0 30px 30px 30px;">
+            <h2 style="color: #1f2937; margin: 0 0 20px 0; font-size: 22px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">Project Details</h2>
+            
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+              <div style="margin-bottom: 12px;">
+                <strong style="color: #374151;">Job Type:</strong>
+                <span style="color: #6b7280; margin-left: 8px; text-transform: capitalize;">${quote.jobType || 'Not specified'}</span>
+              </div>
+              <div>
+                <strong style="color: #374151;">Property Address:</strong>
+                <span style="color: #6b7280; margin-left: 8px;">${quote.street || ''}, ${quote.city || ''}, ${quote.state || ''} ${quote.zipCode || ''}</span>
+              </div>
+            </div>
+
+            ${areasHtml}
+
+            ${quote.notes ? `
+            <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin-top: 20px;">
+              <h4 style="margin: 0 0 8px 0; color: #92400e; font-size: 16px;">📝 Additional Notes:</h4>
+              <p style="margin: 0; color: #78350f; white-space: pre-wrap;">${quote.notes}</p>
+            </div>
+            ` : ''}
+          </div>
+
+          <!-- CTA Button -->
+          <div style="padding: 0 30px 30px 30px; text-align: center;">
+            <a href="${quoteViewUrl}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);">
+              View Full Quote & Accept
+            </a>
+            <p style="margin: 16px 0 0 0; color: #6b7280; font-size: 14px;">Click the button above to review your quote, choose colors, and accept</p>
+          </div>
+
+          <!-- Next Steps -->
+          <div style="background: #f9fafb; padding: 30px; border-top: 1px solid #e5e7eb;">
+            <h3 style="color: #1f2937; margin: 0 0 16px 0; font-size: 20px;">What Happens Next?</h3>
+            <ol style="color: #4b5563; padding-left: 20px; margin: 0;">
+              <li style="margin-bottom: 12px;"><strong>Review Your Quote:</strong> Click the button above to see all details and options</li>
+              <li style="margin-bottom: 12px;"><strong>Choose Colors & Finishes:</strong> Select your preferred colors and sheens for each area</li>
+              <li style="margin-bottom: 12px;"><strong>Accept & Schedule:</strong> Once you're happy, accept the quote and we'll schedule your project</li>
+              <li><strong>Get It Done:</strong> Our professional team will transform your space!</li>
+            </ol>
+          </div>
+
+          <!-- Contact Info -->
+          <div style="background: #1f2937; color: white; padding: 30px; text-align: center;">
+            <h4 style="margin: 0 0 16px 0; font-size: 18px;">Questions? We're Here to Help!</h4>
+            <p style="margin: 0 0 8px 0; opacity: 0.9;">📧 Email: <a href="mailto:${contractor.email}" style="color: #60a5fa; text-decoration: none;">${contractor.email}</a></p>
+            ${contractor.phone ? `<p style="margin: 0; opacity: 0.9;">📱 Phone: <a href="tel:${contractor.phone}" style="color: #60a5fa; text-decoration: none;">${contractor.phone}</a></p>` : ''}
+          </div>
+
+          <!-- Footer -->
+          <div style="padding: 20px; text-align: center; background: #f9fafb; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0; color: #9ca3af; font-size: 12px;">This quote is valid for 30 days from the date of issue.</p>
+            <p style="margin: 8px 0 0 0; color: #9ca3af; font-size: 12px;">&copy; ${new Date().getFullYear()} ${contractor.companyName}. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
   async sendPasswordResetEmail(email, resetToken, userName) {
     const resetUrl = `${
       process.env.FRONTEND_URL || 'http://localhost:5173'

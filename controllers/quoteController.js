@@ -938,44 +938,171 @@ exports.updateQuote = async (req, res) => {
  * Update quote status (send, approve, decline, archive)
  */
 exports.updateQuoteStatus = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
     const { id } = req.params;
     const { status } = req.body;
     const tenantId = req.user.tenantId;
+    const userId = req.user.id;
 
     const quote = await Quote.findOne({
       where: {
         id,
         tenantId,
         isActive: true
-      }
+      },
+      include: [
+        {
+          model: PricingScheme,
+          as: 'pricingScheme'
+        }
+      ]
     });
 
     if (!quote) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: 'Quote not found'
       });
     }
 
-    // Update status using instance methods
+    const oldStatus = quote.status;
+    const emailService = require('../services/emailService');
+    const User = require('../models/User');
+    const ContractorSettings = require('../models/ContractorSettings');
+    
+    // Get contractor info for emails
+    const contractor = await User.findByPk(userId, {
+      include: [{ model: ContractorSettings, as: 'contractorSettings' }]
+    });
+
+    // Update status using instance methods and send notifications
     switch (status) {
-      case 'pending':
-        await quote.markAsSent();
+      case 'draft':
+        quote.status = 'draft';
+        await quote.save({ transaction });
         break;
-      case 'approved':
-        await quote.approve();
+        
+      case 'sent':
+        await quote.markAsSent({ transaction });
+        
+        // Send quote email to customer
+        try {
+          const calculation = await calculateQuoteData(quote);
+          await emailService.sendQuoteToCustomer({
+            to: quote.customerEmail,
+            customerName: quote.customerName,
+            quote: quote.toJSON(),
+            calculation,
+            contractor: {
+              name: contractor.fullName,
+              email: contractor.email,
+              phone: contractor.contractorSettings?.phone,
+              companyName: contractor.contractorSettings?.businessName || 'Our Painting Team'
+            },
+            quoteViewUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/customer/quote/${quote.id}`
+          });
+        } catch (emailError) {
+          console.error('Error sending quote email:', emailError);
+        }
         break;
+        
+      case 'accepted':
+        await quote.approve({ transaction });
+        quote.status = 'accepted';
+        quote.acceptedAt = new Date();
+        await quote.save({ transaction });
+        
+        // Send acceptance confirmation to customer
+        try {
+          await emailService.sendEmail({
+            to: quote.customerEmail,
+            subject: `Quote Accepted - ${quote.quoteNumber}`,
+            html: getStatusChangeEmailTemplate({
+              customerName: quote.customerName,
+              quoteNumber: quote.quoteNumber,
+              status: 'accepted',
+              message: 'Thank you for accepting our quote! We\'ll be in touch shortly to schedule your project.',
+              contractor
+            })
+          });
+        } catch (emailError) {
+          console.error('Error sending acceptance email:', emailError);
+        }
+        break;
+        
+      case 'scheduled':
+        quote.status = 'scheduled';
+        await quote.save({ transaction });
+        
+        // Send scheduling confirmation
+        try {
+          await emailService.sendEmail({
+            to: quote.customerEmail,
+            subject: `Project Scheduled - ${quote.quoteNumber}`,
+            html: getStatusChangeEmailTemplate({
+              customerName: quote.customerName,
+              quoteNumber: quote.quoteNumber,
+              status: 'scheduled',
+              message: 'Great news! Your painting project has been scheduled. We\'ll send you the details shortly.',
+              contractor
+            })
+          });
+        } catch (emailError) {
+          console.error('Error sending scheduling email:', emailError);
+        }
+        break;
+        
       case 'declined':
-        await quote.decline();
+        await quote.decline({ transaction });
+        quote.status = 'declined';
+        await quote.save({ transaction });
+        
+        // Send decline acknowledgment
+        try {
+          await emailService.sendEmail({
+            to: quote.customerEmail,
+            subject: `Quote Status Update - ${quote.quoteNumber}`,
+            html: getStatusChangeEmailTemplate({
+              customerName: quote.customerName,
+              quoteNumber: quote.quoteNumber,
+              status: 'declined',
+              message: 'We appreciate you considering us for your project. If you change your mind or need any adjustments, please don\'t hesitate to reach out.',
+              contractor
+            })
+          });
+        } catch (emailError) {
+          console.error('Error sending decline email:', emailError);
+        }
         break;
+        
       case 'archived':
-        await quote.archive();
+        await quote.archive({ transaction });
         break;
+        
       default:
         quote.status = status;
-        await quote.save();
+        await quote.save({ transaction });
     }
+
+    // Create audit log
+    await createAuditLog({
+      userId,
+      tenantId,
+      action: 'quote_status_updated',
+      resourceType: 'quote',
+      resourceId: quote.id,
+      details: {
+        oldStatus,
+        newStatus: status,
+        quoteNumber: quote.quoteNumber
+      },
+      req
+    });
+
+    await transaction.commit();
 
     return res.json({
       success: true,
@@ -983,6 +1110,7 @@ exports.updateQuoteStatus = async (req, res) => {
       data: quote
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Error updating quote status:', error);
     return res.status(500).json({
       success: false,
@@ -991,6 +1119,88 @@ exports.updateQuoteStatus = async (req, res) => {
     });
   }
 };
+
+// Helper function for status change email template
+function getStatusChangeEmailTemplate({ customerName, quoteNumber, status, message, contractor }) {
+  const statusColors = {
+    accepted: '#10b981',
+    scheduled: '#8b5cf6',
+    declined: '#ef4444'
+  };
+  
+  const statusIcons = {
+    accepted: '✅',
+    scheduled: '📅',
+    declined: '❌'
+  };
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f3f4f6;">
+      <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+        <div style="background: ${statusColors[status] || '#3b82f6'}; color: white; padding: 30px; text-align: center;">
+          <h1 style="margin: 0; font-size: 28px;">${statusIcons[status]} Quote ${status.charAt(0).toUpperCase() + status.slice(1)}</h1>
+          <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Quote #${quoteNumber}</p>
+        </div>
+        
+        <div style="padding: 30px;">
+          <h2 style="color: #1f2937; margin: 0 0 16px 0;">Hi ${customerName},</h2>
+          <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
+            ${message}
+          </p>
+          
+          <div style="background: #f9fafb; border-radius: 8px; padding: 20px; margin: 24px 0;">
+            <p style="margin: 0; color: #6b7280; font-size: 14px;"><strong>Quote Number:</strong> ${quoteNumber}</p>
+            <p style="margin: 8px 0 0 0; color: #6b7280; font-size: 14px;"><strong>Status:</strong> ${status.charAt(0).toUpperCase() + status.slice(1)}</p>
+          </div>
+        </div>
+        
+        <div style="background: #1f2937; color: white; padding: 20px; text-align: center;">
+          <p style="margin: 0; font-size: 14px;">Questions? Contact us:</p>
+          <p style="margin: 8px 0 0 0; opacity: 0.9;">
+            📧 ${contractor.email}
+            ${contractor.contractorSettings?.phone ? `<br>📱 ${contractor.contractorSettings.phone}` : ''}
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// Helper function to calculate quote data
+async function calculateQuoteData(quote) {
+  const { areas, productSets } = quote;
+  let laborTotal = 0;
+  let materialTotal = 0;
+
+  for (const area of areas || []) {
+    if (area.laborItems) {
+      for (const item of area.laborItems || []) {
+        if (!item.selected) continue;
+        const quantity = parseFloat(item.quantity) || 0;
+        if (!quantity) continue;
+        
+        laborTotal += quantity * (parseFloat(item.laborRate) || 0);
+        materialTotal += (item.gallons || 0) * 35;
+      }
+    }
+  }
+
+  const total = laborTotal + materialTotal;
+  
+  return {
+    laborTotal: parseFloat(laborTotal.toFixed(2)),
+    materialTotal: parseFloat(materialTotal.toFixed(2)),
+    total: parseFloat(total.toFixed(2)),
+    breakdown: []
+  };
+}
 
 /**
  * DELETE /api/v1/quotes/:id
