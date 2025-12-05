@@ -3,6 +3,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Modal, Tag, Descriptions, Table, Button, Space } from 'antd';
+import { ExclamationCircleOutlined } from '@ant-design/icons';
 import quoteApiService from '../services/quoteApiService';
 import toast from 'react-hot-toast';
 
@@ -31,9 +33,9 @@ const QuotesListPage = () => {
   });
 
   // UI State
-  const [selectedQuotes, setSelectedQuotes] = useState([]);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [quoteToDelete, setQuoteToDelete] = useState(null);
+  const [viewQuoteModal, setViewQuoteModal] = useState(false);
+  const [selectedQuote, setSelectedQuote] = useState(null);
+  const [loadingQuoteDetails, setLoadingQuoteDetails] = useState(false);
 
   // Fetch quotes
   const fetchQuotes = async (page = 1) => {
@@ -46,8 +48,13 @@ const QuotesListPage = () => {
       });
 
       if (response.success) {
-        setQuotes(response.data.quotes || []);
-        setPagination(response.data.pagination);
+        setQuotes(response.data || []);
+        setPagination(response.pagination || {
+          currentPage: page,
+          totalPages: 1,
+          totalQuotes: 0,
+          limit: pagination.limit
+        });
       }
     } catch (error) {
       console.error('Error fetching quotes:', error);
@@ -101,48 +108,96 @@ const QuotesListPage = () => {
   };
 
   // Handle delete
-  const handleDelete = async () => {
-    if (!quoteToDelete) return;
-
-    try {
-      const response = await quoteApiService.deleteQuote(quoteToDelete);
-      if (response.success) {
-        toast.success('Quote deleted successfully');
-        setShowDeleteConfirm(false);
-        setQuoteToDelete(null);
-        fetchQuotes(pagination.currentPage);
+  const handleDelete = (quoteId) => {
+    Modal.confirm({
+      title: 'Delete Quote',
+      icon: <ExclamationCircleOutlined />,
+      content: 'Are you sure you want to delete this quote? This action cannot be undone.',
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          const response = await quoteApiService.deleteQuote(quoteId);
+          if (response.success) {
+            toast.success('Quote deleted successfully');
+            fetchQuotes(pagination.currentPage);
+          }
+        } catch (error) {
+          console.error('Error deleting quote:', error);
+          toast.error(error.response?.data?.message || 'Failed to delete quote');
+        }
       }
-    } catch (error) {
-      console.error('Error deleting quote:', error);
-      toast.error(error.response?.data?.message || 'Failed to delete quote');
-    }
+    });
   };
 
   // View quote details
-  const handleViewQuote = (quoteId) => {
-    // TODO: Navigate to quote details page
-    navigate(`/quotes/${quoteId}`);
+  const handleViewQuote = async (quoteId) => {
+    try {
+      setLoadingQuoteDetails(true);
+      setViewQuoteModal(true);
+      const response = await quoteApiService.getQuoteById(quoteId);
+      if (response.success) {
+        setSelectedQuote(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching quote details:', error);
+      toast.error('Failed to load quote details');
+      setViewQuoteModal(false);
+    } finally {
+      setLoadingQuoteDetails(false);
+    }
   };
 
   // Edit quote
-  const handleEditQuote = (quoteId) => {
-    // TODO: Navigate to quote builder with quote data
-    navigate(`/quote-builder?edit=${quoteId}`);
+  const handleEditQuote = async (quoteId) => {
+    try {
+      const response = await quoteApiService.getQuoteById(quoteId);
+      if (response.success) {
+        const quote = response.data;
+        
+        // Navigate to quote builder with complete quote data
+        navigate('/quote-builder', { 
+          state: { 
+            editQuote: quote,
+            isEditMode: true
+          },
+          replace: false
+        });
+      }
+    } catch (error) {
+      console.error('Error loading quote for edit:', error);
+      toast.error('Failed to load quote for editing');
+    }
   };
 
   // Status badge component
   const StatusBadge = ({ status }) => {
     const statusColors = {
       draft: 'bg-gray-100 text-gray-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      approved: 'bg-green-100 text-green-800',
+      sent: 'bg-blue-100 text-blue-800',
+      accepted: 'bg-green-100 text-green-800',
+      scheduled: 'bg-purple-100 text-purple-800',
       declined: 'bg-red-100 text-red-800',
-      archived: 'bg-blue-100 text-blue-800'
+      archived: 'bg-slate-100 text-slate-800',
+      // Legacy support
+      pending: 'bg-yellow-100 text-yellow-800',
+      approved: 'bg-green-100 text-green-800'
+    };
+
+    const statusIcons = {
+      draft: '📝',
+      sent: '📤',
+      accepted: '✅',
+      scheduled: '📅',
+      declined: '❌',
+      archived: '🗄️'
     };
 
     return (
-      <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+      <span className={`px-3 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1 ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
+        <span>{statusIcons[status]}</span>
+        <span>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
       </span>
     );
   };
@@ -182,6 +237,54 @@ const QuotesListPage = () => {
         </div>
       </div>
 
+      {/* Stats Cards */}
+      <div className="max-w-7xl mx-auto mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-gray-400">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Draft</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {quotes.filter(q => q.status === 'draft').length}
+              </p>
+            </div>
+            <span className="text-3xl">📝</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-400">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Sent</p>
+              <p className="text-2xl font-bold text-blue-900">
+                {quotes.filter(q => q.status === 'sent').length}
+              </p>
+            </div>
+            <span className="text-3xl">📤</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-400">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Accepted</p>
+              <p className="text-2xl font-bold text-green-900">
+                {quotes.filter(q => q.status === 'accepted').length}
+              </p>
+            </div>
+            <span className="text-3xl">✅</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-400">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Scheduled</p>
+              <p className="text-2xl font-bold text-purple-900">
+                {quotes.filter(q => q.status === 'scheduled').length}
+              </p>
+            </div>
+            <span className="text-3xl">📅</span>
+          </div>
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="max-w-7xl mx-auto mb-6 bg-white rounded-lg shadow p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -203,11 +306,12 @@ const QuotesListPage = () => {
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="declined">Declined</option>
-            <option value="archived">Archived</option>
+            <option value="draft">📝 Draft</option>
+            <option value="sent">📤 Sent</option>
+            <option value="accepted">✅ Accepted</option>
+            <option value="scheduled">📅 Scheduled</option>
+            <option value="declined">❌ Declined</option>
+            <option value="archived">🗄️ Archived</option>
           </select>
 
           {/* Job Type Filter */}
@@ -258,7 +362,74 @@ const QuotesListPage = () => {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Mobile Card View */}
+            <div className="block md:hidden">
+              {quotes.map((quote) => (
+                <div key={quote.id} className="border-b border-gray-200 p-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <button 
+                        className="text-sm font-medium text-blue-600 hover:underline focus:outline-none"
+                        onClick={() => handleViewQuote(quote.id)}
+                        type="button"
+                      >
+                        {quote.quoteNumber}
+                      </button>
+                      <p className="text-xs text-gray-500 mt-1">{formatDate(quote.createdAt)}</p>
+                    </div>
+                    <StatusBadge status={quote.status} />
+                  </div>
+                  
+                  <div className="mb-3">
+                    <p className="text-sm font-medium text-gray-900">{quote.customerName}</p>
+                    <p className="text-xs text-gray-500">{quote.customerEmail}</p>
+                  </div>
+                  
+                  <div className="flex justify-between items-center mb-3">
+                    <div>
+                      <p className="text-xs text-gray-500">Job Type</p>
+                      <p className="text-sm text-gray-900 capitalize">{quote.jobType}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Total</p>
+                      <p className="text-lg font-semibold text-gray-900">{formatCurrency(quote.total)}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => handleViewQuote(quote.id)}
+                      className="text-xs px-3 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    >
+                      View
+                    </button>
+                    {quote.status === 'draft' && (
+                      <button
+                        onClick={() => handleEditQuote(quote.id)}
+                        className="text-xs px-3 py-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"
+                      >
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDuplicate(quote.id)}
+                      className="text-xs px-3 py-1.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      onClick={() => handleDelete(quote.id)}
+                      className="text-xs px-3 py-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="overflow-x-auto hidden md:block">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -289,9 +460,13 @@ const QuotesListPage = () => {
                   {quotes.map((quote) => (
                     <tr key={quote.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-blue-600 cursor-pointer hover:underline" onClick={() => handleViewQuote(quote.id)}>
+                        <button 
+                          className="text-sm font-medium text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                          onClick={() => handleViewQuote(quote.id)}
+                          type="button"
+                        >
                           {quote.quoteNumber}
-                        </div>
+                        </button>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm font-medium text-gray-900">{quote.customerName}</div>
@@ -311,9 +486,29 @@ const QuotesListPage = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <StatusBadge status={quote.status} />
+                        {quote.status === 'sent' && quote.sentAt && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Sent {formatDate(quote.sentAt)}
+                          </div>
+                        )}
+                        {quote.status === 'accepted' && quote.acceptedAt && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Accepted {formatDate(quote.acceptedAt)}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(quote.createdAt)}
+                        <div>{formatDate(quote.createdAt)}</div>
+                        {quote.validUntil && new Date(quote.validUntil) > new Date() && (
+                          <div className="text-xs text-orange-600 mt-1">
+                            Valid until {formatDate(quote.validUntil)}
+                          </div>
+                        )}
+                        {quote.validUntil && new Date(quote.validUntil) <= new Date() && (
+                          <div className="text-xs text-red-600 mt-1">
+                            Expired
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex justify-end gap-2">
@@ -355,10 +550,7 @@ const QuotesListPage = () => {
 
                           {/* Delete Button */}
                           <button
-                            onClick={() => {
-                              setQuoteToDelete(quote.id);
-                              setShowDeleteConfirm(true);
-                            }}
+                            onClick={() => handleDelete(quote.id)}
                             className="text-red-600 hover:text-red-900"
                             title="Delete Quote"
                           >
@@ -373,12 +565,14 @@ const QuotesListPage = () => {
                               value={quote.status}
                               onChange={(e) => handleStatusUpdate(quote.id, e.target.value)}
                               className="ml-2 text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              title="Update quote status"
                             >
-                              <option value="draft">Draft</option>
-                              <option value="pending">Pending</option>
-                              <option value="approved">Approved</option>
-                              <option value="declined">Declined</option>
-                              <option value="archived">Archive</option>
+                              <option value="draft">📝 Draft</option>
+                              <option value="sent">📤 Sent</option>
+                              <option value="accepted">✅ Accepted</option>
+                              <option value="scheduled">📅 Scheduled</option>
+                              <option value="declined">❌ Declined</option>
+                              <option value="archived">🗄️ Archive</option>
                             </select>
                           )}
                         </div>
@@ -425,7 +619,7 @@ const QuotesListPage = () => {
                       >
                         Previous
                       </button>
-                      {[...Array(pagination.totalPages)].map((_, i) => (
+                      {[...new Array(pagination.totalPages)].map((_, i) => (
                         <button
                           key={i + 1}
                           onClick={() => handlePageChange(i + 1)}
@@ -454,36 +648,171 @@ const QuotesListPage = () => {
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Delete Quote</h3>
-              <p className="text-sm text-gray-500 mb-6">
-                Are you sure you want to delete this quote? This action cannot be undone.
-              </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowDeleteConfirm(false);
-                    setQuoteToDelete(null);
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
+      {/* Quote Detail Modal - Ant Design */}
+      <Modal
+        title={
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white -mx-6 -mt-5 px-6 py-4 rounded-t-lg">
+            <h2 className="text-xl font-bold">Quote #{selectedQuote?.quoteNumber}</h2>
+            <p className="text-blue-100 text-sm mt-1">Created {selectedQuote && formatDate(selectedQuote.createdAt)}</p>
           </div>
-        </div>
-      )}
+        }
+        open={viewQuoteModal}
+        onCancel={() => {
+          setViewQuoteModal(false);
+          setSelectedQuote(null);
+        }}
+        width={900}
+        footer={[
+          selectedQuote?.status === 'draft' && (
+            <Button
+              key="edit"
+              type="primary"
+              onClick={() => {
+                setViewQuoteModal(false);
+                handleEditQuote(selectedQuote.id);
+              }}
+            >
+              Edit Quote
+            </Button>
+          ),
+          <Button
+            key="duplicate"
+            onClick={() => {
+              setViewQuoteModal(false);
+              handleDuplicate(selectedQuote?.id);
+            }}
+          >
+            Duplicate
+          </Button>,
+          <Button key="close" onClick={() => setViewQuoteModal(false)}>
+            Close
+          </Button>,
+        ]}
+        styles={{
+          body: { maxHeight: '70vh', overflowY: 'auto' }
+        }}
+      >
+        {loadingQuoteDetails ? (
+          <div className="flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        ) : selectedQuote ? (
+          <div className="space-y-6 mt-6">
+            {/* Customer Info */}
+            <div>
+              <h3 className="text-base font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Customer Information
+              </h3>
+              <Descriptions bordered column={2} size="small">
+                <Descriptions.Item label="Name">{selectedQuote.customerName}</Descriptions.Item>
+                <Descriptions.Item label="Email">{selectedQuote.customerEmail}</Descriptions.Item>
+                <Descriptions.Item label="Phone">{selectedQuote.customerPhone || 'N/A'}</Descriptions.Item>
+                <Descriptions.Item label="Address">
+                  {selectedQuote.street}, {selectedQuote.city}, {selectedQuote.state} {selectedQuote.zipCode}
+                </Descriptions.Item>
+              </Descriptions>
+            </div>
+
+            {/* Job Details */}
+            <div>
+              <h3 className="text-base font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                Job Details
+              </h3>
+              <Descriptions bordered column={3} size="small">
+                <Descriptions.Item label="Job Type">
+                  <span className="capitalize">{selectedQuote.jobType}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Status">
+                  <StatusBadge status={selectedQuote.status} />
+                </Descriptions.Item>
+                <Descriptions.Item label="Total">
+                  <span className="font-bold text-green-600 text-lg">{formatCurrency(selectedQuote.total)}</span>
+                </Descriptions.Item>
+              </Descriptions>
+            </div>
+
+            {/* Areas Breakdown */}
+            {selectedQuote.areas && selectedQuote.areas.length > 0 && (
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  Areas & Surfaces
+                </h3>
+                <div className="space-y-4">
+                  {selectedQuote.areas.map((area, index) => (
+                    <div key={area.id || index} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="bg-blue-50 px-4 py-2 border-b border-blue-100">
+                        <h4 className="font-medium text-gray-900">{area.name}</h4>
+                      </div>
+                      <div className="p-3">
+                        {area.laborItems && area.laborItems.length > 0 ? (
+                          <Table
+                            size="small"
+                            dataSource={area.laborItems.filter(item => item.selected)}
+                            columns={[
+                              {
+                                title: 'Surface',
+                                dataIndex: 'categoryName',
+                                key: 'categoryName',
+                              },
+                              {
+                                title: 'Qty',
+                                key: 'quantity',
+                                align: 'center',
+                                render: (_, item) => `${item.quantity} ${item.measurementUnit}`,
+                              },
+                              {
+                                title: 'Coats',
+                                dataIndex: 'numberOfCoats',
+                                key: 'numberOfCoats',
+                                align: 'center',
+                                render: (coats) => coats || '-',
+                              },
+                              {
+                                title: 'Gallons',
+                                dataIndex: 'gallons',
+                                key: 'gallons',
+                                align: 'center',
+                                render: (gallons) => gallons ? `${gallons} gal` : '-',
+                              },
+                            ]}
+                            pagination={false}
+                            rowKey={(item, idx) => `${area.id || index}-${idx}`}
+                          />
+                        ) : (
+                          <p className="text-sm text-gray-500">No surfaces selected</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            {selectedQuote.notes && (
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Notes</h3>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedQuote.notes}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="p-6">
+            <p className="text-center text-gray-500">Quote not found</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

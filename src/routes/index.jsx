@@ -96,6 +96,7 @@ const AppRoutes = () => {
         <Route path='/dashboard' element={<DashboardPage />} />
         <Route path='/quotes' element={<QuotesListPage />} />
         <Route path='/quotes/new' element={<QuoteBuilderPage />} />
+        <Route path='/quote-builder' element={<QuoteBuilderPage />} />
         <Route path='/products/catalog' element={<ContractorProductConfigManager />} />
         <Route path='/products/colors' element={<ColorLibrary />} />
         <Route path='/pricing/schemes' element={<PricingSchemes />} />

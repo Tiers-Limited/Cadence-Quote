@@ -344,7 +344,24 @@ const CustomerInfoStep = ({
             >
               {pricingSchemes?.map(scheme => (
                 <Option key={scheme.id} value={scheme.id}>
-                  {scheme.name} - {scheme.type.replace(/_/g, ' ').toUpperCase()}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{scheme.name}</span>
+                    {scheme.isDefault && (
+                      <span style={{ 
+                        fontSize: '11px', 
+                        color: '#1890ff', 
+                        fontWeight: '600',
+                        marginLeft: '8px'
+                      }}>
+                        DEFAULT
+                      </span>
+                    )}
+                  </div>
+                  {scheme.description && (
+                    <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                      {scheme.description}
+                    </div>
+                  )}
                 </Option>
               ))}
             </Select>

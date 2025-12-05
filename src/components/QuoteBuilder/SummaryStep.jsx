@@ -9,7 +9,7 @@ import ProposalPreviewModal from './ProposalPreviewModal';
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
-const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit }) => {
+const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes }) => {
   const [notes, setNotes] = useState(formData.notes || '');
   const [calculatedQuote, setCalculatedQuote] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -244,6 +244,20 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit }) => {
           <Descriptions.Item label="Address">
             {formData.street}, {formData.city}, {formData.state} {formData.zipCode}
           </Descriptions.Item>
+          {formData.pricingSchemeId && (
+            <Descriptions.Item label="Pricing Scheme" span={2}>
+              <Tag color="blue">
+                {(() => {
+                  const scheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
+                  return scheme ? scheme.name : `Scheme ID: ${formData.pricingSchemeId}`;
+                })()}
+                {(() => {
+                  const scheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
+                  return scheme?.isDefault ? ' (Default)' : '';
+                })()}
+              </Tag>
+            </Descriptions.Item>
+          )}
         </Descriptions>
       </Card>
 
@@ -421,6 +435,22 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit }) => {
           </Row>
 
           <Divider orientation="left">Detailed Breakdown</Divider>
+          
+          {/* Pricing Settings Info */}
+          {calculatedQuote.markupPercent !== undefined && calculatedQuote.taxRate !== undefined && (
+            <Alert
+              message="Pricing Settings Applied"
+              description={
+                <Space direction="vertical" size={0}>
+                  <Text>Markup: {calculatedQuote.markupPercent}% (from contractor settings)</Text>
+                  <Text>Tax Rate: {calculatedQuote.taxRate}% (from contractor settings)</Text>
+                </Space>
+              }
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
           
           <Descriptions column={2} bordered size="small">
             <Descriptions.Item label="Labor Cost">

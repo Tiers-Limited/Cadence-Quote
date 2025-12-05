@@ -17,6 +17,7 @@ import {
   Radio,
   Badge
 } from 'antd'
+import { EditOutlined } from '@ant-design/icons'
 import '../styles/cards.css'
 import {
   FiSave,
@@ -40,7 +41,6 @@ function SettingsPage () {
   const [activeTab, setActiveTab] = useState('company')
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [qrCodeUrl, setQrCodeUrl] = useState(null)
-  const [defaultPricingScheme, setDefaultPricingScheme] = useState('sqft_turnkey')
 
   // Form instances
   const [companyForm] = Form.useForm()
@@ -136,12 +136,7 @@ function SettingsPage () {
       // Fetch pricing schemes
       const schemesData = await apiService.get('/pricing-schemes')
       if (schemesData.success) {
-        setPricingSchemes(schemesData.data)
-        // Find and set the default pricing scheme
-        const defaultScheme = schemesData.data.find(s => s.isDefault)
-        if (defaultScheme) {
-          setDefaultPricingScheme(defaultScheme.type)
-        }
+        setPricingSchemes(schemesData.data || [])
       }
 
       // Fetch 2FA status
@@ -203,44 +198,6 @@ function SettingsPage () {
     }
   }
 
-  const handleSavePricingScheme = async () => {
-    setSaving(true)
-    try {
-      // Find the existing scheme with this type or create new one
-      const existingScheme = pricingSchemes.find(s => s.type === defaultPricingScheme)
-      
-      if (existingScheme) {
-        // Set as default
-        const response = await apiService.put(`/pricing-schemes/${existingScheme.id}/set-default`)
-        if (response.success) {
-          message.success('Default pricing scheme updated successfully')
-          fetchAllSettings()
-        }
-      } else {
-        // Create new scheme with this type
-        const schemeData = pricingSchemeOptions.find(s => s.id === defaultPricingScheme)
-        const payload = {
-          name: schemeData.title,
-          type: defaultPricingScheme,
-          description: schemeData.description,
-          isActive: true,
-          isDefault: true,
-          pricingRules: {}
-        }
-        
-        const response = await apiService.post('/pricing-schemes', payload)
-        if (response.success) {
-          message.success('Pricing scheme created and set as default')
-          fetchAllSettings()
-        }
-      }
-    } catch (error) {
-      message.error('Failed to update pricing scheme: ' + error.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const handleSetDefaultScheme = async schemeId => {
     try {
       const response = await apiService.put(
@@ -248,10 +205,7 @@ function SettingsPage () {
       )
       if (response.success) {
         message.success('Default pricing scheme updated')
-        const schemesData = await apiService.get('/pricing-schemes')
-        if (schemesData.success) {
-          setPricingSchemes(schemesData.data)
-        }
+        await fetchAllSettings()
       }
     } catch (error) {
       message.error('Failed to set default scheme: ' + error.message)
@@ -263,8 +217,11 @@ function SettingsPage () {
     setSelectedPricingType(null)
     pricingSchemeForm.resetFields()
     pricingSchemeForm.setFieldsValue({
+      name: '',
       type: '',
+      description: '',
       isActive: true,
+      isDefault: false,
       pricingRules: []
     })
     setPricingSchemeModalVisible(true)
@@ -691,98 +648,153 @@ function SettingsPage () {
 
                 {/* Pricing Scheme Section */}
                 <div className='mt-8 pt-8 border-t'>
-                  <h3 className='text-lg font-semibold mb-2'>
-                    <FiDollarSign className='inline mr-2' />
-                    Pricing Scheme Settings
-                  </h3>
+                  <div className='flex items-center justify-between mb-2'>
+                    <h3 className='text-lg font-semibold'>
+                      <FiDollarSign className='inline mr-2' />
+                      Pricing Schemes
+                    </h3>
+                    <Button 
+                      type='primary'
+                      icon={<FiPackage />}
+                      onClick={handleCreatePricingScheme}
+                    >
+                      Create New Scheme
+                    </Button>
+                  </div>
                   <p className='text-sm text-gray-600 mb-6'>
-                    Choose your default pricing method. This will auto-fill in new quotes. Contractors can still override per quote.
+                    Select a default pricing scheme that will auto-fill in new quotes. Contractors can override per quote.
                   </p>
 
-                  <Radio.Group 
-                    value={defaultPricingScheme} 
-                    onChange={(e) => setDefaultPricingScheme(e.target.value)}
-                    className='w-full'
-                  >
-                    <div className='space-y-4'>
-                      {pricingSchemeOptions.map((scheme) => (
-                        <div key={scheme.id}>
-                          <Radio value={scheme.id} className='hidden' id={`radio-${scheme.id}`} />
-                          <label htmlFor={`radio-${scheme.id}`} className='cursor-pointer'>
-                            <Card 
-                              className={`p-6 transition-all duration-200 hover:shadow-md ${
-                                defaultPricingScheme === scheme.id 
-                                  ? 'border-blue-500 border-2 bg-blue-50/50 shadow-md' 
-                                  : 'border-gray-200 hover:border-blue-300'
-                              }`}
-                              onClick={() => setDefaultPricingScheme(scheme.id)}
-                            >
-                              <div className='flex items-start gap-4'>
-                                <div className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center mt-1 ${
-                                  defaultPricingScheme === scheme.id
-                                    ? 'border-blue-500 bg-blue-500'
-                                    : 'border-gray-300'
-                                }`}>
-                                  {defaultPricingScheme === scheme.id && (
-                                    <FiCheck className='text-white text-sm' />
-                                  )}
-                                </div>
-                                
-                                <div className='flex-1 space-y-3'>
-                                  <div className='flex items-center gap-3'>
-                                    <h4 className='font-semibold text-base text-gray-900'>
-                                      {scheme.title}
-                                    </h4>
-                                    {defaultPricingScheme === scheme.id && (
-                                      <Badge 
-                                        count="Default" 
-                                        style={{ backgroundColor: '#1890ff' }}
-                                      />
+                  {pricingSchemes.length === 0 ? (
+                    <Card className='text-center p-8'>
+                      <p className='text-gray-500 mb-4'>No pricing schemes found. Create your first pricing scheme to get started.</p>
+                      <Button 
+                        type='primary'
+                        icon={<FiPackage />}
+                        onClick={handleCreatePricingScheme}
+                      >
+                        Create Pricing Scheme
+                      </Button>
+                    </Card>
+                  ) : (
+                    <Radio.Group 
+                      value={pricingSchemes.find(s => s.isDefault)?.id} 
+                      onChange={(e) => handleSetDefaultScheme(e.target.value)}
+                      className='w-full'
+                    >
+                      <div className='space-y-4'>
+                        {pricingSchemes.map((scheme) => (
+                          <div key={scheme.id}>
+                            <Radio value={scheme.id} className='hidden' id={`radio-${scheme.id}`} />
+                            <label htmlFor={`radio-${scheme.id}`} className='cursor-pointer'>
+                              <Card 
+                                className={`p-6 transition-all duration-200 hover:shadow-md ${
+                                  scheme.isDefault
+                                    ? 'border-blue-500 border-2 bg-blue-50/50 shadow-md' 
+                                    : 'border-gray-200 hover:border-blue-300'
+                                }`}
+                                onClick={() => handleSetDefaultScheme(scheme.id)}
+                              >
+                                <div className='flex items-start gap-4'>
+                                  <div className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center mt-1 ${
+                                    scheme.isDefault
+                                      ? 'border-blue-500 bg-blue-500'
+                                      : 'border-gray-300'
+                                  }`}>
+                                    {scheme.isDefault && (
+                                      <FiCheck className='text-white text-sm' />
                                     )}
                                   </div>
                                   
-                                  <p className='text-sm text-gray-700 leading-relaxed'>
-                                    {scheme.description}
-                                  </p>
-                                  
-                                  <div className='bg-amber-50 border border-amber-200 p-3 rounded-lg'>
-                                    <p className='text-sm font-mono text-gray-800'>
-                                      <span className='font-semibold text-amber-800'>Example: </span>
-                                      {scheme.example}
+                                  <div className='flex-1 space-y-3'>
+                                    <div className='flex items-center justify-between'>
+                                      <div className='flex items-center gap-3'>
+                                        <h4 className='font-semibold text-base text-gray-900'>
+                                          {scheme.name}
+                                        </h4>
+                                        {scheme.isDefault && (
+                                          <Badge 
+                                            count="Default" 
+                                            style={{ backgroundColor: '#1890ff' }}
+                                          />
+                                        )}
+                                        {!scheme.isActive && (
+                                          <Badge 
+                                            count="Inactive" 
+                                            style={{ backgroundColor: '#d9d9d9' }}
+                                          />
+                                        )}
+                                      </div>
+                                      {/* <div className='flex gap-2'>
+                                        <Button 
+                                          size='small'
+                                          icon={<EditOutlined />}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleEditPricingScheme(scheme)
+                                          }}
+                                        >
+                                          Edit
+                                        </Button>
+                                        {!scheme.isDefault && (
+                                          <Popconfirm
+                                            title="Delete pricing scheme?"
+                                            description="This action cannot be undone."
+                                            onConfirm={(e) => {
+                                              e?.stopPropagation()
+                                              handleDeletePricingScheme(scheme.id)
+                                            }}
+                                            okText="Delete"
+                                            cancelText="Cancel"
+                                          >
+                                            <Button 
+                                              size='small'
+                                              danger
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              Delete
+                                            </Button>
+                                          </Popconfirm>
+                                        )}
+                                      </div> */}
+                                    </div>
+                                    
+                                    <p className='text-sm text-gray-700 leading-relaxed'>
+                                      <strong>Type:</strong> {scheme.type.replace(/_/g, ' ').toUpperCase()}
                                     </p>
+                                    
+                                    {scheme.description && (
+                                      <p className='text-sm text-gray-600 leading-relaxed'>
+                                        {scheme.description}
+                                      </p>
+                                    )}
+                                    
+                                    {scheme.pricingRules && Object.keys(scheme.pricingRules).length > 0 && (
+                                      <div className='bg-gray-50 border border-gray-200 p-3 rounded-lg'>
+                                        <p className='text-xs font-semibold text-gray-700 mb-2'>Pricing Rules:</p>
+                                        <div className='grid grid-cols-2 gap-2'>
+                                          {Object.entries(scheme.pricingRules).slice(0, 4).map(([key, value]) => (
+                                            <div key={key} className='text-xs text-gray-600'>
+                                              <span className='font-medium'>{key}:</span> ${value.price}/{value.unit}
+                                            </div>
+                                          ))}
+                                          {Object.keys(scheme.pricingRules).length > 4 && (
+                                            <div className='text-xs text-gray-500 italic col-span-2'>
+                                              +{Object.keys(scheme.pricingRules).length - 4} more rules...
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                  
-                                  <div className='bg-blue-50 border border-blue-200 p-3 rounded-lg'>
-                                    <p className='text-sm text-blue-900'>
-                                      <span className='font-semibold'>Formula: </span>
-                                      {scheme.formula}
-                                    </p>
-                                  </div>
-                                  
-                                  <p className='text-xs text-gray-600 italic'>
-                                    <span className='font-semibold'>Best for: </span>
-                                    {scheme.bestFor}
-                                  </p>
                                 </div>
-                              </div>
-                            </Card>
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </Radio.Group>
-
-                  <div className='mt-6'>
-                    <Button
-                      type='primary'
-                      icon={<FiSave />}
-                      loading={saving}
-                      size='large'
-                      onClick={handleSavePricingScheme}
-                    >
-                      Save Pricing Scheme
-                    </Button>
-                  </div>
+                              </Card>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </Radio.Group>
+                  )}
                 </div>
               </div>
             </TabPane>
@@ -905,6 +917,74 @@ function SettingsPage () {
           </Tabs>
         </Card>
       </div>
+
+      {/* Pricing Scheme Modal */}
+      <Modal
+        title={editingPricingScheme ? 'Edit Pricing Scheme' : 'Create Pricing Scheme'}
+        open={pricingSchemeModalVisible}
+        onCancel={() => setPricingSchemeModalVisible(false)}
+        onOk={() => pricingSchemeForm.submit()}
+        width={700}
+        confirmLoading={saving}
+      >
+        <Form
+          form={pricingSchemeForm}
+          layout='vertical'
+          onFinish={handlePricingSchemeSubmit}
+        >
+          <Form.Item
+            label='Pricing Scheme Type'
+            name='type'
+            rules={[{ required: true, message: 'Please select a pricing type' }]}
+          >
+            <Select
+              placeholder='Select pricing type'
+              onChange={setSelectedPricingType}
+              disabled={!!editingPricingScheme}
+            >
+              {pricingSchemeOptions.map(opt => (
+                <Option key={opt.id} value={opt.id}>
+                  <div>
+                    <div className='font-semibold'>{opt.title}</div>
+                    <div className='text-xs text-gray-500'>{opt.description}</div>
+                  </div>
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            label='Scheme Name'
+            name='name'
+            rules={[{ required: true, message: 'Please enter a name' }]}
+          >
+            <Input placeholder='e.g., Standard Interior Pricing' />
+          </Form.Item>
+
+          <Form.Item
+            label='Description'
+            name='description'
+          >
+            <TextArea rows={2} placeholder='Optional description of this pricing scheme' />
+          </Form.Item>
+
+          <Form.Item
+            label='Active'
+            name='isActive'
+            valuePropName='checked'
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            label='Set as Default'
+            name='isDefault'
+            valuePropName='checked'
+          >
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Card, Steps, message, Progress } from 'antd';
 import {
   UserOutlined,
@@ -24,6 +25,10 @@ const steps = [
 ];
 
 function QuoteBuilderPage() {
+  const location = useLocation();
+  const editQuote = location.state?.editQuote;
+  const isEditMode = !!editQuote;
+  
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({
     // Customer Info (Step 1)
@@ -49,6 +54,11 @@ function QuoteBuilderPage() {
     
     // Summary (Step 5)
     notes: '',
+    
+    // Pricing defaults from settings
+    defaultMarkup: 30,
+    defaultTax: 8.25,
+    defaultDeposit: 50,
     
     // Internal
     quoteId: null,
@@ -76,37 +86,106 @@ function QuoteBuilderPage() {
     };
   }, [formData]);
 
-  // Fetch pricing schemes on mount
+  // Fetch pricing schemes and load quote data on mount
   useEffect(() => {
-    fetchPricingSchemes();
-  }, []);
-
-  // Check for existing draft on mount
-  useEffect(() => {
-    checkForExistingDraft();
+    const initializePage = async () => {
+      await fetchPricingSchemes();
+      
+      if (isEditMode && editQuote) {
+        // Load quote data for editing
+        loadQuoteForEdit(editQuote);
+      } else {
+        // Check for existing draft only if not in edit mode
+        checkForExistingDraft();
+      }
+    };
+    
+    initializePage();
   }, []);
 
   const fetchPricingSchemes = async () => {
     try {
       setLoadingSchemes(true);
+      
+      // Fetch pricing schemes
       const response = await apiService.getPricingSchemes();
       if (response.success) {
         const schemes = response.data || [];
         setPricingSchemes(schemes);
         
-        // Auto-select first pricing scheme if none is selected
-        if (schemes.length > 0 && !formData.pricingSchemeId) {
-          setFormData(prev => ({
-            ...prev,
-            pricingSchemeId: schemes[0].id
-          }));
+        // Find default scheme
+        const defaultScheme = schemes.find(s => s.isDefault);
+        
+        // Auto-select default pricing scheme if none is selected and not in edit mode
+        if (!formData.pricingSchemeId) {
+          const schemeToSelect = defaultScheme || (schemes.length > 0 ? schemes[0] : null);
+          if (schemeToSelect) {
+            setFormData(prev => ({
+              ...prev,
+              pricingSchemeId: schemeToSelect.id
+            }));
+          }
         }
+      }
+      
+      // Fetch contractor settings for default markup and tax
+      const settingsResponse = await apiService.get('/settings');
+      if (settingsResponse.success && settingsResponse.data) {
+        const { defaultMarkupPercentage, taxRatePercentage, depositPercentage } = settingsResponse.data;
+        
+        // Store settings in formData if not already set
+        setFormData(prev => ({
+          ...prev,
+          defaultMarkup: prev.defaultMarkup ?? defaultMarkupPercentage ?? 30,
+          defaultTax: prev.defaultTax ?? taxRatePercentage ?? 8.25,
+          defaultDeposit: prev.defaultDeposit ?? depositPercentage ?? 50
+        }));
       }
     } catch (error) {
       console.error('Error fetching pricing schemes:', error);
-      message.error('Failed to load pricing schemes');
+      message.error('Failed to load pricing schemes and settings');
     } finally {
       setLoadingSchemes(false);
+    }
+  };
+
+  const loadQuoteForEdit = (quote) => {
+    try {
+      setFormData({
+        // Customer Info
+        customerName: quote.customerName || '',
+        customerEmail: quote.customerEmail || '',
+        customerPhone: quote.customerPhone || '',
+        street: quote.street || '',
+        city: quote.city || '',
+        state: quote.state || '',
+        zipCode: quote.zipCode || '',
+        pricingSchemeId: quote.pricingSchemeId || null,
+        
+        // Job Type
+        jobType: quote.jobType || 'interior',
+        
+        // Areas - ensure proper structure
+        areas: quote.areas || [],
+        
+        // Products
+        productStrategy: quote.productStrategy || 'gbb',
+        allowCustomerProductChoice: quote.allowCustomerProductChoice || false,
+        productSets: quote.productSets || [],
+        
+        // Summary
+        notes: quote.notes || '',
+        
+        // Internal
+        quoteId: quote.id,
+        clientId: quote.clientId || null,
+        status: quote.status || 'draft'
+      });
+      
+      message.success('Quote loaded for editing');
+    } catch (error) {
+      console.error('Error loading quote for edit:', error);
+      message.error('Failed to load quote data');
     }
   };
 
@@ -287,6 +366,7 @@ function QuoteBuilderPage() {
             onUpdate={handleStepDataUpdate}
             onPrevious={handlePrevious}
             onEdit={handleEdit}
+            pricingSchemes={pricingSchemes}
           />
         );
       
@@ -301,7 +381,9 @@ function QuoteBuilderPage() {
         {/* Progress Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl md:text-3xl font-bold">Create New Quote</h2>
+            <h2 className="text-2xl md:text-3xl font-bold">
+              {isEditMode ? 'Edit Quote' : 'Create New Quote'}
+            </h2>
             <span className="text-sm text-gray-500">
               Step {currentStep + 1} of {steps.length}
             </span>
