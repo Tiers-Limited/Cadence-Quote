@@ -10,7 +10,7 @@ const { Option } = Select;
 function ProposalDefaultsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('messaging');
+  const [activeTab, setActiveTab] = useState('introduction');
   const [form] = Form.useForm();
   const [gbbDefaults, setGbbDefaults] = useState([]);
   const [globalProducts, setGlobalProducts] = useState([]);
@@ -123,52 +123,51 @@ function ProposalDefaultsPage() {
 
       <Form form={form} layout="vertical" onFinish={handleSave}>
         <Tabs activeKey={activeTab} onChange={setActiveTab}>
-          {/* 1. Messaging & Introduction */}
-          <TabPane tab="Messaging" key="messaging">
+          {/* 1. Company Introduction (Combined Messaging) */}
+          <TabPane tab="Company Introduction" key="introduction">
             <Card>
               <Form.Item
-                label="Default Welcome Message"
-                name="defaultWelcomeMessage"
-                tooltip="Intro text shown at top of every proposal"
+                label="Company Introduction"
+                name="companyIntroduction"
+                tooltip="Combined welcome message and about us - shown at top of every proposal"
               >
-                <TextArea rows={4} placeholder="Thank you for considering us..." />
-              </Form.Item>
-
-              <Form.Item
-                label="About Us Summary"
-                name="aboutUsSummary"
-                tooltip="Your company background automatically added to proposals"
-              >
-                <TextArea rows={6} placeholder="We are a professional painting company..." />
+                <TextArea 
+                  rows={10} 
+                  placeholder="Thank you for considering us for your painting project...&#10;&#10;About Us:&#10;We are a professional painting company with years of experience..." 
+                />
               </Form.Item>
 
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
-                Save Messaging Defaults
+                Save Company Introduction
               </Button>
             </Card>
           </TabPane>
 
-          {/* 2. Processes */}
+          {/* 2. Processes (All subcategories) */}
           <TabPane tab="Processes" key="processes">
             <Card>
               <Form.Item label="Interior Process" name="interiorProcess">
-                <TextArea rows={6} placeholder="1. Surface preparation..." />
+                <TextArea rows={5} placeholder="1. Surface preparation...&#10;2. Priming...&#10;3. Painting..." />
               </Form.Item>
 
               <Form.Item label="Exterior Process" name="exteriorProcess">
-                <TextArea rows={6} placeholder="1. Power washing..." />
+                <TextArea rows={5} placeholder="1. Power washing...&#10;2. Surface prep...&#10;3. Priming..." />
+              </Form.Item>
+
+              <Form.Item label="Drywall Process" name="drywallProcess">
+                <TextArea rows={5} placeholder="1. Assessment of damage...&#10;2. Repair work...&#10;3. Finishing..." />
               </Form.Item>
 
               <Form.Item label="Cabinet Process" name="cabinetProcess">
-                <TextArea rows={6} placeholder="1. Remove hardware..." />
+                <TextArea rows={5} placeholder="1. Remove hardware...&#10;2. Cleaning and prep...&#10;3. Priming..." />
               </Form.Item>
 
               <Form.Item label="Trim Process" name="trimProcess">
-                <TextArea rows={6} placeholder="1. Surface cleaning..." />
+                <TextArea rows={5} placeholder="1. Surface cleaning...&#10;2. Sanding...&#10;3. Priming..." />
               </Form.Item>
 
-              <Form.Item label="Drywall Repair Process" name="drywallRepairProcess">
-                <TextArea rows={6} placeholder="1. Assessment of damage..." />
+              <Form.Item label="Ceiling Process" name="ceilingProcess">
+                <TextArea rows={5} placeholder="1. Surface preparation...&#10;2. Priming...&#10;3. Painting..." />
               </Form.Item>
 
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
@@ -181,15 +180,11 @@ function ProposalDefaultsPage() {
           <TabPane tab="Warranty" key="warranty">
             <Card>
               <Form.Item label="Standard Warranty" name="standardWarranty">
-                <TextArea rows={6} placeholder="2-Year Workmanship Warranty..." />
+                <TextArea rows={6} placeholder="2-Year Workmanship Warranty...&#10;Coverage details...&#10;Exclusions..." />
               </Form.Item>
 
               <Form.Item label="Premium Warranty" name="premiumWarranty">
-                <TextArea rows={6} placeholder="5-Year Premium Warranty..." />
-              </Form.Item>
-
-              <Form.Item label="Exterior Warranty" name="exteriorWarranty">
-                <TextArea rows={6} placeholder="5-Year Exterior Warranty..." />
+                <TextArea rows={6} placeholder="5-Year Premium Warranty...&#10;Extended coverage...&#10;Additional benefits..." />
               </Form.Item>
 
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
@@ -201,16 +196,18 @@ function ProposalDefaultsPage() {
           {/* 4. Payments */}
           <TabPane tab="Payments" key="payments">
             <Card>
-              <Form.Item label="Payment Terms" name="paymentTermsText">
-                <TextArea rows={6} placeholder="- 50% deposit required..." />
+              <Form.Item label="Payment Terms & Schedule" name="paymentTermsSchedule">
+                <TextArea 
+                  rows={8} 
+                  placeholder="Payment Schedule:&#10;- 50% deposit required to begin work&#10;- 25% at project midpoint&#10;- 25% upon completion&#10;&#10;Terms:&#10;- Payment due within 3 business days of invoice&#10;- Late fees of 1.5% per month may apply" 
+                />
               </Form.Item>
 
               <Form.Item label="Payment Methods" name="paymentMethods">
-                <TextArea rows={6} placeholder="We accept: Credit/Debit, ACH..." />
-              </Form.Item>
-
-              <Form.Item label="Late Payment Policy" name="latePaymentPolicy">
-                <TextArea rows={4} placeholder="Late fees of 1.5% per month..." />
+                <TextArea 
+                  rows={5} 
+                  placeholder="We accept the following payment methods:&#10;- Credit/Debit Cards (Visa, MasterCard, American Express)&#10;- ACH/Bank Transfer&#10;- Cash or Check&#10;- Financing options available" 
+                />
               </Form.Item>
 
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
@@ -223,11 +220,11 @@ function ProposalDefaultsPage() {
           <TabPane tab="Responsibilities" key="responsibilities">
             <Card>
               <Form.Item label="Client Responsibilities" name="clientResponsibilities">
-                <TextArea rows={8} placeholder="Client agrees to: Move furniture..." />
+                <TextArea rows={8} placeholder="Client agrees to:&#10;- Move furniture and personal items from work areas&#10;- Provide access to water and electricity&#10;- Ensure pets are secured&#10;- Clear work areas of obstacles..." />
               </Form.Item>
 
               <Form.Item label="Contractor Responsibilities" name="contractorResponsibilities">
-                <TextArea rows={8} placeholder="We guarantee: Arrive on time..." />
+                <TextArea rows={8} placeholder="We guarantee to:&#10;- Arrive on time and ready to work&#10;- Protect your property with drop cloths and coverings&#10;- Clean up daily and thoroughly at project completion&#10;- Maintain professional conduct..." />
               </Form.Item>
 
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
@@ -236,63 +233,25 @@ function ProposalDefaultsPage() {
             </Card>
           </TabPane>
 
-          {/* 6. Policies */}
-          <TabPane tab="Policies" key="policies">
-            <Card>
-              <Form.Item label="Touch-Up Policy" name="touchUpPolicy">
-                <TextArea rows={3} />
-              </Form.Item>
+          {/* 6. Product Setup & GBB Defaults (Combined) */}
+          <TabPane tab="Product Setup & GBB" key="products">
+            <Card title="Product Strategy Configuration">
+              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+                <Form.Item label="Product Strategy" name="gbbSetupEnabled" valuePropName="checked" className="mb-2">
+                  <Switch checkedChildren="GBB Enabled" unCheckedChildren="GBB Disabled" />
+                </Form.Item>
 
-              <Form.Item label="Final Walkthrough Policy" name="finalWalkthroughPolicy">
-                <TextArea rows={3} />
-              </Form.Item>
+                <Form.Item label="Single System" name="singleSystemEnabled" valuePropName="checked" className="mb-0">
+                  <Switch checkedChildren="Enabled" unCheckedChildren="Disabled" />
+                </Form.Item>
+              </div>
 
-              <Form.Item label="Change Order Policy" name="changeOrderPolicy">
-                <TextArea rows={3} />
-              </Form.Item>
-
-              <Form.Item label="Color Disclaimer" name="colorDisclaimer">
-                <TextArea rows={2} />
-              </Form.Item>
-
-              <Form.Item label="Surface Condition Disclaimer" name="surfaceConditionDisclaimer">
-                <TextArea rows={2} />
-              </Form.Item>
-
-              <Form.Item label="Paint Failure Disclaimer" name="paintFailureDisclaimer">
-                <TextArea rows={2} />
-              </Form.Item>
-
-              <Form.Item label="General Proposal Disclaimer" name="generalProposalDisclaimer">
-                <TextArea rows={2} />
-              </Form.Item>
-
-              <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
-                Save Policy Defaults
-              </Button>
-            </Card>
-          </TabPane>
-
-          {/* 7. Product Setup */}
-          <TabPane tab="Product Setup" key="products">
-            <Card>
-              <Form.Item label="Product Strategy" name="gbbSetupEnabled" valuePropName="checked">
-                <Switch checkedChildren="GBB Enabled" unCheckedChildren="GBB Disabled" />
-              </Form.Item>
-
-              <Form.Item label="Single System" name="singleSystemEnabled" valuePropName="checked">
-                <Switch checkedChildren="Enabled" unCheckedChildren="Disabled" />
-              </Form.Item>
-
-              <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
+              <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />} className="mb-6">
                 Save Product Setup
               </Button>
             </Card>
-          </TabPane>
 
-          {/* 8. GBB Defaults */}
-          <TabPane tab="GBB Defaults" key="gbb">
-            <Card title="Good-Better-Best Product Defaults">
+            <Card title="Good-Better-Best Product Defaults" className="mt-4">
               <p className="text-gray-600 mb-6">
                 Set default products and pricing for each surface type. These will auto-populate during quoting.
               </p>
@@ -393,19 +352,22 @@ function ProposalDefaultsPage() {
             </Card>
           </TabPane>
 
-          {/* 9. Acceptance */}
+          {/* 7. Acceptance & Signature Agreement (Combined) */}
           <TabPane tab="Acceptance" key="acceptance">
             <Card>
-              <Form.Item label="Legal Acknowledgement Text" name="legalAcknowledgement">
-                <TextArea rows={4} placeholder="By signing below, you acknowledge..." />
-              </Form.Item>
-
-              <Form.Item label="Signature Statement" name="signatureStatement">
-                <TextArea rows={3} placeholder="Digital signatures are legally binding..." />
+              <Form.Item 
+                label="Acceptance & Signature Agreement" 
+                name="acceptanceSignatureAgreement"
+                tooltip="Combined legal acknowledgement and signature statement"
+              >
+                <TextArea 
+                  rows={8} 
+                  placeholder="ACCEPTANCE & SIGNATURE AGREEMENT&#10;&#10;By signing below, you acknowledge that you have read, understood, and agree to all terms and conditions outlined in this proposal.&#10;&#10;Legal Acknowledgement:&#10;This agreement constitutes a binding contract between the parties...&#10;&#10;Digital Signature Statement:&#10;Digital signatures are legally binding and carry the same weight as handwritten signatures..." 
+                />
               </Form.Item>
 
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
-                Save Acceptance Defaults
+                Save Acceptance Agreement
               </Button>
             </Card>
           </TabPane>

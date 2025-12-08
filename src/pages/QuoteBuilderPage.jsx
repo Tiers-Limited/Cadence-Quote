@@ -11,6 +11,7 @@ import {
 import CustomerInfoStep from '../components/QuoteBuilder/CustomerInfoStep';
 import JobTypeStep from '../components/QuoteBuilder/JobTypeStep';
 import AreasStepEnhanced from '../components/QuoteBuilder/AreasStepEnhanced';
+import ExteriorAreasStep from '../components/QuoteBuilder/ExteriorAreasStep';
 import ProductsStep from '../components/QuoteBuilder/ProductsStep';
 import SummaryStep from '../components/QuoteBuilder/SummaryStep';
 import { quoteBuilderApi } from '../services/quoteBuilderApi';
@@ -340,7 +341,15 @@ function QuoteBuilderPage() {
         );
       
       case 2:
-        return (
+        // Use ExteriorAreasStep for exterior jobs, AreasStepEnhanced for interior
+        return formData.jobType === 'exterior' ? (
+          <ExteriorAreasStep
+            formData={formData}
+            onUpdate={handleStepDataUpdate}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+          />
+        ) : (
           <AreasStepEnhanced
             formData={formData}
             onUpdate={handleStepDataUpdate}

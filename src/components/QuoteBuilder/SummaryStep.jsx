@@ -648,6 +648,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         onClose={() => setShowProposalPreview(false)}
         quoteData={formData}
         calculatedQuote={calculatedQuote}
+        pricingSchemes={pricingSchemes}
       />
     </div>
   );

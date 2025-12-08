@@ -1,24 +1,99 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { message, Button, Alert, Card, Row, Col, Statistic, Progress } from 'antd'
+import { message, Button, Alert, Card, Row, Col, Statistic, Progress, Spin } from 'antd'
 import { Mail, CheckCircle, TrendingUp, TrendingDown, DollarSign, Users, FileText, Clock } from 'lucide-react'
 import { apiService } from '../services/apiService'
+import dashboardService from '../services/dashboardService'
 import MainLayout from '../components/MainLayout'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
+import { useState, useEffect } from 'react'
 
 function DashboardPage () {
   const navigate = useNavigate()
   const { user } = useAuth()
 
-  // Job Analytics Data
-  const jobAnalyticsData = [
-    { name: 'Material %', value: 35, color: '#3b82f6' }, // Blue
-    { name: 'Labor %', value: 40, color: '#10b981' },    // Green
-    { name: 'Overhead %', value: 15, color: '#f59e0b' }, // Orange
-    { name: 'Net Profit %', value: 10, color: '#8b5cf6' } // Purple
-  ]
+  // State for dashboard data
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    totalRevenue: 0,
+    activeQuotes: 0,
+    completedJobs: 0,
+    avgJobValue: 0,
+    revenueChange: '+0%',
+    quotesChange: '+0',
+    jobsChange: '+0',
+    avgChange: '+0%'
+  })
+  const [jobAnalyticsData, setJobAnalyticsData] = useState([
+    { name: 'Material %', value: 35, color: '#3b82f6' },
+    { name: 'Labor %', value: 40, color: '#10b981' },
+    { name: 'Overhead %', value: 15, color: '#f59e0b' },
+    { name: 'Net Profit %', value: 10, color: '#8b5cf6' }
+  ])
+  const [recentActivity, setRecentActivity] = useState([])
+  const [monthlyPerformance, setMonthlyPerformance] = useState({
+    quotesSent: 0,
+    conversionRate: '0.0',
+    avgResponseTime: '0.0',
+    revenue: '0.0'
+  })
+  const [totalJobs, setTotalJobs] = useState(0)
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
+
+  // Fetch dashboard data on mount
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    setLoading(true)
+    try {
+      const [dashboardStats, analytics, performance, activity] = await Promise.all([
+        dashboardService.getDashboardStats(),
+        dashboardService.getJobAnalytics(),
+        dashboardService.getMonthlyPerformance(),
+        dashboardService.getRecentActivity(10)
+      ])
+
+      // Update stats from backend
+      if (dashboardStats.success && dashboardStats.data.stats) {
+        const statsData = dashboardStats.data.stats
+        setStats({
+          totalRevenue: statsData.totalRevenue || 0,
+          activeQuotes: statsData.activeQuotes || 0,
+          completedJobs: statsData.completedJobs || 0,
+          avgJobValue: statsData.avgJobValue || 0,
+          revenueChange: statsData.revenueChange || '0%',
+          quotesChange: statsData.quotesChange || '0',
+          jobsChange: statsData.jobsChange || '0',
+          avgChange: statsData.avgChange || '0%'
+        })
+      }
+
+      // Update job analytics
+      if (analytics.success) {
+        setJobAnalyticsData(analytics.data)
+        setTotalJobs(analytics.totalJobs || 0)
+      }
+
+      // Update monthly performance
+      if (performance.success) {
+        setMonthlyPerformance(performance.data)
+      }
+
+      // Update recent activity
+      if (activity.success) {
+        setRecentActivity(activity.data || [])
+      }
+
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error)
+      message.error('Failed to load dashboard data')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSendVerification = async () => {
     try {
@@ -34,11 +109,14 @@ function DashboardPage () {
     }
   }
 
-  const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) => {
+  const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, value }) => {
     const RADIAN = Math.PI / 180
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5
     const x = cx + radius * Math.cos(-midAngle * RADIAN)
     const y = cy + radius * Math.sin(-midAngle * RADIAN)
+
+    // Only show label if value is greater than 0
+    if (value === 0) return null
 
     return (
       <text
@@ -47,15 +125,40 @@ function DashboardPage () {
         fill="white"
         textAnchor={x > cx ? 'start' : 'end'}
         dominantBaseline="central"
-        className="font-semibold"
+        className="font-semibold text-sm"
       >
-        {`${(percent * 100).toFixed(0)}%`}
+        {`${value}%`}
       </text>
     )
   }
 
+  const getTimeAgo = (dateString) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffInMs = now - date
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60))
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24))
+
+    if (diffInHours < 1) {
+      const diffInMinutes = Math.floor(diffInMs / (1000 * 60))
+      return `${diffInMinutes} ${diffInMinutes === 1 ? 'minute' : 'minutes'} ago`
+    } else if (diffInHours < 24) {
+      return `${diffInHours} ${diffInHours === 1 ? 'hour' : 'hours'} ago`
+    } else if (diffInDays < 7) {
+      return `${diffInDays} ${diffInDays === 1 ? 'day' : 'days'} ago`
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+  }
+
   return (
       <div className='content-wrapper'>
+        {loading ? (
+          <div className="flex items-center justify-center h-96">
+            <Spin size="large" tip="Loading dashboard..." />
+          </div>
+        ) : (
+          <>
         {/* Header */}
         <div className='flex flex-col sm:flex-row sm:items-center justify-between mb-6 sm:mb-8 gap-4 sm:gap-0'>
           <div>
@@ -100,32 +203,32 @@ function DashboardPage () {
         <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8'>
           <StatCard 
             title='Total Revenue' 
-            value='$87,100' 
-            change='+12.5%' 
+            value={`$${stats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+            change={stats.revenueChange}
             isPositive={true}
             icon={<DollarSign className="w-6 h-6" />}
             color="blue"
           />
           <StatCard 
             title='Active Quotes' 
-            value='25' 
-            change='+3' 
+            value={stats.activeQuotes.toString()}
+            change={stats.quotesChange}
             isPositive={true}
             icon={<FileText className="w-6 h-6" />}
             color="green"
           />
           <StatCard 
             title='Completed Jobs' 
-            value='142' 
-            change='+18' 
+            value={stats.completedJobs.toString()}
+            change={stats.jobsChange}
             isPositive={true}
             icon={<CheckCircle className="w-6 h-6" />}
             color="purple"
           />
           <StatCard 
             title='Avg. Job Value' 
-            value='$3,484' 
-            change='+8.2%' 
+            value={`$${stats.avgJobValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+            change={stats.avgChange}
             isPositive={true}
             icon={<TrendingUp className="w-6 h-6" />}
             color="orange"
@@ -140,7 +243,6 @@ function DashboardPage () {
               <h3 className='text-lg sm:text-xl font-bold text-gray-900'>
                 Job Analytics
               </h3>
-              <Button size="small" type="link">View Details</Button>
             </div>
             
             <div className="h-64 sm:h-80">
@@ -152,23 +254,29 @@ function DashboardPage () {
                     cy="50%"
                     labelLine={false}
                     label={renderCustomLabel}
-                    outerRadius={80}
-                    innerRadius={40}
+                    outerRadius={window.innerWidth < 640 ? 60 : 80}
+                    innerRadius={window.innerWidth < 640 ? 30 : 40}
                     fill="#8884d8"
                     dataKey="value"
+                    paddingAngle={2}
                   >
                     {jobAnalyticsData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell key={`cell-${entry.name}`} fill={entry.color} />
                     ))}
                   </Pie>
                   <Tooltip 
                     formatter={(value) => `${value}%`}
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                    contentStyle={{ 
+                      borderRadius: '8px', 
+                      border: '1px solid #e5e7eb',
+                      fontSize: '14px'
+                    }}
                   />
                   <Legend 
                     verticalAlign="bottom" 
                     height={36}
                     iconType="circle"
+                    wrapperStyle={{ fontSize: '12px' }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -176,8 +284,8 @@ function DashboardPage () {
 
             {/* Breakdown Details */}
             <div className="mt-6 space-y-3">
-              {jobAnalyticsData.map((item, index) => (
-                <div key={index} className="flex items-center justify-between">
+              {jobAnalyticsData.map((item) => (
+                <div key={item.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div 
                       className="w-3 h-3 rounded-full" 
@@ -203,11 +311,13 @@ function DashboardPage () {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Total Jobs</p>
-                  <p className="text-lg sm:text-xl font-bold text-gray-900">142</p>
+                  <p className="text-lg sm:text-xl font-bold text-gray-900">{totalJobs}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Avg. Margin</p>
-                  <p className="text-lg sm:text-xl font-bold text-green-600">10%</p>
+                  <p className="text-lg sm:text-xl font-bold text-green-600">
+                    {jobAnalyticsData.find(item => item.name === 'Net Profit %')?.value || 10}%
+                  </p>
                 </div>
               </div>
             </div>
@@ -245,37 +355,29 @@ function DashboardPage () {
                 <h3 className='text-lg sm:text-xl font-bold text-gray-900'>
                   Recent Activity
                 </h3>
-                <Button size="small" type="link">View All</Button>
+                <Button size="small" type="link" onClick={() => navigate('/quotes')}>View All</Button>
               </div>
               <div className='space-y-4'>
-                <ActivityItem 
-                  title='Quote #1247 - Johnson Residence' 
-                  description='Interior painting - 3 rooms'
-                  time='2 hours ago' 
-                  status='pending'
-                  amount='$2,450'
-                />
-                <ActivityItem 
-                  title='Quote #1246 - Smith Property' 
-                  description='Exterior painting - Full house'
-                  time='5 hours ago' 
-                  status='accepted'
-                  amount='$8,750'
-                />
-                <ActivityItem 
-                  title='Quote #1245 - Davis Commercial' 
-                  description='Office repaint - 12 rooms'
-                  time='1 day ago' 
-                  status='completed'
-                  amount='$15,200'
-                />
-                <ActivityItem 
-                  title='Quote #1244 - Brown Condo' 
-                  description='Kitchen cabinets refinishing'
-                  time='2 days ago' 
-                  status='declined'
-                  amount='$3,100'
-                />
+                {recentActivity.length > 0 ? (
+                  recentActivity.slice(0, 4).map((activity) => (
+                    <ActivityItem 
+                      key={activity.id}
+                      title={`Quote #${activity.quoteNumber} - ${activity.customerName}`}
+                      description={activity.description}
+                      time={getTimeAgo(activity.createdAt)}
+                      status={activity.status}
+                      amount={`$${Number.parseFloat(activity.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    />
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No recent activity</p>
+                    <Button type="primary" className="mt-4" onClick={() => navigate('/quotes/new')}>
+                      Create Your First Quote
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -288,7 +390,7 @@ function DashboardPage () {
                 <Card className="text-center">
                   <Statistic
                     title="Quotes Sent"
-                    value={48}
+                    value={monthlyPerformance.quotesSent}
                     valueStyle={{ color: '#3b82f6', fontSize: '24px' }}
                     prefix={<FileText className="w-4 h-4" />}
                   />
@@ -296,7 +398,7 @@ function DashboardPage () {
                 <Card className="text-center">
                   <Statistic
                     title="Conversion"
-                    value={68}
+                    value={monthlyPerformance.conversionRate}
                     valueStyle={{ color: '#10b981', fontSize: '24px' }}
                     suffix="%"
                     prefix={<TrendingUp className="w-4 h-4" />}
@@ -305,7 +407,7 @@ function DashboardPage () {
                 <Card className="text-center">
                   <Statistic
                     title="Avg. Response"
-                    value={2.4}
+                    value={monthlyPerformance.avgResponseTime}
                     valueStyle={{ color: '#f59e0b', fontSize: '24px' }}
                     suffix="hrs"
                     prefix={<Clock className="w-4 h-4" />}
@@ -314,7 +416,7 @@ function DashboardPage () {
                 <Card className="text-center">
                   <Statistic
                     title="Revenue"
-                    value={87.1}
+                    value={monthlyPerformance.revenue}
                     valueStyle={{ color: '#8b5cf6', fontSize: '24px' }}
                     prefix="$"
                     suffix="K"
@@ -324,6 +426,8 @@ function DashboardPage () {
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
   )
 }
@@ -370,9 +474,13 @@ function ActionButton ({ label, onClick, icon }) {
 
 function ActivityItem ({ title, description, time, status, amount }) {
   const statusConfig = {
+    draft: { color: 'bg-gray-100 text-gray-800', label: 'Draft' },
+    sent: { color: 'bg-yellow-100 text-yellow-800', label: 'Sent' },
     pending: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
     accepted: { color: 'bg-green-100 text-green-800', label: 'Accepted' },
+    scheduled: { color: 'bg-blue-100 text-blue-800', label: 'Scheduled' },
     completed: { color: 'bg-blue-100 text-blue-800', label: 'Completed' },
+    rejected: { color: 'bg-red-100 text-red-800', label: 'Rejected' },
     declined: { color: 'bg-red-100 text-red-800', label: 'Declined' }
   }
 

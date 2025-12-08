@@ -15,7 +15,8 @@ import {
   Switch,
   Tabs,
   Radio,
-  Badge
+  Badge,
+  Alert
 } from 'antd'
 import { EditOutlined } from '@ant-design/icons'
 import '../styles/cards.css'
@@ -112,6 +113,8 @@ function SettingsPage () {
         // Populate settings form (quote settings)
         settingsForm.setFieldsValue({
           defaultMarkupPercent: data.defaultMarkupPercentage,
+          overheadPercent: data.overheadPercentage || 10,
+          profitMarginPercent: data.profitMarginPercentage || 35,
           defaultTaxPercent: data.taxRatePercentage,
           defaultDepositPercent: data.depositPercentage,
           paymentTerms: data.paymentTerms,
@@ -178,6 +181,8 @@ function SettingsPage () {
     try {
       const payload = {
         defaultMarkupPercentage: values.defaultMarkupPercent,
+        // overheadPercentage: values.overheadPercent, // TODO: Uncomment when DB migration is run
+        // profitMarginPercentage: values.profitMarginPercent, // TODO: Uncomment when DB migration is run
         taxRatePercentage: values.defaultTaxPercent,
         depositPercentage: values.defaultDepositPercent,
         paymentTerms: values.paymentTerms,
@@ -539,11 +544,20 @@ function SettingsPage () {
                   onFinish={handleSaveSettings}
                   className='max-w-2xl'
                 >
-                  <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+                  <Alert
+                    message='US Industry Standard Pricing'
+                    description='Formula: (Materials + Labor + Overhead) × (1 + Profit Margin) + Tax'
+                    type='info'
+                    showIcon
+                    className='mb-4'
+                  />
+
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                     <Form.Item
-                      label='Default Markup %'
+                      label='Material Markup %'
                       name='defaultMarkupPercent'
                       rules={[{ required: true, message: 'Required' }]}
+                      tooltip='Covers material handling, storage, and waste (Industry: 30-50%)'
                     >
                       <InputNumber
                         size='large'
@@ -557,9 +571,44 @@ function SettingsPage () {
                     </Form.Item>
 
                     <Form.Item
-                      label='Default Tax %'
+                      label='Overhead %'
+                      name='overheadPercent'
+                      rules={[{ required: true, message: 'Required' }]}
+                      tooltip='Transportation, equipment, insurance (Industry standard: 10%)'
+                    >
+                      <InputNumber
+                        size='large'
+                        min={0}
+                        max={100}
+                        precision={2}
+                        style={{ width: '100%' }}
+                        formatter={value => `${value}%`}
+                        parser={value => value.replace('%', '')}
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      label='Profit Margin %'
+                      name='profitMarginPercent'
+                      rules={[{ required: true, message: 'Required' }]}
+                      tooltip='Business profit and growth (Industry range: 20-50%)'
+                    >
+                      <InputNumber
+                        size='large'
+                        min={0}
+                        max={100}
+                        precision={2}
+                        style={{ width: '100%' }}
+                        formatter={value => `${value}%`}
+                        parser={value => value.replace('%', '')}
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      label='Sales Tax %'
                       name='defaultTaxPercent'
                       rules={[{ required: true, message: 'Required' }]}
+                      tooltip='Applied to final subtotal (varies by location)'
                     >
                       <InputNumber
                         size='large'
@@ -573,9 +622,10 @@ function SettingsPage () {
                     </Form.Item>
 
                     <Form.Item
-                      label='Default Deposit %'
+                      label='Deposit %'
                       name='defaultDepositPercent'
                       rules={[{ required: true, message: 'Required' }]}
+                      tooltip='Percentage of total due at signing'
                     >
                       <InputNumber
                         size='large'
