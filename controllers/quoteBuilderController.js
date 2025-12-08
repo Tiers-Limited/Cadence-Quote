@@ -15,6 +15,149 @@ const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const User = require('../models/User');
 const emailService = require('../services/emailService');
+const PDFGenerator = require('../utils/pdfGenerator');
+
+/**
+ * Helper function to calculate quote pricing
+ * @param {Object} quote - The quote object
+ * @param {Number} tenantId - The tenant ID
+ * @returns {Object} - Pricing calculation results
+ */
+async function calculateQuotePricing(quote, tenantId) {
+  try {
+    // Get contractor settings for default markups and tax rates
+    const settings = await ContractorSettings.findOne({
+      where: { tenantId },
+    });
+
+    const defaultMarkup = settings?.defaultMarkup || 25;
+    const taxRate = settings?.taxRate || 8.25;
+
+    // Initialize pricing totals
+    let laborTotal = 0;
+    let materialTotal = 0;
+    let totalSqft = 0;
+    const breakdown = [];
+
+    // Get pricing scheme
+    const pricingScheme = await PricingScheme.findByPk(quote.pricingSchemeId);
+    const schemeType = pricingScheme?.type || 'sqft_turnkey';
+
+    const areas = quote.areas || [];
+    const productSets = quote.productSets || [];
+
+    // Process each area
+    for (const area of areas) {
+      const areaBreakdown = {
+        areaName: area.name,
+        items: [],
+        totalLabor: 0,
+        totalMaterial: 0,
+      };
+
+      // Process labor items (new structure)
+      if (area.laborItems && Array.isArray(area.laborItems)) {
+        for (const item of area.laborItems) {
+          if (!item.selected) continue;
+
+          let quantity = item.quantity || 0;
+          
+          // Calculate quantity from dimensions if provided
+          if (item.dimensions && item.dimensions.width && item.dimensions.height) {
+            if (item.measurementUnit === 'sqft') {
+              quantity = item.dimensions.width * item.dimensions.height * (item.dimensions.length || 1);
+            } else if (item.measurementUnit === 'linear_foot') {
+              quantity = (item.dimensions.width + item.dimensions.height) * 2;
+            }
+          }
+
+          const laborCost = quantity * (item.laborRate || 0) * (item.numberOfCoats || 1);
+          
+          // Find product set for this surface type
+          const productSet = productSets.find(ps => 
+            ps.surfaceType === item.categoryName
+          );
+
+          let materialCost = 0;
+          if (productSet && productSet.prices) {
+            // Use the middle tier (better) as default
+            const productPrice = parseFloat(productSet.prices.better || productSet.prices.good || productSet.prices.best || 0);
+            const gallons = item.gallons || (quantity / 350); // ~350 sqft per gallon coverage
+            materialCost = gallons * productPrice * (item.numberOfCoats || 1);
+          }
+
+          laborTotal += laborCost;
+          materialTotal += materialCost;
+          totalSqft += quantity;
+
+          areaBreakdown.items.push({
+            category: item.categoryName,
+            quantity,
+            unit: item.measurementUnit,
+            laborRate: item.laborRate,
+            coats: item.numberOfCoats,
+            laborCost,
+            materialCost,
+          });
+
+          areaBreakdown.totalLabor += laborCost;
+          areaBreakdown.totalMaterial += materialCost;
+        }
+      }
+
+      if (areaBreakdown.items.length > 0) {
+        breakdown.push(areaBreakdown);
+      }
+    }
+
+    // Calculate overhead
+    const overhead = 0; // Can add travel/cleanup costs here
+
+    // Subtotal before markup
+    const subtotalBeforeMarkup = laborTotal + materialTotal + overhead;
+
+    // Apply markup on materials
+    const markupAmount = materialTotal * (defaultMarkup / 100);
+
+    // Subtotal after markup
+    const subtotal = subtotalBeforeMarkup + markupAmount;
+
+    // Calculate tax (on materials + markup)
+    const taxableAmount = materialTotal + markupAmount;
+    const taxAmount = taxableAmount * (taxRate / 100);
+
+    // Final total
+    const total = subtotal + taxAmount;
+
+    return {
+      laborTotal: parseFloat(laborTotal.toFixed(2)),
+      materialTotal: parseFloat(materialTotal.toFixed(2)),
+      subtotal: parseFloat(subtotal.toFixed(2)),
+      markupAmount: parseFloat(markupAmount.toFixed(2)),
+      markupPercent: parseFloat(defaultMarkup.toFixed(2)),
+      taxAmount: parseFloat(taxAmount.toFixed(2)),
+      taxRate: parseFloat(taxRate.toFixed(2)),
+      total: parseFloat(total.toFixed(2)),
+      totalSqft: parseFloat(totalSqft.toFixed(2)),
+      breakdown,
+    };
+  } catch (error) {
+    console.error('Calculate quote pricing error:', error);
+    // Return zeros if calculation fails
+    return {
+      laborTotal: 0,
+      materialTotal: 0,
+      subtotal: 0,
+      markupAmount: 0,
+      markupPercent: 0,
+      taxAmount: 0,
+      taxRate: 0,
+      total: 0,
+      totalSqft: null,
+      breakdown: [],
+    };
+  }
+}
 
 /**
  * Detect existing client by email or phone
@@ -191,6 +334,27 @@ exports.saveDraft = async (req, res) => {
 
     if (Object.keys(updateData).length > 0) {
       await quote.update(updateData, { transaction });
+    }
+
+    // Calculate pricing totals if areas or productSets are provided
+    if (areas || productSets) {
+      const pricingCalculation = await calculateQuotePricing(quote, tenantId);
+      
+      // Update quote with calculated pricing
+      await quote.update({
+        subtotal: pricingCalculation.subtotal,
+        laborTotal: pricingCalculation.laborTotal,
+        materialTotal: pricingCalculation.materialTotal,
+        markup: pricingCalculation.markupAmount,
+        markupPercent: pricingCalculation.markupPercent,
+        zipMarkup: pricingCalculation.zipMarkupAmount || 0,
+        zipMarkupPercent: pricingCalculation.zipMarkupPercent || 0,
+        tax: pricingCalculation.taxAmount,
+        taxPercent: pricingCalculation.taxRate,
+        total: pricingCalculation.total,
+        totalSqft: pricingCalculation.totalSqft,
+        breakdown: pricingCalculation.breakdown,
+      }, { transaction });
     }
 
     // Create audit log
@@ -710,15 +874,38 @@ exports.sendQuote = async (req, res) => {
       transaction,
     });
 
+    // Commit transaction before async operations (email, PDF)
     await transaction.commit();
 
-    // Calculate quote totals for email
+    // Calculate quote totals for email (after commit)
     const calculation = await this.calculateQuoteData(quote);
 
     // Get contractor info
-    const contractor = await User.findByPk(userId, {
-      include: [{ model: ContractorSettings, as: 'contractorSettings' }]
+    const contractor = await User.findByPk(userId);
+
+    // Get contractor settings for PDF
+    const settings = await ContractorSettings.findOne({
+      where: { tenantId }
     });
+
+    // Generate PDF
+    let pdfBuffer = null;
+    try {
+      pdfBuffer = await PDFGenerator.generateQuotePDF({
+        quote: quote.toJSON(),
+        calculation,
+        contractor: {
+          name: contractor.fullName,
+          email: contractor.email,
+          phone: settings?.phone,
+          companyName: settings?.businessName || 'Our Painting Team'
+        },
+        settings
+      });
+    } catch (pdfError) {
+      console.error('Error generating PDF:', pdfError);
+      // Continue without PDF if generation fails
+    }
 
     // Send email notification
     try {
@@ -730,14 +917,15 @@ exports.sendQuote = async (req, res) => {
         contractor: {
           name: contractor.fullName,
           email: contractor.email,
-          phone: contractor.contractorSettings?.phone,
-          companyName: contractor.contractorSettings?.businessName || 'Our Painting Team'
+          phone: settings?.phone,
+          companyName: settings?.businessName || 'Our Painting Team'
         },
-        quoteViewUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/customer/quote/${quote.id}`
+        quoteViewUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/customer/quote/${quote.id}`,
+        pdfBuffer
       });
     } catch (emailError) {
       console.error('Error sending quote email:', emailError);
-      // Don't fail the request if email fails
+      // Don't fail the request if email fails - quote is already marked as sent
     }
 
     res.json({
@@ -746,7 +934,10 @@ exports.sendQuote = async (req, res) => {
       quote,
     });
   } catch (error) {
-    await transaction.rollback();
+    // Only rollback if transaction is still pending
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
     console.error('Send quote error:', error);
     res.status(500).json({
       success: false,
@@ -757,35 +948,169 @@ exports.sendQuote = async (req, res) => {
 };
 
 /**
- * Helper function to calculate quote totals (reusable)
+ * Professional Quote Calculation Engine - US Industry Standard
+ * Formula: Total = ((Materials + Labor + Overhead) × (1 + Profit Margin)) + Tax
+ * 
+ * Materials: Paint/Primer cost calculated from gallons needed and price per gallon
+ * Labor: Cost from selected labor items (typically $/sq ft or hourly rate)
+ * Overhead: Business expenses (transportation, equipment, insurance) - typically 10%
+ * Profit Margin: Business profit (typically 20-50%)
+ * Tax: Sales tax applied to final subtotal
  */
 exports.calculateQuoteData = async (quote) => {
-  const { areas, productSets } = quote;
-  const pricingScheme = quote.pricingScheme;
+  const { areas, productSets, pricingScheme } = quote;
   
   let laborTotal = 0;
-  let materialTotal = 0;
+  let materialCost = 0; // Raw material cost
+  let materialTotal = 0; // Material cost after markup
   const breakdown = [];
-
+  
+  // Get contractor settings for pricing parameters
+  const settings = await ContractorSettings.findOne({
+    where: { tenantId: quote.tenantId }
+  });
+  
+  const markupPercent = parseFloat(settings?.defaultMarkupPercentage || 30);
+  const overheadPercent = 10; // Default overhead percentage (use setting when DB column exists)
+  const profitMarginPercent = 35; // Default profit margin percentage (use setting when DB column exists)
+  const taxPercent = parseFloat(settings?.taxRatePercentage || 8.25);
+  
+  // 1. Calculate Labor from Areas
   for (const area of areas || []) {
+    const areaLabor = {
+      areaName: area.name,
+      items: [],
+      areaTotal: 0
+    };
+    
     if (area.laborItems) {
       for (const item of area.laborItems || []) {
         if (!item.selected) continue;
+        
         const quantity = parseFloat(item.quantity) || 0;
+        const laborRate = parseFloat(item.laborRate) || 0;
+        const coats = parseInt(item.numberOfCoats) || 1;
+        
         if (!quantity) continue;
         
-        laborTotal += quantity * (parseFloat(item.laborRate) || 0);
-        materialTotal += (item.gallons || 0) * 35; // Simplified
+        // Calculate labor cost (quantity could be sq ft, hours, etc.)
+        const itemLaborCost = quantity * laborRate;
+        laborTotal += itemLaborCost;
+        
+        areaLabor.items.push({
+          name: item.categoryName,
+          quantity: quantity,
+          unit: item.measurementUnit,
+          rate: laborRate,
+          coats: coats,
+          gallons: item.gallons || 0,
+          laborCost: itemLaborCost
+        });
+        
+        areaLabor.areaTotal += itemLaborCost;
       }
     }
+    
+    if (areaLabor.items.length > 0) {
+      breakdown.push(areaLabor);
+    }
   }
-
-  const total = laborTotal + materialTotal;
+  
+  // 2. Calculate Materials from Product Sets
+  const productCosts = {};
+  
+  for (const set of productSets || []) {
+    const productsList = Array.isArray(set.products) ? set.products : [];
+    
+    for (const product of productsList) {
+      if (!product.selected) continue;
+      
+      const gallons = parseFloat(product.gallonsNeeded) || 0;
+      const pricePerGallon = parseFloat(product.pricePerGallon) || 0;
+      
+      if (!gallons || !pricePerGallon) continue;
+      
+      // Material cost (raw cost before any markup)
+      const productCost = gallons * pricePerGallon;
+      materialCost += productCost;
+      
+      if (!productCosts[product.productId]) {
+        productCosts[product.productId] = {
+          name: product.name || `Product ${product.productId}`,
+          gallons: 0,
+          pricePerGallon: pricePerGallon,
+          cost: 0
+        };
+      }
+      
+      productCosts[product.productId].gallons += gallons;
+      productCosts[product.productId].cost += productCost;
+    }
+  }
+  
+  // 3. Apply Markup to Materials (to cover material handling, storage, waste)
+  materialTotal = materialCost * (1 + markupPercent / 100);
+  
+  // 4. Calculate Overhead (transportation, equipment rental, insurance)
+  const baseAmount = laborTotal + materialTotal;
+  const overhead = baseAmount * (overheadPercent / 100);
+  
+  // 5. Calculate Subtotal Before Profit
+  const subtotalBeforeProfit = laborTotal + materialTotal + overhead;
+  
+  // 6. Apply Profit Margin
+  const profitAmount = subtotalBeforeProfit * (profitMarginPercent / 100);
+  
+  // 7. Calculate Subtotal (before tax)
+  const subtotal = subtotalBeforeProfit + profitAmount;
+  
+  // 8. Calculate Tax (on subtotal including profit)
+  const tax = subtotal * (taxPercent / 100);
+  
+  // 9. Calculate Grand Total
+  const total = subtotal + tax;
+  
+  // 10. Calculate Deposit (typically on total)
+  const depositPercent = parseFloat(settings?.depositPercentage || 50);
+  const deposit = total * (depositPercent / 100);
   
   return {
+    // Labor
     laborTotal: parseFloat(laborTotal.toFixed(2)),
-    materialTotal: parseFloat(materialTotal.toFixed(2)),
+    
+    // Materials
+    materialCost: parseFloat(materialCost.toFixed(2)), // Raw material cost
+    materialMarkupPercent: markupPercent,
+    materialMarkupAmount: parseFloat((materialTotal - materialCost).toFixed(2)),
+    materialTotal: parseFloat(materialTotal.toFixed(2)), // After markup
+    
+    // Overhead
+    overheadPercent: overheadPercent,
+    overhead: parseFloat(overhead.toFixed(2)),
+    
+    // Profit
+    profitMarginPercent: profitMarginPercent,
+    profitAmount: parseFloat(profitAmount.toFixed(2)),
+    
+    // Products detail
+    products: Object.values(productCosts).map(p => ({
+      ...p,
+      cost: parseFloat(p.cost.toFixed(2))
+    })),
+    
+    // Totals
+    subtotalBeforeProfit: parseFloat(subtotalBeforeProfit.toFixed(2)),
+    subtotal: parseFloat(subtotal.toFixed(2)),
+    taxPercent: taxPercent,
+    tax: parseFloat(tax.toFixed(2)),
     total: parseFloat(total.toFixed(2)),
+    
+    // Payment
+    depositPercent: depositPercent,
+    deposit: parseFloat(deposit.toFixed(2)),
+    balance: parseFloat((total - deposit).toFixed(2)),
+    
+    // Breakdown for detailed view
     breakdown
   };
 };

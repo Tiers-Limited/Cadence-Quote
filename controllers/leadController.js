@@ -1,5 +1,6 @@
 // controllers/leadController.js
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
+const { Op } = require('sequelize');
 const Lead = require('../models/Lead');
 const LeadForm = require('../models/LeadForm');
 const { createAuditLog } = require('./auditLogController');
@@ -220,7 +221,7 @@ const getLeadStats = async (req, res) => {
       where: {
         tenantId,
         createdAt: {
-          [sequelize.Op.gte]: sevenDaysAgo
+          [Op.gte]: sevenDaysAgo
         }
       }
     });

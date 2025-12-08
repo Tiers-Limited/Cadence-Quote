@@ -673,14 +673,14 @@ class EmailService {
    * @param {string} params.quoteViewUrl - URL to view quote
    * @returns {Promise<Object>}
    */
-  async sendQuoteToCustomer({ to, customerName, quote, calculation, contractor, quoteViewUrl }) {
+  async sendQuoteToCustomer({ to, customerName, quote, calculation, contractor, quoteViewUrl, pdfBuffer }) {
     if (!this.transporter) {
       console.warn('Email service not configured, skipping quote email');
       return { success: false, message: 'Email service not configured' };
     }
 
     try {
-      const subject = `Your Painting Quote #${quote.quoteNumber} from ${contractor.companyName}`;
+      const subject = `Your Professional Painting Proposal #${quote.quoteNumber} from ${contractor.companyName}`;
       const htmlContent = this.getQuoteEmailTemplate({
         customerName,
         quote,
@@ -694,8 +694,18 @@ class EmailService {
         to,
         replyTo: contractor.email,
         subject,
-        html: htmlContent
+        html: htmlContent,
+        attachments: []
       };
+
+      // Attach PDF if provided
+      if (pdfBuffer) {
+        mailOptions.attachments.push({
+          filename: `Proposal-${quote.quoteNumber}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        });
+      }
 
       const info = await this.transporter.sendMail(mailOptions);
       
@@ -774,26 +784,76 @@ class EmailService {
           <!-- Greeting -->
           <div style="padding: 30px;">
             <h2 style="color: #1f2937; margin: 0 0 16px 0; font-size: 24px;">Hi ${customerName},</h2>
-            <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
-              Thank you for choosing ${contractor.companyName} for your painting project! We've prepared a detailed quote based on your requirements. Below you'll find a comprehensive breakdown of your project.
+            <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
+              Thank you for choosing ${contractor.companyName} for your painting project! We've prepared a detailed professional proposal based on your requirements.
             </p>
+            <div style="background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 4px; margin-bottom: 24px;">
+              <p style="margin: 0; color: #1e40af; font-size: 15px;">
+                📎 <strong>Your complete proposal is attached as a PDF</strong> for your review. Please open the attached PDF to view all project details, pricing, and terms.
+              </p>
+            </div>
+            <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 16px; border-radius: 4px; margin-bottom: 24px;">
+              <p style="margin: 0 0 8px 0; color: #166534; font-size: 15px;">
+                📱 <strong>Use the Cadence Mobile App</strong>
+              </p>
+              <p style="margin: 0; color: #166534; font-size: 14px;">
+                To review, accept, and manage your quote, please use the Cadence mobile app where you can:
+              </p>
+              <ul style="margin: 8px 0 0 0; padding-left: 20px; color: #166534; font-size: 14px;">
+                <li>View your complete proposal</li>
+                <li>Choose colors and finishes</li>
+                <li>Accept the quote digitally</li>
+                <li>Schedule your project</li>
+                <li>Track progress in real-time</li>
+              </ul>
+            </div>
           </div>
 
           <!-- Price Summary -->
           <div style="margin: 0 30px 30px 30px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 2px solid #86efac; border-radius: 12px; padding: 24px;">
-            <div style="text-align: center;">
+            <div style="text-align: center; margin-bottom: 20px;">
               <p style="margin: 0 0 8px 0; color: #166534; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Total Investment</p>
               <p style="margin: 0; color: #16a34a; font-size: 48px; font-weight: bold; line-height: 1;">$${calculation.total.toLocaleString()}</p>
             </div>
-            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #86efac;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                <span style="color: #166534; font-size: 14px;">Labor:</span>
-                <span style="color: #166534; font-weight: 600; font-size: 14px;">$${calculation.laborTotal.toLocaleString()}</span>
-              </div>
-              <div style="display: flex; justify-content: space-between;">
-                <span style="color: #166534; font-size: 14px;">Materials:</span>
-                <span style="color: #166534; font-weight: 600; font-size: 14px;">$${calculation.materialTotal.toLocaleString()}</span>
-              </div>
+            <div style="padding: 16px; background: rgba(255,255,255,0.7); border-radius: 8px; margin-bottom: 15px;">
+              <p style="margin: 0 0 10px 0; color: #166534; font-size: 12px; font-style: italic;">
+                Following US industry standard formula:<br>
+                <strong>(Materials + Labor + Overhead) × (1 + Profit Margin) + Tax</strong>
+              </p>
+            </div>
+            <div style="padding-top: 20px; border-top: 1px solid #86efac;">
+              <table width="100%" style="font-size: 14px;">
+                <tr style="border-bottom: 1px solid #d1fae5;">
+                  <td style="padding: 6px 0; color: #166534;">Labor:</td>
+                  <td align="right" style="padding: 6px 0; color: #166534; font-weight: 600;">$${calculation.laborTotal.toLocaleString()}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #d1fae5;">
+                  <td style="padding: 6px 0; color: #166534;">Materials (with ${calculation.materialMarkupPercent}% markup):</td>
+                  <td align="right" style="padding: 6px 0; color: #166534; font-weight: 600;">$${calculation.materialTotal.toLocaleString()}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #d1fae5;">
+                  <td style="padding: 6px 0; color: #166534;">Overhead (${calculation.overheadPercent}%):</td>
+                  <td align="right" style="padding: 6px 0; color: #166534; font-weight: 600;">$${calculation.overhead.toLocaleString()}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #d1fae5;">
+                  <td style="padding: 6px 0; color: #166534;">Profit Margin (${calculation.profitMarginPercent}%):</td>
+                  <td align="right" style="padding: 6px 0; color: #166534; font-weight: 600;">$${calculation.profitAmount.toLocaleString()}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #d1fae5;">
+                  <td style="padding: 6px 0; color: #166534;">Subtotal:</td>
+                  <td align="right" style="padding: 6px 0; color: #166534; font-weight: 600;">$${calculation.subtotal.toLocaleString()}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #166534;">Sales Tax (${calculation.taxPercent}%):</td>
+                  <td align="right" style="padding: 6px 0; color: #166534; font-weight: 600;">$${calculation.tax.toLocaleString()}</td>
+                </tr>
+              </table>
+            </div>
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #16a34a; text-align: center;">
+              <p style="margin: 0; color: #166534; font-size: 12px;">
+                <strong>Deposit (${calculation.depositPercent}%):</strong> $${calculation.deposit.toLocaleString()} due at signing<br>
+                <strong>Balance:</strong> $${calculation.balance.toLocaleString()} due at completion
+              </p>
             </div>
           </div>
 
@@ -822,22 +882,30 @@ class EmailService {
             ` : ''}
           </div>
 
-          <!-- CTA Button -->
-          <div style="padding: 0 30px 30px 30px; text-align: center;">
-            <a href="${quoteViewUrl}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);">
-              View Full Quote & Accept
-            </a>
-            <p style="margin: 16px 0 0 0; color: #6b7280; font-size: 14px;">Click the button above to review your quote, choose colors, and accept</p>
+          <!-- CTA Section -->
+          <div style="padding: 0 30px 30px 30px;">
+            <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #3b82f6; border-radius: 12px; padding: 24px; text-align: center;">
+              <h3 style="color: #1e40af; margin: 0 0 12px 0; font-size: 20px;">📱 Open the Cadence Mobile App</h3>
+              <p style="color: #1e3a8a; margin: 0 0 16px 0; font-size: 15px;">
+                All actions can be completed through the mobile app
+              </p>
+              <div style="background: white; border-radius: 8px; padding: 16px; margin-top: 16px;">
+                <p style="color: #64748b; margin: 0; font-size: 13px; line-height: 1.6;">
+                  If you haven't installed the app yet, download it from the App Store or Google Play Store and log in with your email address.
+                </p>
+              </div>
+            </div>
           </div>
 
           <!-- Next Steps -->
           <div style="background: #f9fafb; padding: 30px; border-top: 1px solid #e5e7eb;">
             <h3 style="color: #1f2937; margin: 0 0 16px 0; font-size: 20px;">What Happens Next?</h3>
             <ol style="color: #4b5563; padding-left: 20px; margin: 0;">
-              <li style="margin-bottom: 12px;"><strong>Review Your Quote:</strong> Click the button above to see all details and options</li>
-              <li style="margin-bottom: 12px;"><strong>Choose Colors & Finishes:</strong> Select your preferred colors and sheens for each area</li>
-              <li style="margin-bottom: 12px;"><strong>Accept & Schedule:</strong> Once you're happy, accept the quote and we'll schedule your project</li>
-              <li><strong>Get It Done:</strong> Our professional team will transform your space!</li>
+              <li style="margin-bottom: 12px;"><strong>Review the PDF:</strong> Open the attached proposal to see all details, pricing, and terms</li>
+              <li style="margin-bottom: 12px;"><strong>Open the Mobile App:</strong> Log in to the Cadence app with your email address</li>
+              <li style="margin-bottom: 12px;"><strong>Choose Colors & Finishes:</strong> Select your preferred colors and sheens for each area in the app</li>
+              <li style="margin-bottom: 12px;"><strong>Accept & Schedule:</strong> Digitally accept the quote and schedule your project</li>
+              <li><strong>Track Your Project:</strong> Monitor progress in real-time through the app as our team transforms your space!</li>
             </ol>
           </div>
 

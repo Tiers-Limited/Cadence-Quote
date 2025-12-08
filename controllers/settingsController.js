@@ -43,9 +43,18 @@ const getSettings = async (req, res) => {
       });
     }
 
+    // Add default values for fields that might not exist in DB yet
+    const responseData = settings.toJSON();
+    if (!responseData.overheadPercentage) {
+      responseData.overheadPercentage = 10.00;
+    }
+    if (!responseData.profitMarginPercentage) {
+      responseData.profitMarginPercentage = 35.00;
+    }
+
     res.json({
       success: true,
-      data: settings
+      data: responseData
     });
   } catch (error) {
     console.error('Get settings error:', error);
