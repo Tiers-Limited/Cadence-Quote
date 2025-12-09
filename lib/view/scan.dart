@@ -125,7 +125,7 @@ class _ScanPageState extends State<ScanPage> {
                   children: [
                     Row(
                       children: [
-                        _BackCircleButton(onTap: () => Get.back()),
+                        _BackCircleButton(onTap: _handleBack),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _OverlayPill(text: 'Detecting walls...'),
@@ -231,7 +231,7 @@ class _ScanPageState extends State<ScanPage> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              onPressed: () => Get.back(),
+                              onPressed: _handleBack,
                               child: const Text(
                                 'Cancel',
                                 style: TextStyle(
@@ -388,6 +388,20 @@ class _ScanPageState extends State<ScanPage> {
     });
 
     _arkitController?.dispose();
+    _stopCamera();
+    Get.offNamed(AppRoutes.customerInfo);
+  }
+
+  void _stopCamera() {
+    try {
+      _cameraController?.dispose();
+    } catch (_) {}
+    _cameraController = null;
+  }
+
+  void _handleBack() {
+    _stopCamera();
+    Get.back();
   }
 
   double _estimateHeight() {

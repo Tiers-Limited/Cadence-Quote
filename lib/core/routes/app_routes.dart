@@ -11,4 +11,7 @@ class AppRoutes {
   static const profile = '/profile';
   static const heightCapture = '/height-capture';
   static const scan = '/scan';
+  static const jobType = '/job-type';
+  static const customerInfo = '/customer-info';
+  static const areasLabor = '/areas-labor';
 }

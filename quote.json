@@ -1,0 +1,199 @@
+"quote": {
+        "id": 167,
+        "tenantId": 11,
+        "userId": 9,
+        "clientId": 71,
+        "pricingSchemeId": 1,
+        "quoteNumber": "Q-2025-054",
+        "customerName": "John",
+        "customerEmail": "koholaj565@mogash.com",
+        "customerPhone": "(312) 312-3123",
+        "street": "asdasd",
+        "city": "San Jose",
+        "state": "AK",
+        "zipCode": "12312",
+        "jobType": "interior",
+        "jobCategory": "residential",
+        "productStrategy": "GBB",
+        "allowCustomerProductChoice": false,
+        "areas": [
+            {
+                "id": 1764846661639,
+                "name": "Living Room",
+                "jobType": "interior",
+                "laborItems": [
+                    {
+                        "gallons": null,
+                        "quantity": null,
+                        "selected": true,
+                        "laborRate": 10,
+                        "dimensions": {
+                            "width": 10,
+                            "height": 10,
+                            "length": 10
+                        },
+                        "categoryName": "Walls",
+                        "numberOfCoats": 1,
+                        "measurementUnit": "sqft",
+                        "allowManualGallons": false
+                    },
+                    {
+                        "gallons": 0.5,
+                        "quantity": 20,
+                        "selected": true,
+                        "laborRate": 10,
+                        "dimensions": null,
+                        "categoryName": "Ceilings",
+                        "numberOfCoats": 3,
+                        "measurementUnit": "sqft",
+                        "allowManualGallons": false
+                    },
+                    {
+                        "gallons": null,
+                        "quantity": null,
+                        "selected": true,
+                        "laborRate": 5,
+                        "dimensions": null,
+                        "categoryName": "Trim",
+                        "numberOfCoats": 2,
+                        "measurementUnit": "linear_foot",
+                        "allowManualGallons": false
+                    },
+                    {
+                        "gallons": null,
+                        "quantity": null,
+                        "selected": true,
+                        "laborRate": 15,
+                        "dimensions": null,
+                        "categoryName": "Doors",
+                        "numberOfCoats": 2,
+                        "measurementUnit": "unit",
+                        "allowManualGallons": false
+                    },
+                    {
+                        "gallons": null,
+                        "quantity": null,
+                        "selected": true,
+                        "laborRate": 10,
+                        "dimensions": null,
+                        "categoryName": "Cabinets",
+                        "numberOfCoats": 2,
+                        "measurementUnit": "unit",
+                        "allowManualGallons": false
+                    },
+                    {
+                        "gallons": null,
+                        "quantity": null,
+                        "selected": true,
+                        "laborRate": 10,
+                        "dimensions": null,
+                        "categoryName": "Accent Walls",
+                        "numberOfCoats": 2,
+                        "measurementUnit": "sqft",
+                        "allowManualGallons": false
+                    },
+                    {
+                        "gallons": null,
+                        "quantity": null,
+                        "selected": true,
+                        "laborRate": 10,
+                        "dimensions": null,
+                        "categoryName": "Drywall Repair",
+                        "numberOfCoats": 0,
+                        "measurementUnit": "hour",
+                        "allowManualGallons": false
+                    }
+                ]
+            }
+        ],
+        "productSets": [
+            {
+                "prices": {
+                    "best": "60.00",
+                    "good": "35.00",
+                    "better": "45.00"
+                },
+                "gallons": null,
+                "products": {
+                    "best": 7,
+                    "good": 9,
+                    "better": 8
+                },
+                "surfaceType": "Walls"
+            },
+            {
+                "prices": {
+                    "best": "60.00",
+                    "good": "35.00",
+                    "better": "45.00"
+                },
+                "gallons": null,
+                "products": {
+                    "best": 9,
+                    "good": 8,
+                    "better": 7
+                },
+                "surfaceType": "Ceilings"
+            }
+        ],
+        "subtotal": "0.00",
+        "laborTotal": "0.00",
+        "materialTotal": "0.00",
+        "markup": "0.00",
+        "markupPercent": "0.00",
+        "zipMarkup": "0.00",
+        "zipMarkupPercent": "0.00",
+        "tax": "0.00",
+        "taxPercent": "0.00",
+        "total": "0.00",
+        "totalSqft": null,
+        "status": "draft",
+        "notes": "",
+        "clientNotes": null,
+        "breakdown": null,
+        "validUntil": null,
+        "sentAt": null,
+        "viewedAt": null,
+        "approvedAt": null,
+        "declinedAt": null,
+        "isActive": true,
+        "createdAt": "2025-12-04T10:36:03.818Z",
+        "updatedAt": "2025-12-04T14:09:59.945Z",
+        "client": {
+            "id": 71,
+            "tenantId": 11,
+            "name": "John",
+            "email": "koholaj565@mogash.com",
+            "phone": "(312) 312-3123",
+            "street": "asdasd",
+            "city": "San Jose",
+            "state": "AK",
+            "zip": "12312",
+            "notes": null,
+            "isActive": true,
+            "createdAt": "2025-12-01T07:25:49.890Z",
+            "updatedAt": "2025-12-04T10:27:29.685Z"
+        },
+        "pricingScheme": {
+            "id": 1,
+            "tenantId": 1,
+            "name": "Turnkey",
+            "type": "sqft_turnkey",
+            "description": "Best for: Whole-house projects, fast quoting, customers who want one simple number.",
+            "isDefault": true,
+            "isActive": true,
+            "pricingRules": {
+                "formula": "totalPrice = (sqft * baseRate)\n"
+            },
+            "isPinProtected": false,
+            "protectionPin": null,
+            "protectionMethod": null,
+            "createdAt": "2025-11-17T15:15:28.384Z",
+            "updatedAt": "2025-11-19T01:52:09.790Z"
+        },
+        "user": {
+            "id": 9,
+            "fullName": "Ahtisham Ul Haq",
+            "email": "ahtishamrajpoot774@gmail.com"
+        }
+    }

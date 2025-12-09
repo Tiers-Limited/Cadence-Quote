@@ -14,6 +14,9 @@ import 'package:primechoice/view/register.dart';
 import 'package:primechoice/view/splash.dart';
 import 'package:primechoice/view/verify_account.dart';
 import 'package:primechoice/view_model/profile_controller.dart';
+import 'package:primechoice/view/job_type.dart';
+import 'package:primechoice/view/customer_info.dart';
+import 'package:primechoice/view/areas_labor.dart';
 
 class AppPages {
   static final pages = [
@@ -59,5 +62,8 @@ class AppPages {
       page: () => const HeightCapturePage(),
     ),
     GetPage(name: AppRoutes.scan, page: () => const ScanPage()),
+    GetPage(name: AppRoutes.jobType, page: () => const JobTypePage()),
+    GetPage(name: AppRoutes.customerInfo, page: () => const CustomerInfoPage()),
+    GetPage(name: AppRoutes.areasLabor, page: () => const AreasLaborPage()),
   ];
 }
