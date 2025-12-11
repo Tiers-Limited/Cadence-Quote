@@ -104,6 +104,13 @@ const Quote = sequelize.define('Quote', {
     field: 'zip_code'
   },
   
+  propertyAddress: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'property_address',
+    comment: 'Full property address (used by mobile app)'
+  },
+  
   // Job Details
   jobType: {
     type: DataTypes.STRING(20),
@@ -149,6 +156,21 @@ const Quote = sequelize.define('Quote', {
     defaultValue: {},
     field: 'product_sets',
     comment: 'Product configurations per surface type (walls, trim, ceilings, etc.)'
+  },
+  
+  // Mobile Quote Fields (Phase 2)
+  useContractorDiscount: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'use_contractor_discount',
+    comment: 'Whether customer is using contractor discount (pay fee) vs full job'
+  },
+  
+  bookingRequest: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'booking_request',
+    comment: 'Booking request details: preferredDate, alternates, timePreference, notes'
   },
   
   // Pricing Details

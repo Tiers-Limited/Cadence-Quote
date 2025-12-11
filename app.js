@@ -23,7 +23,7 @@ const brandsRouter = require('./routes/brands');
 const adminRouter = require('./routes/admin');
 const subscriptionsRouter = require('./routes/subscriptions');
 const webhooksRouter = require('./routes/webhooks');
-const mobileAuthRouter = require('./routes/mobileAuth');
+const mobileRouter = require('./routes/mobile'); // Mobile API parent router (auth + quote)
 const contractorRouter = require('./routes/contractorRouter'); // NEW FEATURE: Contractor product configs
 const quotesRouter = require('./routes/quotes'); // NEW FEATURE: Quote Builder optimized APIs
 const quoteBuilderRouter = require('./routes/quoteBuilder'); // NEW FEATURE: Enhanced Quote Builder
@@ -85,7 +85,7 @@ app.get('/health', (req, res) => {
 // Mount routes
 app.use('/', indexRouter);
 app.use('/api/v1/auth', authRouter);
-app.use('/api/v1/mbl/auth', mobileAuthRouter); // Mobile authentication routes
+app.use('/api/v1/mbl', mobileRouter); // Mobile API (auth + quote sub-routes)
 app.use('/api/v1/payments', paymentsRouter);
 app.use('/api/v1/brands', brandsRouter);
 app.use('/api/v1/admin', adminRouter);
