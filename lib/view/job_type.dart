@@ -29,37 +29,37 @@ class _JobTypePageState extends State<JobTypePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: MyColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: MyColors.primary.withOpacity(0.2),
-                    ),
-                  ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Step 2: Job Type',
-                        style: TextStyle(
-                          color: MyColors.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        'Select the primary category of work. This determines which areas, materials, and processes are available.',
-                        style: TextStyle(color: Colors.black87),
-                      ),
-                    ],
-                  ),
-                ),
+                // Container(
+                //   padding: const EdgeInsets.all(12),
+                //   decoration: BoxDecoration(
+                //     color: MyColors.primary.withOpacity(0.08),
+                //     borderRadius: BorderRadius.circular(12),
+                //     border: Border.all(
+                //       color: MyColors.primary.withOpacity(0.2),
+                //     ),
+                //   ),
+                //   child: const Column(
+                //     crossAxisAlignment: CrossAxisAlignment.start,
+                //     children: [
+                //       Text(
+                //         'Step 2: Job Type',
+                //         style: TextStyle(
+                //           color: MyColors.primary,
+                //           fontWeight: FontWeight.w700,
+                //         ),
+                //       ),
+                //       SizedBox(height: 6),
+                //       Text(
+                //         'Select the primary category of work. This determines which areas, materials, and processes are available.',
+                //         style: TextStyle(color: Colors.black87),
+                //       ),
+                //     ],
+                //   ),
+                // ),
                 const SizedBox(height: 16),
                 Text(
                   'What type of painting project is this?',
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.left,
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 16),

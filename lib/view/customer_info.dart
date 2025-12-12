@@ -1,4 +1,8 @@
+// ignore_for_file: unused_field
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/core/widgets/custom_app_bar.dart';
@@ -7,6 +11,8 @@ import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart
 import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view_model/profile_controller.dart';
+import 'package:primechoice/core/services/quote_service.dart';
+import 'package:dropdown_textfield/dropdown_textfield.dart';
 
 class CustomerInfoPage extends StatelessWidget {
   const CustomerInfoPage({super.key});
@@ -27,59 +33,38 @@ class CustomerInfoPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: MyColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: MyColors.primary.withOpacity(0.2),
-                    ),
-                  ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Step 1: Customer Information',
-                        style: TextStyle(
-                          color: MyColors.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        'All information will be saved to the client profile and used in proposals and job orders.',
-                        style: TextStyle(color: Colors.black87),
-                      ),
-                    ],
-                  ),
-                ),
-
                 const SizedBox(height: 16),
                 _Section(
                   title: 'Contact Information',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _Label('Customer Name'),
+                      _Label('Name'),
                       const SizedBox(height: 8),
                       Obx(
-                        () => TextFormField(
-                          readOnly: true,
-                          initialValue: profile.fullName.value,
-                          decoration:
-                              MyTextFormFieldTheme.lightInputDecoration(
-                                prefixIcon: const Icon(
-                                  Icons.person_outline,
-                                  color: MyColors.primary,
+                        () => SizedBox(
+                          height: 34,
+                          child: TextFormField(
+                            enabled: false,
+                            readOnly: true,
+                            initialValue: profile.fullName.value,
+                            style: const TextStyle(color: Colors.grey),
+                            decoration:
+                                MyTextFormFieldTheme.lightInputDecoration(
+                                  prefixIcon: const Icon(
+                                    Icons.person_outline,
+                                    color: MyColors.primary,
+                                  ),
+                                ).copyWith(
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 7,
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.grey.withOpacity(0.1),
                                 ),
-                              ).copyWith(
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 7,
-                                ),
-                              ),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -89,161 +74,90 @@ class CustomerInfoPage extends StatelessWidget {
                           _Label('Email Address'),
                           const SizedBox(height: 8),
                           Obx(
-                            () => TextFormField(
-                              enabled: false,
-                              readOnly: true,
-                              initialValue: profile.email.value,
-                              style: const TextStyle(color: Colors.grey),
-                              decoration:
-                                  MyTextFormFieldTheme.lightInputDecoration(
-                                    prefixIcon: const Icon(
-                                      Icons.email_outlined,
-                                      color: MyColors.primary,
+                            () => SizedBox(
+                              height: 34,
+                              child: TextFormField(
+                                enabled: false,
+                                readOnly: true,
+                                initialValue: profile.email.value,
+                                style: const TextStyle(color: Colors.grey),
+                                decoration:
+                                    MyTextFormFieldTheme.lightInputDecoration(
+                                      prefixIcon: const Icon(
+                                        Icons.email_outlined,
+                                        color: MyColors.primary,
+                                      ),
+                                    ).copyWith(
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 7,
+                                          ),
+                                      filled: true,
+                                      fillColor: Colors.grey.withOpacity(0.1),
                                     ),
-                                  ).copyWith(
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 7,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.grey.withOpacity(0.1),
-                                  ),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 12),
                           _Label('Phone Number'),
                           const SizedBox(height: 8),
                           Obx(
-                            () => TextFormField(
-                              enabled: false,
-                              readOnly: true,
-                              initialValue: profile.phone.value,
-                              style: const TextStyle(color: Colors.grey),
-                              decoration:
-                                  MyTextFormFieldTheme.lightInputDecoration(
-                                    prefixIcon: const Icon(
-                                      Icons.phone_outlined,
-                                      color: MyColors.primary,
+                            () => SizedBox(
+                              height: 34,
+                              child: TextFormField(
+                                enabled: false,
+                                readOnly: true,
+                                initialValue: profile.phone.value,
+                                style: const TextStyle(color: Colors.grey),
+                                decoration:
+                                    MyTextFormFieldTheme.lightInputDecoration(
+                                      prefixIcon: const Icon(
+                                        Icons.phone_outlined,
+                                        color: MyColors.primary,
+                                      ),
+                                    ).copyWith(
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 7,
+                                          ),
+                                      filled: true,
+                                      fillColor: Colors.grey.withOpacity(0.1),
                                     ),
-                                  ).copyWith(
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 7,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.grey.withOpacity(0.1),
-                                  ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-                _Section(
-                  title: 'Property Address',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _Label('Street Address'),
-                      const SizedBox(height: 8),
-                      Obx(
-                        () => TextFormField(
-                          enabled: false,
-                          readOnly: true,
-                          initialValue: profile.address.value,
-                          style: const TextStyle(color: Colors.grey),
-                          decoration:
-                              MyTextFormFieldTheme.lightInputDecoration(
-                                prefixIcon: const Icon(
-                                  Icons.location_on_outlined,
-                                  color: MyColors.primary,
-                                ),
-                              ).copyWith(
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 7,
-                                ),
-                                filled: true,
-                                fillColor: Colors.grey.withOpacity(0.1),
                               ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _Label('City'),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  decoration:
-                                      MyTextFormFieldTheme.lightInputDecoration(
-                                        hintText: 'City',
-                                      ).copyWith(
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 7,
-                                            ),
-                                      ),
-                                ),
-                              ],
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _Label('State'),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  decoration:
-                                      MyTextFormFieldTheme.lightInputDecoration(
-                                        hintText: 'State',
-                                      ).copyWith(
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 7,
-                                            ),
+                          const SizedBox(height: 12),
+                          _Label('Street Address'),
+                          const SizedBox(height: 8),
+                          Obx(
+                            () => SizedBox(
+                              height: 34,
+                              child: TextFormField(
+                                enabled: false,
+                                readOnly: true,
+                                initialValue: profile.address.value,
+                                style: const TextStyle(color: Colors.grey),
+                                decoration:
+                                    MyTextFormFieldTheme.lightInputDecoration(
+                                      prefixIcon: const Icon(
+                                        Icons.location_on_outlined,
+                                        color: MyColors.primary,
                                       ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _Label('ZIP Code'),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  keyboardType: TextInputType.number,
-                                  decoration:
-                                      MyTextFormFieldTheme.lightInputDecoration(
-                                        hintText: 'ZIP',
-                                      ).copyWith(
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 7,
-                                            ),
-                                      ),
-                                ),
-                              ],
+                                    ).copyWith(
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 7,
+                                          ),
+                                      filled: true,
+                                      fillColor: Colors.grey.withOpacity(0.1),
+                                    ),
+                              ),
                             ),
                           ),
                         ],
@@ -254,7 +168,7 @@ class CustomerInfoPage extends StatelessWidget {
 
                 const SizedBox(height: 16),
                 _Section(
-                  title: 'Pricing Configuration',
+                  title: 'Select the pricing configuration',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -362,37 +276,86 @@ class _PricingDropdown extends StatefulWidget {
 }
 
 class _PricingDropdownState extends State<_PricingDropdown> {
-  final items = const ['Turnkey - SQFT TURNKEY', 'Hourly', 'Fixed Bid'];
-  String value = 'Turnkey - SQFT TURNKEY';
+  List<Map<String, dynamic>> _schemes = const [];
+  String? _value;
+  bool _loading = false;
+  late final SingleValueDropDownController _controller;
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 34,
-      child: DropdownButtonFormField<String>(
-        value: value,
-        dropdownColor: Colors.white,
-        style: const TextStyle(color: MyColors.primary),
-        items: items
+      child: DropDownTextField(
+        controller: _controller,
+        dropDownItemCount: 6,
+        enableSearch: false,
+        clearOption: false,
+        isEnabled: !_loading,
+        dropDownList: _schemes
             .map(
-              (e) => DropdownMenuItem<String>(
-                value: e,
-                child: Text(e, style: const TextStyle(color: MyColors.primary)),
+              (e) => DropDownValueModel(
+                name: e['name']?.toString() ?? 'Scheme',
+                value: e['id'],
               ),
             )
             .toList(),
-        onChanged: (v) => setState(() => value = v ?? value),
-        iconEnabledColor: MyColors.primary,
-        iconSize: 18,
-        decoration: MyTextFormFieldTheme.lightInputDecoration().copyWith(
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 4,
-          ),
-          filled: true,
-          fillColor: Colors.white,
+        onChanged: (val) {
+          if (val is DropDownValueModel) {
+            setState(() => _value = val.value?.toString());
+          }
+        },
+        textFieldDecoration: MyTextFormFieldTheme.lightInputDecoration()
+            .copyWith(
+              hintText: 'Select',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 4,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+        dropDownIconProperty: IconProperty(
+          icon: Icons.arrow_drop_down,
+          size: 18,
+          color: MyColors.primary,
         ),
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = SingleValueDropDownController();
+    _fetchSchemes();
+  }
+
+  Future<void> _fetchSchemes() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      final body = await QuoteService.instance.getPricingSchemes();
+      final data = (body['data'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      if (kDebugMode) {
+        debugPrint('Loaded pricing schemes: ${jsonEncode(data)}');
+      }
+      setState(() {
+        _schemes = data;
+        _value = null;
+        _controller.clearDropDown();
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Failed to load pricing schemes: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 }

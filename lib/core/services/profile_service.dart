@@ -9,7 +9,7 @@ class ProfileService {
   static final ProfileService instance = ProfileService._();
 
   String get _baseUrl {
-    final mobile = dotenv.env['MOBILE_BASE_URL'];
+    final mobile = dotenv.env['MOBILE_AUTHENTICATION_BASE_URL'];
     final base = dotenv.env['BASE_URL'];
     return (mobile?.isNotEmpty == true)
         ? mobile!

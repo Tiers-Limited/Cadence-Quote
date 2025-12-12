@@ -10,12 +10,13 @@ class AuthService {
   static final AuthService instance = AuthService._();
 
   String get _baseUrl {
-    final mobile = dotenv.env['MOBILE_BASE_URL'];
+    final mobile = dotenv.env['MOBILE_AUTHENTICATION_BASE_URL'];
     final base = dotenv.env['BASE_URL'];
     return (mobile?.isNotEmpty == true)
         ? mobile!
         : (base?.isNotEmpty == true)
         ? base!
+        // : 'http://192.168.137.83:4001/api/v1/mbl/auth';
         : 'http://localhost:4001/api/v1/mbl/auth';
   }
 

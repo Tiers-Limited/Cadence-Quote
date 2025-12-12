@@ -1,4 +1,7 @@
+// ignore_for_file: unused_element, unused_element_parameter
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/core/widgets/custom_app_bar.dart';
@@ -27,20 +30,38 @@ class _AreasLaborPageState extends State<AreasLaborPage> {
     'Laundry Room',
   ];
   final Set<int> selectedRooms = {0};
-  final List<_Item> _items = const [
+  late List<_Item> _items;
+  static const List<_Item> _interiorItems = [
     _Item('Walls', 'sq ft', 1),
     _Item('Ceilings', 'sq ft', 3),
     _Item('Trim', 'LF', 1),
     _Item('Doors', 'units', 1),
     _Item('Cabinets', 'units', 1),
-    _Item('Accent Walls', 'sq ft', 2),
     _Item('Drywall Repair', 'hrs', 1),
+    _Item('Accent Walls', 'sq ft', 2),
+  ];
+  static const List<_Item> _exteriorItems = [
+    _Item('Exterior Walls', 'sq ft', 1),
+    _Item('Exterior Trim', 'LF', 1),
+    _Item('Exterior Doors', 'units', 1),
+    _Item('Shutters', 'units', 1),
+    _Item('Decks & Railings', 'sq ft', 1),
+    _Item('Soffit & Fascia', 'LF', 1),
+    _Item('Prep Work', 'hrs', 1),
   ];
   Map<int, Map<String, bool>> _roomEnabled = {};
 
   @override
   void initState() {
     super.initState();
+    final jobType =
+        (Get.arguments?['jobType']?.toString().toLowerCase() ?? 'interior');
+    _items = jobType == 'exterior' ? _exteriorItems : _interiorItems;
+    if (kDebugMode) {
+      debugPrint(
+        'Areas & Labor jobType=$jobType, items=${_items.map((e) => e.label).toList()}',
+      );
+    }
     _roomEnabled = {
       for (var i = 0; i < rooms.length; i++)
         i: {for (final it in _items) it.label: false},
@@ -59,34 +80,33 @@ class _AreasLaborPageState extends State<AreasLaborPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: MyColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: MyColors.primary.withOpacity(0.2),
-                    ),
-                  ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Step 3: Areas & Labor',
-                        style: TextStyle(
-                          color: MyColors.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        'Select rooms, specify labor categories, and enter measurements. Gallons calculate automatically.',
-                        style: TextStyle(color: Colors.black87),
-                      ),
-                    ],
-                  ),
-                ),
-
+                // Container(
+                //   padding: const EdgeInsets.all(12),
+                //   decoration: BoxDecoration(
+                //     color: MyColors.primary.withOpacity(0.08),
+                //     borderRadius: BorderRadius.circular(12),
+                //     border: Border.all(
+                //       color: MyColors.primary.withOpacity(0.2),
+                //     ),
+                //   ),
+                //   child: const Column(
+                //     crossAxisAlignment: CrossAxisAlignment.start,
+                //     children: [
+                //       Text(
+                //         'Step 3: Areas & Labor',
+                //         style: TextStyle(
+                //           color: MyColors.black,
+                //           fontWeight: FontWeight.w700,
+                //         ),
+                //       ),
+                //       SizedBox(height: 6),
+                //       Text(
+                //         'Select rooms, specify labor categories, and enter measurements. Gallons calculate automatically.',
+                //         style: TextStyle(color: Colors.black87),
+                //       ),
+                //     ],
+                //   ),
+                // ),
                 const SizedBox(height: 16),
                 Text(
                   'Select Areas:',

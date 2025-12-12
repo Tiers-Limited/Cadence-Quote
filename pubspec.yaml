@@ -37,6 +37,7 @@ dependencies:
   google_sign_in: ^6.2.1
   image_picker: ^1.2.1
   cloudinary_public: ^0.23.1
+  dropdown_textfield: ^1.2.0
 
 dependency_overrides:
   # Required by arkit_plugin >=1.2.0 which uses Matrix4.scaleByVector3

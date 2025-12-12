@@ -550,6 +550,7 @@ Future<Map<String, dynamic>?> _showEditFieldDialog(
                                       return;
                                     }
                                     setState(() => isLoading = true);
+                                    final navigator = Navigator.of(ctx);
                                     Map<String, dynamic> result;
                                     try {
                                       final body = await onSubmit(
@@ -559,7 +560,7 @@ Future<Map<String, dynamic>?> _showEditFieldDialog(
                                     } catch (e) {
                                       result = {'error': e.toString()};
                                     }
-                                    Navigator.of(ctx).pop(result);
+                                    navigator.pop(result);
                                   },
                             radius: 8,
                             child: isLoading

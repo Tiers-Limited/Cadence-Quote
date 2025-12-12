@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:primechoice/core/utils/constants/colors.dart';
 import 'package:primechoice/core/widgets/custom_app_bar.dart';
@@ -6,17 +7,124 @@ import 'package:primechoice/core/widgets/custom_background.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/utils/theme/widget_themes/text_field_theme.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
+import 'package:primechoice/core/services/quote_service.dart';
+import 'package:dropdown_textfield/dropdown_textfield.dart';
 
 class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
+
   @override
   State<ProductsPage> createState() => _ProductsPageState();
 }
 
-class _ProductsPageState extends State<ProductsPage> {
-  String strategy = 'gbb';
-  bool allowPerArea = false;
+class _ProductsPageState extends State<ProductsPage>
+    with SingleTickerProviderStateMixin {
+  String strategy = 'gbb'; // 'gbb' or 'single'
   final List<String> surfaces = const ['Walls', 'Ceilings', 'Trim'];
+
+  // Brand & Color data
+  List<Map<String, dynamic>> brands = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> colors = <Map<String, dynamic>>[];
+  int? selectedBrandId;
+
+  bool loadingBrands = false;
+  bool loadingColors = false;
+
+  late final SingleValueDropDownController brandController;
+  late final AnimationController _shimmerCtrl;
+  late final Animation<double> _shimmerAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    brandController = SingleValueDropDownController();
+
+    _shimmerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+
+    _shimmerAnim = Tween<double>(
+      begin: -1.0,
+      end: 2.0,
+    ).animate(CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOut));
+
+    _fetchBrands();
+  }
+
+  Future<void> _fetchBrands() async {
+    if (loadingBrands) return;
+    setState(() => loadingBrands = true);
+
+    try {
+      final body = await QuoteService.instance.getBrands();
+      final List data = (body['data'] as List?) ?? [];
+
+      if (mounted) {
+        setState(() {
+          brands = data.cast<Map<String, dynamic>>();
+          selectedBrandId = null;
+          brandController.clearDropDown();
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Failed to load brands: $e');
+      Get.snackbar('Error', 'Could not load brands');
+    } finally {
+      if (mounted) setState(() => loadingBrands = false);
+    }
+  }
+
+  Future<void> _fetchColors(int brandId) async {
+    setState(() {
+      loadingColors = true;
+      colors.clear();
+    });
+
+    try {
+      final body = await QuoteService.instance.getColorsByBrand(
+        brandId,
+        limit: 50,
+      );
+      final List list =
+          (body['data'] as Map<String, dynamic>?)?['colors'] ?? [];
+
+      if (mounted) {
+        setState(() {
+          colors = list.cast<Map<String, dynamic>>();
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Failed to load colors: $e');
+      Get.snackbar('Error', 'Could not load colors');
+    } finally {
+      if (mounted) setState(() => loadingColors = false);
+    }
+  }
+
+  Widget _shimmerPlaceholder({double? width, double height = 16}) {
+    return AnimatedBuilder(
+      animation: _shimmerAnim,
+      builder: (context, _) {
+        return Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(6),
+            gradient: LinearGradient(
+              begin: Alignment(_shimmerAnim.value, 0),
+              end: const Alignment(1, 0),
+              colors: [
+                Colors.grey.shade200,
+                Colors.grey.shade300,
+                Colors.grey.shade200,
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,242 +133,317 @@ class _ProductsPageState extends State<ProductsPage> {
       body: Stack(
         children: [
           const CustomBackground(),
-          SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: MyColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: MyColors.primary.withOpacity(0.2),
-                    ),
-                  ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Step 4: Product Selection',
-                        style: TextStyle(
-                          color: MyColors.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        'Choose products for each surface type. Offer Good-Better-Best options or a single product recommendation.',
-                        style: TextStyle(color: Colors.black87),
-                      ),
-                    ],
-                  ),
-                ),
-
-                SizedBox(height: 16),
-                _Section(
-                  title: 'Product Strategy',
-                  child: ListTileTheme(
-                    dense: true,
-                    minVerticalPadding: 0,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Product Strategy ─────────────────────────────────────
+                  _Section(
+                    title: 'Product Strategy',
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         RadioListTile<String>(
                           value: 'gbb',
                           groupValue: strategy,
-                          onChanged: (v) =>
-                              setState(() => strategy = v ?? strategy),
-                          title: const Text(
-                            'Good-Better-Best',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: const Text(
-                            'Offer 3 tiers for customer to choose from',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.black54,
-                            ),
-                          ),
                           activeColor: MyColors.primary,
+                          title: const Text(
+                            'Good – Better – Best',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: const Text('Offer 3 tiers per surface'),
+                          onChanged: (v) => setState(() => strategy = v!),
                         ),
                         RadioListTile<String>(
                           value: 'single',
                           groupValue: strategy,
-                          onChanged: (v) =>
-                              setState(() => strategy = v ?? strategy),
+                          activeColor: MyColors.primary,
                           title: const Text(
                             'Single Product',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: const Text(
-                            'Recommend one product per surface',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.black54,
-                            ),
+                            'One recommendation per surface',
                           ),
-                          activeColor: MyColors.primary,
+                          onChanged: (v) => setState(() => strategy = v!),
                         ),
-                        // CheckboxListTile(
-                        //   value: allowPerArea,
-                        //   onChanged: (v) =>
-                        //       setState(() => allowPerArea = v ?? allowPerArea),
-                        //   title: const Text(
-                        //     'Allow customer to choose different products per area',
-                        //     style: TextStyle(
-                        //       fontSize: 13,
-                        //       fontWeight: FontWeight.bold,
-                        //     ),
-                        //   ),
-                        //   subtitle: const Text(
-                        //     'Default: same product for all areas',
-                        //     style: TextStyle(
-                        //       fontSize: 11,
-                        //       color: Colors.black54,
-                        //     ),
-                        //   ),
-                        //   activeColor: MyColors.primary,
-                        //   checkboxShape: RoundedRectangleBorder(
-                        //     borderRadius: BorderRadius.circular(6),
-                        //   ),
-                        //   visualDensity: VisualDensity.compact,
-                        // ),
                       ],
                     ),
                   ),
-                ),
 
-                const SizedBox(height: 16),
-                _Section(
-                  title: 'Select Products by Surface Type',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final s in surfaces) ...[
-                        Text(s, style: Theme.of(context).textTheme.titleLarge),
-                        const SizedBox(height: 8),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            return SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: const [
-                                  _TierCard(
-                                    label: 'GOOD',
-                                    price: '\$15/gal',
-                                    bg: Color(0xFFE8F1FA),
-                                  ),
-                                  SizedBox(width: 12),
-                                  _TierCard(
-                                    label: 'BETTER',
-                                    price: '\$20/gal',
-                                    bg: Color(0xFFE6F8F4),
-                                  ),
-                                  SizedBox(width: 12),
-                                  _TierCard(
-                                    label: 'BEST',
-                                    price: '\$25/gal',
-                                    bg: Color(0xFFEEF9E6),
-                                  ),
-                                ],
+                  const SizedBox(height: 20),
+
+                  // ── Products by Surface ───────────────────────────────────
+                  _Section(
+                    title: 'Select Products by Surface Type',
+                    child: Column(
+                      children: surfaces.map((surface) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                surface,
+                                style: Theme.of(context).textTheme.titleLarge,
                               ),
-                            );
+                              const SizedBox(height: 12),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    _TierCard(
+                                      tier: 'GOOD',
+                                      price: '\$15/gal',
+                                      color: const Color(0xFFE8F1FA),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _TierCard(
+                                      tier: 'BETTER',
+                                      price: '\$22/gal',
+                                      color: const Color(0xFFE6F8E6),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _TierCard(
+                                      tier: 'BEST',
+                                      price: '\$28/gal',
+                                      color: const Color(0xFFFFF3E0),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Brand & Colors ───────────────────────────────────────
+                  _Section(
+                    title: 'Brand & Colors',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DropDownTextField(
+                          key: const ValueKey('brand_dropdown'),
+                          controller: brandController,
+                          enableSearch: true,
+                          searchDecoration: const InputDecoration(
+                            hintText: 'Search brand...',
+                          ),
+                          dropDownItemCount: 8,
+                          isEnabled: !loadingBrands,
+                          clearOption: true,
+                          textFieldDecoration:
+                              MyTextFormFieldTheme.lightInputDecoration()
+                                  .copyWith(
+                                    hintText: loadingBrands
+                                        ? 'Loading...'
+                                        : 'Select Brand',
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                  ),
+                          dropDownList: brands
+                              .map(
+                                (e) => DropDownValueModel(
+                                  name: e['name']?.toString() ?? 'Unknown',
+                                  value: e['id'],
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (val) {
+                            if (val is DropDownValueModel &&
+                                val.value != null) {
+                              final id = val.value is int
+                                  ? val.value as int
+                                  : int.tryParse(val.value.toString());
+                              setState(() => selectedBrandId = id);
+                              if (id != null) _fetchColors(id);
+                            }
                           },
                         ),
-                        const SizedBox(height: 16),
-                      ],
-                    ],
-                  ),
-                ),
 
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Get.back(),
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: Colors.grey.withOpacity(0.08),
-                          side: BorderSide(color: Colors.grey.withOpacity(0.3)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                        if (selectedBrandId != null) ...[
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 110,
+                            child: loadingColors
+                                ? ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: 8,
+                                    separatorBuilder: (context, _) =>
+                                        const SizedBox(width: 10),
+                                    itemBuilder: (context, _) {
+                                      return Container(
+                                        width: 160,
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.grey.shade300,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              child: _shimmerPlaceholder(
+                                                width: 44,
+                                                height: 44,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  _shimmerPlaceholder(
+                                                    width: 100,
+                                                    height: 14,
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  _shimmerPlaceholder(
+                                                    width: 70,
+                                                    height: 12,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : colors.isEmpty
+                                ? const Center(child: Text('No colors found'))
+                                : ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: colors.length,
+                                    separatorBuilder: (context, _) =>
+                                        const SizedBox(width: 10),
+                                    itemBuilder: (context, i) {
+                                      final c = colors[i];
+                                      return _ColorCard(colorData: c);
+                                    },
+                                  ),
                           ),
-                        ),
-                        child: const Text(
-                          'Previous',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
+                        ],
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: DecoratedBox(
-                        decoration: MyButtonTheme.primaryGradient(radius: 12),
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            elevation: 8,
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // ── Navigation Buttons ───────────────────────────────────
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Get.back(),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.grey.withOpacity(0.08),
+                            side: BorderSide(
+                              color: Colors.grey.withOpacity(0.3),
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          onPressed: () => Get.toNamed(AppRoutes.export),
                           child: const Text(
-                            'Next',
+                            'Previous',
                             style: TextStyle(
-                              color: Colors.white,
+                              color: Colors.black,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DecoratedBox(
+                          decoration: MyButtonTheme.primaryGradient(radius: 12),
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () => Get.toNamed(AppRoutes.export),
+                            child: const Text(
+                              'Next',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+                ],
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
+  @override
+  void dispose() {
+    _shimmerCtrl.dispose();
+    brandController.dispose();
+    super.dispose();
+  }
 }
 
+// ── Reusable Section ─────────────────────────────────────────────────────
 class _Section extends StatelessWidget {
   final String title;
   final Widget child;
+
   const _Section({required this.title, required this.child});
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -270,10 +453,10 @@ class _Section extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              const Icon(Icons.inventory_2_outlined, color: MyColors.primary),
+              Icon(Icons.inventory_2_outlined, color: MyColors.primary),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           child,
         ],
       ),
@@ -281,103 +464,187 @@ class _Section extends StatelessWidget {
   }
 }
 
+// ── Tier Card (Good / Better / Best) ─────────────────────────────────────
 class _TierCard extends StatefulWidget {
-  final String label;
+  final String tier;
   final String price;
-  final Color bg;
-  const _TierCard({required this.label, required this.price, required this.bg});
+  final Color color;
+
+  const _TierCard({
+    required this.tier,
+    required this.price,
+    required this.color,
+  });
+
   @override
   State<_TierCard> createState() => _TierCardState();
 }
 
 class _TierCardState extends State<_TierCard> {
-  final finishes = const ['Semi-Gloss', 'Gloss', 'Matte'];
-  String finish = 'Semi-Gloss';
+  final List<String> finishes = [
+    'Flat',
+    'Eggshell',
+    'Satin',
+    'Semi-Gloss',
+    'Gloss',
+  ];
+  String selectedFinish = 'Satin';
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 200,
-      padding: const EdgeInsets.symmetric(horizontal: 10.0),
+      width: 220,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: widget.bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.withOpacity(0.4)),
+        color: widget.color,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: MyColors.primary.withOpacity(0.4)),
+                  border: Border.all(color: MyColors.primary),
                 ),
                 child: Text(
-                  widget.label,
+                  widget.tier,
                   style: const TextStyle(
+                    fontWeight: FontWeight.bold,
                     color: MyColors.primary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 11,
+                    fontSize: 12,
                   ),
                 ),
               ),
               const Spacer(),
               TextButton(
                 onPressed: () {},
-                style: TextButton.styleFrom(foregroundColor: MyColors.primary),
                 child: const Text(
                   'Apply to All',
-                  style: TextStyle(fontSize: 12),
+                  style: TextStyle(fontSize: 11),
                 ),
               ),
             ],
           ),
-          // const SizedBox(height: 6),
+          const SizedBox(height: 8),
           const Text(
-            'Benjamin Moore - Sample Product',
-            style: TextStyle(
-              color: MyColors.primary,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 6),
-          DropdownButtonFormField<String>(
-            value: finish,
-            items: finishes
-                .map((e) => DropdownMenuItem<String>(value: e, child: Text(e)))
-                .toList(),
-            onChanged: (v) => setState(() => finish = v ?? finish),
-            dropdownColor: Colors.white,
-            style: const TextStyle(color: MyColors.primary, fontSize: 12),
-            iconEnabledColor: MyColors.primary,
-            iconSize: 18,
-            decoration: MyTextFormFieldTheme.lightInputDecoration().copyWith(
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 4,
-              ),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            widget.price,
-            style: const TextStyle(color: Colors.black, fontSize: 12),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Various Specialty Finishes',
-            style: TextStyle(color: Colors.black54, fontSize: 11),
+            'Benjamin Moore – Regal Select',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
           ),
           const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: selectedFinish,
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none,
+              ),
+            ),
+            items: finishes
+                .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                .toList(),
+            onChanged: (v) => setState(() => selectedFinish = v!),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            widget.price,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const Text(
+            'Various specialty finishes available',
+            style: TextStyle(fontSize: 11, color: Colors.black54),
+          ),
         ],
       ),
     );
   }
+}
+
+// ── Color Card ─────────────────────────────────────────────────────────────
+class _ColorCard extends StatelessWidget {
+  final Map<String, dynamic> colorData;
+
+  const _ColorCard({required this.colorData});
+
+  @override
+  Widget build(BuildContext context) {
+    final String name = colorData['name'] ?? 'Unknown';
+    final String code = colorData['code'] ?? '';
+    final Color swatch = _parseHex(colorData['hexValue']?.toString());
+
+    return Container(
+      width: 160,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: swatch,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade400),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                if (code.isNotEmpty)
+                  Text(
+                    code,
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Helper used in _ColorCard
+Color _parseHex(String? hex) {
+  if (hex == null || hex.isEmpty) return Colors.grey.shade400;
+  final clean = hex.replaceAll('#', '');
+  final val = int.tryParse(clean, radix: 16);
+  return val != null ? Color(0xFF000000 | val) : Colors.grey.shade400;
 }
