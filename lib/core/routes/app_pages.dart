@@ -17,6 +17,7 @@ import 'package:primechoice/view_model/profile_controller.dart';
 import 'package:primechoice/view/job_type.dart';
 import 'package:primechoice/view/customer_info.dart';
 import 'package:primechoice/view/areas_labor.dart';
+import 'package:primechoice/view/products.dart';
 
 class AppPages {
   static final pages = [
@@ -65,5 +66,6 @@ class AppPages {
     GetPage(name: AppRoutes.jobType, page: () => const JobTypePage()),
     GetPage(name: AppRoutes.customerInfo, page: () => const CustomerInfoPage()),
     GetPage(name: AppRoutes.areasLabor, page: () => const AreasLaborPage()),
+    GetPage(name: AppRoutes.products, page: () => const ProductsPage()),
   ];
 }

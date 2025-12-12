@@ -67,12 +67,19 @@ class CustomerInfoPage extends StatelessWidget {
                         () => TextFormField(
                           readOnly: true,
                           initialValue: profile.fullName.value,
-                          decoration: MyTextFormFieldTheme.lightInputDecoration(
-                            prefixIcon: const Icon(
-                              Icons.person_outline,
-                              color: MyColors.primary,
-                            ),
-                          ),
+                          decoration:
+                              MyTextFormFieldTheme.lightInputDecoration(
+                                prefixIcon: const Icon(
+                                  Icons.person_outline,
+                                  color: MyColors.primary,
+                                ),
+                              ).copyWith(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 7,
+                                ),
+                              ),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -94,6 +101,11 @@ class CustomerInfoPage extends StatelessWidget {
                                       color: MyColors.primary,
                                     ),
                                   ).copyWith(
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 7,
+                                    ),
                                     filled: true,
                                     fillColor: Colors.grey.withOpacity(0.1),
                                   ),
@@ -115,6 +127,11 @@ class CustomerInfoPage extends StatelessWidget {
                                       color: MyColors.primary,
                                     ),
                                   ).copyWith(
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 7,
+                                    ),
                                     filled: true,
                                     fillColor: Colors.grey.withOpacity(0.1),
                                   ),
@@ -147,6 +164,11 @@ class CustomerInfoPage extends StatelessWidget {
                                   color: MyColors.primary,
                                 ),
                               ).copyWith(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 7,
+                                ),
                                 filled: true,
                                 fillColor: Colors.grey.withOpacity(0.1),
                               ),
@@ -165,6 +187,13 @@ class CustomerInfoPage extends StatelessWidget {
                                   decoration:
                                       MyTextFormFieldTheme.lightInputDecoration(
                                         hintText: 'City',
+                                      ).copyWith(
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 7,
+                                            ),
                                       ),
                                 ),
                               ],
@@ -181,6 +210,13 @@ class CustomerInfoPage extends StatelessWidget {
                                   decoration:
                                       MyTextFormFieldTheme.lightInputDecoration(
                                         hintText: 'State',
+                                      ).copyWith(
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 7,
+                                            ),
                                       ),
                                 ),
                               ],
@@ -198,6 +234,13 @@ class CustomerInfoPage extends StatelessWidget {
                                   decoration:
                                       MyTextFormFieldTheme.lightInputDecoration(
                                         hintText: 'ZIP',
+                                      ).copyWith(
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 7,
+                                            ),
                                       ),
                                 ),
                               ],
@@ -232,7 +275,7 @@ class CustomerInfoPage extends StatelessWidget {
                   alignment: Alignment.centerRight,
                   child: SizedBox(
                     height: 48,
-                    width: 180,
+                    width: 160,
                     child: DecoratedBox(
                       decoration: MyButtonTheme.primaryGradient(radius: 12),
                       child: ElevatedButton(
@@ -246,7 +289,7 @@ class CustomerInfoPage extends StatelessWidget {
                         ),
                         onPressed: () => Get.toNamed(AppRoutes.jobType),
                         child: const Text(
-                          'Next: Job Type',
+                          'Next',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -323,23 +366,32 @@ class _PricingDropdownState extends State<_PricingDropdown> {
   String value = 'Turnkey - SQFT TURNKEY';
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      dropdownColor: Colors.white,
-      style: const TextStyle(color: MyColors.primary),
-      items: items
-          .map(
-            (e) => DropdownMenuItem<String>(
-              value: e,
-              child: Text(e, style: const TextStyle(color: MyColors.primary)),
-            ),
-          )
-          .toList(),
-      onChanged: (v) => setState(() => value = v ?? value),
-      iconEnabledColor: MyColors.primary,
-      decoration: MyTextFormFieldTheme.lightInputDecoration().copyWith(
-        filled: true,
-        fillColor: Colors.white,
+    return SizedBox(
+      height: 34,
+      child: DropdownButtonFormField<String>(
+        value: value,
+        dropdownColor: Colors.white,
+        style: const TextStyle(color: MyColors.primary),
+        items: items
+            .map(
+              (e) => DropdownMenuItem<String>(
+                value: e,
+                child: Text(e, style: const TextStyle(color: MyColors.primary)),
+              ),
+            )
+            .toList(),
+        onChanged: (v) => setState(() => value = v ?? value),
+        iconEnabledColor: MyColors.primary,
+        iconSize: 18,
+        decoration: MyTextFormFieldTheme.lightInputDecoration().copyWith(
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 4,
+          ),
+          filled: true,
+          fillColor: Colors.white,
+        ),
       ),
     );
   }

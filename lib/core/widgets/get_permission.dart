@@ -22,7 +22,7 @@ class GetPermission extends StatelessWidget {
                 Row(
                   children: [
                     IconButton(
-                      onPressed: () => Get.back(),
+                      onPressed: () => Get.back(closeOverlays: false),
                       icon: const Icon(Icons.arrow_back),
                     ),
                   ],

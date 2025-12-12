@@ -10,6 +10,7 @@ import 'package:primechoice/core/widgets/custom_background.dart';
 import 'package:primechoice/core/widgets/custom_bottom_nav_bar.dart';
 import 'package:primechoice/core/routes/app_routes.dart';
 import 'package:primechoice/view/profile.dart';
+import 'package:primechoice/core/utils/local_storage/storage_utility.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -49,6 +50,11 @@ class _HomeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
+    final name =
+        MyLocalStorage.instance().readData<String>('user_full_name') ?? '';
+    final firstName = name.trim().isEmpty
+        ? 'Guest'
+        : name.trim().split(RegExp(r'\s+')).first;
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Column(
@@ -69,7 +75,7 @@ class _HomeTab extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Hi, Alex',
+                'Hi, $firstName',
                 style: MyTextTheme.lightTextTheme.headlineMedium,
               ),
               const Icon(Icons.cloud_sync_rounded, color: Colors.grey),

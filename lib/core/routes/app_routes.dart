@@ -14,4 +14,5 @@ class AppRoutes {
   static const jobType = '/job-type';
   static const customerInfo = '/customer-info';
   static const areasLabor = '/areas-labor';
+  static const products = '/products';
 }

@@ -62,8 +62,8 @@ class ProfileController extends GetxController {
       imageQuality: 85,
     );
     if (picked == null) return;
-    final cloudName = dotenv.env['CLOUDINARY_CLOUD_NAME'];
-    final uploadPreset = dotenv.env['CLOUDINARY_UPLOAD_PRESET'];
+    final cloudName = dotenv.env['VITE_CLOUDINARY_CLOUD_NAME'];
+    final uploadPreset = dotenv.env['VITE_CLOUDINARY_UPLOAD_PRESET'];
     if (cloudName == null ||
         cloudName.isEmpty ||
         uploadPreset == null ||

@@ -188,9 +188,9 @@ class _AreasLaborPageState extends State<AreasLaborPage> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          onPressed: () => Get.toNamed(AppRoutes.jobType),
+                          onPressed: () => Get.toNamed(AppRoutes.products),
                           child: const Text(
-                            'Job Type',
+                            'Next',
                             style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w600,
@@ -223,17 +223,26 @@ class _RoomChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: 6,
+      runSpacing: 6,
       children: [
         for (var i = 0; i < rooms.length; i++)
           ChoiceChip(
-            label: Text(rooms[i]),
+            label: Text(
+              rooms[i],
+              style: TextStyle(
+                fontSize: 12,
+                color: selected.contains(i) ? Colors.white : MyColors.primary,
+              ),
+            ),
             selected: selected.contains(i),
             selectedColor: MyColors.primary,
-            labelStyle: TextStyle(
-              color: selected.contains(i) ? Colors.white : MyColors.primary,
+            labelPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 2,
             ),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             backgroundColor: Colors.white,
             shape: StadiumBorder(side: BorderSide(color: MyColors.primary)),
             onSelected: (v) => onToggle(i, v),
@@ -369,20 +378,32 @@ class _LaborRowState extends State<_LaborRow> {
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
-                    width: 110,
+                    width: 90,
                     child: TextFormField(
                       controller: amount,
                       enabled: widget.enabled,
-                      decoration: MyTextFormFieldTheme.lightInputDecoration(
-                        hintText: widget.unitTag,
-                      ),
+                      decoration:
+                          MyTextFormFieldTheme.lightInputDecoration(
+                            hintText: widget.unitTag,
+                          ).copyWith(
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 7,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
-                    width: 120,
+                    width: 110,
+                    height: 34,
                     child: DropdownButtonFormField<String>(
                       value: coatsValue,
+                      dropdownColor: Colors.white,
+                      style: const TextStyle(color: MyColors.primary),
                       items: ['1 Coat', '2 Coats', '3 Coats']
                           .map(
                             (e) => DropdownMenuItem(value: e, child: Text(e)),
@@ -391,19 +412,39 @@ class _LaborRowState extends State<_LaborRow> {
                       onChanged: widget.enabled
                           ? (v) => setState(() => coatsValue = v ?? coatsValue)
                           : null,
-                      decoration: MyTextFormFieldTheme.lightInputDecoration(),
+                      iconEnabledColor: MyColors.primary,
+                      iconSize: 18,
+                      decoration: MyTextFormFieldTheme.lightInputDecoration()
+                          .copyWith(
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   if (widget.unitTag == 'sq ft') ...[
                     SizedBox(
-                      width: 110,
+                      width: 100,
                       child: TextFormField(
                         enabled: widget.enabled && manualGallons,
                         initialValue: manualGallons ? gallonsValue : '',
-                        decoration: MyTextFormFieldTheme.lightInputDecoration(
-                          hintText: 'Gallons',
-                        ),
+                        decoration:
+                            MyTextFormFieldTheme.lightInputDecoration(
+                              hintText: 'Gallons',
+                            ).copyWith(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 7,
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                            ),
                         onChanged: (v) => gallonsValue = v,
                       ),
                     ),
