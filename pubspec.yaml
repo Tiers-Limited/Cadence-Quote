@@ -38,6 +38,7 @@ dependencies:
   image_picker: ^1.2.1
   cloudinary_public: ^0.23.1
   dropdown_textfield: ^1.2.0
+  syncfusion_flutter_pdfviewer: ^28.2.4
 
 dependency_overrides:
   # Required by arkit_plugin >=1.2.0 which uses Matrix4.scaleByVector3
@@ -57,6 +58,7 @@ flutter:
   - assets/logos/
   - assets/images/
   - assets/animations/
+  - assets/pdfs/
   - .env
 
 

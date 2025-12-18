@@ -124,6 +124,16 @@ class ProfilePage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _ProfileTile(
+            icon: Icons.checklist_outlined,
+            title: 'Proposals',
+            color: Colors.black,
+            onTap: () {
+              Get.toNamed(AppRoutes.proposalsList);
+            },
+          ),
+          const SizedBox(height: 12),
+
+          _ProfileTile(
             icon: Iconsax.call,
             title: 'Phone',
             color: Colors.black,
@@ -156,6 +166,7 @@ class ProfilePage extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
+
           _ProfileTile(
             icon: Iconsax.logout,
             title: 'Logout',
@@ -570,7 +581,7 @@ Future<Map<String, dynamic>?> _showEditFieldDialog(
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
                                       valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
+                                        MyColors.primary,
                                       ),
                                     ),
                                   )

@@ -28,6 +28,8 @@ class GradientElevatedButton extends StatelessWidget {
   final double height;
   final double radius;
   final Gradient? gradient;
+  final double elevation;
+
   const GradientElevatedButton({
     super.key,
     required this.onPressed,
@@ -35,6 +37,7 @@ class GradientElevatedButton extends StatelessWidget {
     this.height = 48,
     this.radius = 24,
     this.gradient,
+    this.elevation = 8,
   });
 
   @override
@@ -50,7 +53,7 @@ class GradientElevatedButton extends StatelessWidget {
               ),
         child: ElevatedButton(
           style: ElevatedButton.styleFrom(
-            elevation: 8,
+            elevation: elevation,
             shadowColor: MyColors.primary.withOpacity(0.6),
             backgroundColor: Colors.transparent,
             foregroundColor: Colors.white,

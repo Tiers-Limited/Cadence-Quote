@@ -18,6 +18,8 @@ import 'package:primechoice/view/job_type.dart';
 import 'package:primechoice/view/customer_info.dart';
 import 'package:primechoice/view/areas_labor.dart';
 import 'package:primechoice/view/products.dart';
+import 'package:primechoice/view/proposals.dart';
+import 'package:primechoice/view/proposal_detail.dart';
 
 class AppPages {
   static final pages = [
@@ -67,5 +69,10 @@ class AppPages {
     GetPage(name: AppRoutes.customerInfo, page: () => const CustomerInfoPage()),
     GetPage(name: AppRoutes.areasLabor, page: () => const AreasLaborPage()),
     GetPage(name: AppRoutes.products, page: () => const ProductsPage()),
+    GetPage(name: AppRoutes.proposalsList, page: () => const ProposalsPage()),
+    GetPage(
+      name: AppRoutes.proposalDetail,
+      page: () => const ProposalDetailPage(),
+    ),
   ];
 }

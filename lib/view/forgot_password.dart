@@ -192,7 +192,7 @@ class ForgotPasswordPage extends StatelessWidget {
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
+                                  MyColors.primary,
                                 ),
                               ),
                             )

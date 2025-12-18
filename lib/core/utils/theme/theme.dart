@@ -13,6 +13,9 @@ class MyAppTheme {
   static ThemeData lightTheme = ThemeData(
     scaffoldBackgroundColor: MyColors.white,
     brightness: Brightness.light,
+    progressIndicatorTheme: const ProgressIndicatorThemeData(
+      color: MyColors.primary,
+    ),
     textTheme: MyTextTheme.lightTextTheme,
     appBarTheme: MyAppBarTheme.lightAppBarTheme,
     elevatedButtonTheme: MyElevatedButtonTheme.lightElevatedButtonTheme,

@@ -74,7 +74,7 @@ class ExportPage extends StatelessWidget {
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                     valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
+                                      MyColors.primary,
                                     ),
                                   ),
                                 )

@@ -15,4 +15,6 @@ class AppRoutes {
   static const customerInfo = '/customer-info';
   static const areasLabor = '/areas-labor';
   static const products = '/products';
+  static const proposalsList = '/proposals-list';
+  static const proposalDetail = '/proposal-detail';
 }

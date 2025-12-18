@@ -178,4 +178,16 @@ class QuoteService {
     final res = await http.get(_uri('$id'), headers: _authHeaders());
     return _handle(res, '$id');
   }
+
+  // POST /:id/accept
+  Future<Map<String, dynamic>> acceptQuote(int id) async {
+    final res = await http.post(_uri('$id/accept'), headers: _authHeaders());
+    return _handle(res, '$id/accept');
+  }
+
+  // POST /:id/reject
+  Future<Map<String, dynamic>> rejectQuote(int id) async {
+    final res = await http.post(_uri('$id/reject'), headers: _authHeaders());
+    return _handle(res, '$id/reject');
+  }
 }
