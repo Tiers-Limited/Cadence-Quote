@@ -704,7 +704,10 @@ exports.saveQuote = async (req, res) => {
       customerName,
       customerEmail,
       customerPhone,
-      propertyAddress,
+      // Map legacy propertyAddress to street if provided
+      street: propertyAddress || null,
+      city: null,
+      state: null,
       zipCode,
       jobType,
       jobCategory,
@@ -789,7 +792,9 @@ exports.getQuotes = async (req, res) => {
         { customerName: { [Op.iLike]: `%${search}%` } },
         { customerEmail: { [Op.iLike]: `%${search}%` } },
         { customerPhone: { [Op.iLike]: `%${search}%` } },
-        { propertyAddress: { [Op.iLike]: `%${search}%` } }
+        { street: { [Op.iLike]: `%${search}%` } },
+        { city: { [Op.iLike]: `%${search}%` } },
+        { zipCode: { [Op.iLike]: `%${search}%` } }
       ];
     }
 
@@ -803,6 +808,7 @@ exports.getQuotes = async (req, res) => {
 
     const { count, rows } = await Quote.findAndCountAll({
       where,
+      attributes: { exclude: ['useContractorDiscount', 'bookingRequest'] },
       include: [
         {
           model: User,

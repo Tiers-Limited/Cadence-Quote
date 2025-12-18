@@ -45,9 +45,33 @@ exports.getAllGBBDefaults = async (req, res) => {
       });
     }
 
+    // Enrich with GlobalProduct objects for good/better/best when present
+    const productIds = Array.from(new Set(
+      defaults.flatMap(d => [d.goodProductId, d.betterProductId, d.bestProductId].filter(Boolean))
+    ));
+
+    let productsById = {};
+    if (productIds.length > 0) {
+      const products = await GlobalProduct.findAll({
+        where: { id: productIds },
+        include: [{ association: 'brand', attributes: ['id', 'name'] }]
+      });
+      productsById = products.reduce((acc, p) => {
+        acc[p.id] = p.get({ plain: true });
+        return acc;
+      }, {});
+    }
+
+    const enriched = defaults.map(d => ({
+      ...d.get({ plain: true }),
+      goodProduct: d.goodProductId ? (productsById[d.goodProductId] || null) : null,
+      betterProduct: d.betterProductId ? (productsById[d.betterProductId] || null) : null,
+      bestProduct: d.bestProductId ? (productsById[d.bestProductId] || null) : null
+    }));
+
     res.json({
       success: true,
-      data: defaults
+      data: enriched
     });
   } catch (error) {
     console.error('Get GBB defaults error:', error);
@@ -81,9 +105,30 @@ exports.getGBBDefaultBySurface = async (req, res) => {
       });
     }
 
+    // Enrich single with product objects
+    const ids = [defaults.goodProductId, defaults.betterProductId, defaults.bestProductId].filter(Boolean);
+    let productsById = {};
+    if (ids.length > 0) {
+      const products = await GlobalProduct.findAll({
+        where: { id: ids },
+        include: [{ association: 'brand', attributes: ['id', 'name'] }]
+      });
+      productsById = products.reduce((acc, p) => {
+        acc[p.id] = p.get({ plain: true });
+        return acc;
+      }, {});
+    }
+
+    const enriched = {
+      ...defaults.get({ plain: true }),
+      goodProduct: defaults.goodProductId ? (productsById[defaults.goodProductId] || null) : null,
+      betterProduct: defaults.betterProductId ? (productsById[defaults.betterProductId] || null) : null,
+      bestProduct: defaults.bestProductId ? (productsById[defaults.bestProductId] || null) : null
+    };
+
     res.json({
       success: true,
-      data: defaults
+      data: enriched
     });
   } catch (error) {
     console.error('Get GBB default by surface error:', error);

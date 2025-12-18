@@ -777,7 +777,7 @@ exports.createDraftQuote = async (req, res) => {
       customerName: user.fullName,
       customerEmail: user.email,
       customerPhone: user.phoneNumber,
-      propertyAddress: user.address,
+      street: user.address || null,
       jobType: 'residential',
       jobCategory: 'interior',
       status: 'draft',
@@ -1204,7 +1204,7 @@ exports.getQuoteDetails = async (req, res) => {
         customerName: quote.customerName,
         customerEmail: quote.customerEmail,
         customerPhone: quote.customerPhone,
-        propertyAddress: quote.propertyAddress,
+        propertyAddress: [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', '),
         areas: quote.areas,
         useContractorDiscount: quote.useContractorDiscount,
         pricing: {

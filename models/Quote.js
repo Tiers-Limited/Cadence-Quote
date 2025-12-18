@@ -104,12 +104,11 @@ const Quote = sequelize.define('Quote', {
     field: 'zip_code'
   },
   
-  propertyAddress: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    field: 'property_address',
-    comment: 'Full property address (used by mobile app)'
-  },
+  // propertyAddress: {
+  //   type: DataTypes.TEXT,
+  //   allowNull: true,
+  //   field: 'property_address'
+  // },
   
   // Job Details
   jobType: {

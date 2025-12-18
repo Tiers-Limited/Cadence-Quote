@@ -49,4 +49,11 @@ router.post('/calculate', quoteBuilderController.calculateQuote);
  */
 router.post('/:id/send', quoteBuilderController.sendQuote);
 
+/**
+ * @route   GET /api/quote-builder/:id/proposal.pdf
+ * @desc    Generate and stream proposal PDF for a quote
+ * @access  Private (Contractor)
+ */
+router.get('/:id/proposal.pdf', quoteBuilderController.getProposalPdf);
+
 module.exports = router;

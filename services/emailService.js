@@ -777,8 +777,8 @@ class EmailService {
           
           <!-- Header -->
           <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 40px 30px; text-align: center;">
-            <h1 style="margin: 0 0 10px 0; font-size: 32px; font-weight: bold;">Your Quote is Ready!</h1>
-            <p style="margin: 0; font-size: 18px; opacity: 0.9;">Quote #${quote.quoteNumber}</p>
+            <h1 style="margin: 0 0 10px 0; font-size: 32px; font-weight: bold;color:#fff">Your Quote is Ready!</h1>
+            <p style="margin: 0; font-size: 18px; opacity: 0.9; color:#fff">Quote #${quote.quoteNumber}</p>
           </div>
 
           <!-- Greeting -->
@@ -911,9 +911,9 @@ class EmailService {
 
           <!-- Contact Info -->
           <div style="background: #1f2937; color: white; padding: 30px; text-align: center;">
-            <h4 style="margin: 0 0 16px 0; font-size: 18px;">Questions? We're Here to Help!</h4>
-            <p style="margin: 0 0 8px 0; opacity: 0.9;">📧 Email: <a href="mailto:${contractor.email}" style="color: #60a5fa; text-decoration: none;">${contractor.email}</a></p>
-            ${contractor.phone ? `<p style="margin: 0; opacity: 0.9;">📱 Phone: <a href="tel:${contractor.phone}" style="color: #60a5fa; text-decoration: none;">${contractor.phone}</a></p>` : ''}
+            <h4 style="margin: 0 0 16px 0; font-size: 18px; color:#fff">Questions? We're Here to Help!</h4>
+            <p style="margin: 0 0 8px 0; opacity: 0.9; color:#fff">📧 Email: <a href="mailto:${contractor.email}" style="color: #60a5fa; text-decoration: none;">${contractor.email}</a></p>
+            ${contractor.phone ? `<p style="margin: 0; opacity: 0.9; color:#fff">📱 Phone: <a href="tel:${contractor.phone}" style="color: #60a5fa; text-decoration: none;">${contractor.phone}</a></p>` : ''}
           </div>
 
           <!-- Footer -->

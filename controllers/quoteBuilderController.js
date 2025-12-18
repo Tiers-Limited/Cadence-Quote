@@ -16,6 +16,10 @@ const sequelize = require('../config/database');
 const User = require('../models/User');
 const emailService = require('../services/emailService');
 const PDFGenerator = require('../utils/pdfGenerator');
+const ProposalDefaults = require('../models/ProposalDefaults');
+const Tenant = require('../models/Tenant');
+const { renderProposalHtml } = require('../services/proposalTemplate');
+const { htmlToPdfBuffer } = require('../services/pdfService');
 
 /**
  * Helper function to calculate quote pricing
@@ -888,23 +892,111 @@ exports.sendQuote = async (req, res) => {
       where: { tenantId }
     });
 
-    // Generate PDF
+    // Generate PDF (new template). Fallback to legacy generator on failure.
     let pdfBuffer = null;
     try {
-      pdfBuffer = await PDFGenerator.generateQuotePDF({
-        quote: quote.toJSON(),
-        calculation,
-        contractor: {
-          name: contractor.fullName,
-          email: contractor.email,
-          phone: settings?.phone,
-          companyName: settings?.businessName || 'Our Painting Team'
-        },
-        settings
+      const tenant = await Tenant.findByPk(tenantId);
+      const pDefaults = await ProposalDefaults.findOne({ where: { tenantId } });
+
+      const projectAddress = [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', ');
+
+      // Prepare GBB rows from productSets
+      const rows = [];
+      const productSets = quote.productSets || {};
+      const getName = (obj) => obj ? (obj.name || obj.productName || obj.title || obj.label) : undefined;
+      const surfaceSet = new Set();
+      (quote.areas || []).forEach(a => {
+        a.laborItems?.forEach(li => li?.categoryName && surfaceSet.add(li.categoryName));
+        a.surfaces?.forEach(s => s?.type && surfaceSet.add(s.type));
       });
-    } catch (pdfError) {
-      console.error('Error generating PDF:', pdfError);
-      // Continue without PDF if generation fails
+      Array.from(surfaceSet).forEach(label => {
+        let set = Array.isArray(productSets) ? (productSets.find(ps => ps.surfaceType === label) || {}) : (productSets[label] || {});
+        rows.push({ label, good: getName(set.good), better: getName(set.better), best: getName(set.best) });
+      });
+
+      const depositPct = parseFloat(settings?.depositPercentage || 0);
+      const total = parseFloat(quote.total || 0);
+      const depositAmount = total * (depositPct / 100);
+
+      const templateData = {
+        company: {
+          name: tenant?.companyName || 'Your Company',
+          email: tenant?.email || '',
+          phone: tenant?.phoneNumber || '',
+          addressLine1: tenant?.businessAddress || '',
+          logoUrl: pDefaults?.companyLogo || '',
+        },
+        proposal: {
+          invoiceNumber: quote.quoteNumber,
+          date: new Date().toLocaleDateString(),
+          customerName: quote.customerName,
+          projectAddress,
+          selectedOption: quote.productStrategy === 'GBB' ? 'Better' : 'Single',
+          totalInvestment: total,
+          depositAmount,
+        },
+        introduction: {
+          welcomeMessage: pDefaults?.defaultWelcomeMessage || undefined,
+          aboutUsSummary: pDefaults?.aboutUsSummary || undefined,
+        },
+        scope: {
+          interiorProcess: pDefaults?.interiorProcess || undefined,
+          drywallRepairProcess: pDefaults?.drywallRepairProcess || undefined,
+          exteriorProcess: pDefaults?.exteriorProcess || undefined,
+          trimProcess: pDefaults?.trimProcess || undefined,
+          cabinetProcess: pDefaults?.cabinetProcess || undefined,
+        },
+        warranty: {
+          standard: pDefaults?.standardWarranty || undefined,
+          premium: pDefaults?.premiumWarranty || undefined,
+          exterior: pDefaults?.exteriorWarranty || undefined,
+        },
+        responsibilities: {
+          client: pDefaults?.clientResponsibilities || undefined,
+          contractor: pDefaults?.contractorResponsibilities || undefined,
+        },
+        acceptance: {
+          acknowledgement: pDefaults?.legalAcknowledgement || undefined,
+          signatureStatement: pDefaults?.signatureStatement || undefined,
+        },
+        payment: {
+          paymentTermsText: pDefaults?.paymentTermsText || undefined,
+          paymentMethods: pDefaults?.paymentMethods || undefined,
+          latePaymentPolicy: pDefaults?.latePaymentPolicy || undefined,
+        },
+        policies: {
+          touchUpPolicy: pDefaults?.touchUpPolicy || undefined,
+          finalWalkthroughPolicy: pDefaults?.finalWalkthroughPolicy || undefined,
+          changeOrderPolicy: pDefaults?.changeOrderPolicy || undefined,
+          colorDisclaimer: pDefaults?.colorDisclaimer || undefined,
+          surfaceConditionDisclaimer: pDefaults?.surfaceConditionDisclaimer || undefined,
+          paintFailureDisclaimer: pDefaults?.paintFailureDisclaimer || undefined,
+          generalProposalDisclaimer: pDefaults?.generalProposalDisclaimer || undefined,
+        },
+        areaBreakdown: (quote.areas || []).map(a => a.name).filter(Boolean),
+        gbb: { rows, investment: {} },
+      };
+
+      const html = renderProposalHtml(templateData);
+      pdfBuffer = await htmlToPdfBuffer(html);
+    } catch (pdfErrorNew) {
+      console.error('New template PDF generation failed, falling back:', pdfErrorNew);
+      try {
+        pdfBuffer = await PDFGenerator.generateQuotePDF({
+          quote: quote.toJSON(),
+          calculation,
+          contractor: {
+            name: contractor.fullName,
+            email: contractor.email,
+            phone: settings?.phone,
+            companyName: settings?.businessName || 'Our Painting Team'
+          },
+          settings
+        });
+      } catch (pdfErrorLegacy) {
+        console.error('Legacy PDF generation also failed:', pdfErrorLegacy);
+        // Continue without PDF if generation fails
+      }
     }
 
     // Send email notification
@@ -944,6 +1036,162 @@ exports.sendQuote = async (req, res) => {
       message: 'Failed to send quote',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
+  }
+};
+
+/**
+ * Generate proposal PDF for a quote
+ * GET /api/quote-builder/:id/proposal.pdf
+ */
+exports.getProposalPdf = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user.tenantId;
+
+    // Fetch quote with tenant context
+    const quote = await Quote.findOne({
+      where: { id, tenantId },
+      include: [
+        { model: Client, as: 'client' },
+        { model: PricingScheme, as: 'pricingScheme' },
+      ],
+    });
+
+    if (!quote) {
+      return res.status(404).json({ success: false, message: 'Quote not found' });
+    }
+
+    // Load company/tenant and defaults
+    const [tenant, settings, pDefaults] = await Promise.all([
+      Tenant.findByPk(tenantId),
+      ContractorSettings.findOne({ where: { tenantId } }),
+      ProposalDefaults.findOne({ where: { tenantId } }),
+    ]);
+
+    // Compose address from quote fields
+    const projectAddress = [quote.street, quote.city, quote.state, quote.zipCode]
+      .filter(Boolean)
+      .join(', ');
+
+    // Build GBB table rows from productSets or areas
+    const rows = [];
+    const productSets = quote.productSets || {};
+
+    // Helper to extract name from possible tier object
+    const getName = (obj) => {
+      if (!obj) return undefined;
+      return obj.name || obj.productName || obj.title || obj.label || undefined;
+    };
+
+    // Collect surface types from areas as labels
+    const surfaceSet = new Set();
+    (quote.areas || []).forEach(a => {
+      if (Array.isArray(a.laborItems)) {
+        a.laborItems.forEach(li => li?.categoryName && surfaceSet.add(li.categoryName));
+      }
+      if (Array.isArray(a.surfaces)) {
+        a.surfaces.forEach(s => s?.type && surfaceSet.add(s.type));
+      }
+    });
+
+    const surfaceTypes = Array.from(surfaceSet);
+
+    surfaceTypes.forEach((label) => {
+      let good, better, best;
+
+      if (Array.isArray(productSets)) {
+        const set = productSets.find(ps => ps.surfaceType === label) || {};
+        good = getName(set.good);
+        better = getName(set.better);
+        best = getName(set.best);
+      } else if (productSets && typeof productSets === 'object') {
+        const key = label;
+        const set = productSets[key] || {};
+        good = getName(set.good);
+        better = getName(set.better);
+        best = getName(set.best);
+      }
+
+      rows.push({ label, good, better, best });
+    });
+
+    // Compute deposit from settings
+    const depositPct = parseFloat(settings?.depositPercentage || 0);
+    const total = parseFloat(quote.total || 0);
+    const depositAmount = total * (depositPct / 100);
+
+    // Build template data (include ProposalDefaults content)
+    const templateData = {
+      company: {
+        name: tenant?.companyName || 'Your Company',
+        email: tenant?.email || '',
+        phone: tenant?.phoneNumber || '',
+        addressLine1: tenant?.businessAddress || '',
+        logoUrl: pDefaults?.companyLogo || '',
+      },
+      proposal: {
+        invoiceNumber: quote.quoteNumber,
+        date: new Date().toLocaleDateString(),
+        customerName: quote.customerName,
+        projectAddress,
+        selectedOption: quote.productStrategy === 'GBB' ? 'Better' : 'Single',
+        totalInvestment: total,
+        depositAmount,
+      },
+      introduction: {
+        welcomeMessage: pDefaults?.defaultWelcomeMessage || undefined,
+        aboutUsSummary: pDefaults?.aboutUsSummary || undefined,
+      },
+      scope: {
+        interiorProcess: pDefaults?.interiorProcess || undefined,
+        drywallRepairProcess: pDefaults?.drywallRepairProcess || undefined,
+        exteriorProcess: pDefaults?.exteriorProcess || undefined,
+        trimProcess: pDefaults?.trimProcess || undefined,
+        cabinetProcess: pDefaults?.cabinetProcess || undefined,
+      },
+      warranty: {
+        standard: pDefaults?.standardWarranty || undefined,
+        premium: pDefaults?.premiumWarranty || undefined,
+        exterior: pDefaults?.exteriorWarranty || undefined,
+      },
+      responsibilities: {
+        client: pDefaults?.clientResponsibilities || undefined,
+        contractor: pDefaults?.contractorResponsibilities || undefined,
+      },
+      acceptance: {
+        acknowledgement: pDefaults?.legalAcknowledgement || undefined,
+        signatureStatement: pDefaults?.signatureStatement || undefined,
+      },
+      payment: {
+        paymentTermsText: pDefaults?.paymentTermsText || undefined,
+        paymentMethods: pDefaults?.paymentMethods || undefined,
+        latePaymentPolicy: pDefaults?.latePaymentPolicy || undefined,
+      },
+      policies: {
+        touchUpPolicy: pDefaults?.touchUpPolicy || undefined,
+        finalWalkthroughPolicy: pDefaults?.finalWalkthroughPolicy || undefined,
+        changeOrderPolicy: pDefaults?.changeOrderPolicy || undefined,
+        colorDisclaimer: pDefaults?.colorDisclaimer || undefined,
+        surfaceConditionDisclaimer: pDefaults?.surfaceConditionDisclaimer || undefined,
+        paintFailureDisclaimer: pDefaults?.paintFailureDisclaimer || undefined,
+        generalProposalDisclaimer: pDefaults?.generalProposalDisclaimer || undefined,
+      },
+      areaBreakdown: (quote.areas || []).map(a => a.name).filter(Boolean),
+      gbb: {
+        rows,
+        investment: {}, // Optional if we later add per-tier totals
+      },
+    };
+
+    const html = renderProposalHtml(templateData);
+    const pdf = await htmlToPdfBuffer(html);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=Proposal-${quote.quoteNumber}.pdf`);
+    return res.send(pdf);
+  } catch (error) {
+    console.error('Generate proposal PDF error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to generate proposal PDF' });
   }
 };
 
