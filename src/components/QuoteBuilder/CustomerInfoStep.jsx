@@ -1,6 +1,6 @@
 // src/components/QuoteBuilder/CustomerInfoStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Select, Button, Alert, Modal, Card, Row, Col, Typography } from 'antd';
+import { Form, Input, Select, Button, Alert, Modal, Card, Row, Col, Typography, Tag } from 'antd';
 import { UserOutlined, PhoneOutlined, MailOutlined, HomeOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
@@ -335,33 +335,37 @@ const CustomerInfoStep = ({
             label="Pricing Scheme"
             name="pricingSchemeId"
             validateStatus={errors.pricingSchemeId ? 'error' : ''}
-            help={errors.pricingSchemeId || "This determines how pricing is calculated for this quote"}
+            help={errors.pricingSchemeId || "Select the pricing model for this quote"}
             required
           >
             <Select
-              placeholder="Select Pricing Scheme"
+              placeholder="Choose a pricing scheme"
               onChange={(value) => handleFieldChange('pricingSchemeId', value)}
+              optionLabelProp="label"
             >
               {pricingSchemes?.map(scheme => (
-                <Option key={scheme.id} value={scheme.id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{scheme.name}</span>
-                    {scheme.isDefault && (
-                      <span style={{ 
-                        fontSize: '11px', 
-                        color: '#1890ff', 
-                        fontWeight: '600',
-                        marginLeft: '8px'
-                      }}>
-                        DEFAULT
-                      </span>
+                <Option 
+                  key={scheme.id} 
+                  value={scheme.id}
+                  label={
+                    <span>
+                      {scheme.name} {scheme.isDefault && <Tag color="blue" style={{ marginLeft: 8 }}>Default</Tag>}
+                    </span>
+                  }
+                >
+                  <div style={{ padding: '4px 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                      <Text strong>{scheme.name}</Text>
+                      {scheme.isDefault && (
+                        <Tag color="blue" style={{ marginLeft: 8, fontSize: 10 }}>Default</Tag>
+                      )}
+                    </div>
+                    {scheme.description && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {scheme.description}
+                      </Text>
                     )}
                   </div>
-                  {scheme.description && (
-                    <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                      {scheme.description}
-                    </div>
-                  )}
                 </Option>
               ))}
             </Select>

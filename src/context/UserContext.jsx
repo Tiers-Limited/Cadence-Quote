@@ -31,6 +31,7 @@ export const UserProvider = ({ children }) => {
           const data = await apiService.get('/auth/me')
          
           if (data.success) {
+            // setUser({ ...data.data.user, role:"customer" })
             setUser(data.data.user)
             setIsAuthenticated(true)
           } else {

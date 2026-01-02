@@ -1,7 +1,8 @@
 // src/components/QuoteBuilder/ProductsStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Select, Radio, Checkbox, InputNumber, Space, Modal, Divider, Tag } from 'antd';
-import { ThunderboltOutlined, CopyOutlined } from '@ant-design/icons';
+import { Card, Button, Alert, Row, Col, Typography, Select, Radio, Checkbox, Space, Modal, Divider, Tag } from 'antd';
+import { CopyOutlined } from '@ant-design/icons';
+import PropTypes from 'prop-types';
 import { apiService } from '../../services/apiService';
 
 const { Title, Text } = Typography;
@@ -103,6 +104,35 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
 
   const surfaceTypes = getSurfaceTypes();
 
+  // Map surface label to API default surface key
+  const mapSurfaceToDefaultKey = (surfaceType) => {
+    const surfaceTypeMap = {
+      'Walls': 'interior_walls',
+      'Ceiling': 'interior_ceilings',
+      'Ceilings': 'interior_ceilings',
+      'Trim': 'interior_trim_doors',
+      'Doors': 'interior_trim_doors',
+      'Cabinets': 'cabinets',
+      'Siding': 'exterior_siding',
+      'Windows': 'exterior_trim',
+      'Soffit & Fascia': 'exterior_trim',
+      'Accent Walls': 'interior_walls',
+      'Drywall Repair': 'interior_walls',
+      'Exterior Walls': 'exterior_siding',
+      'Exterior Trim': 'exterior_trim',
+      'Exterior Doors': 'exterior_trim',
+      'Shutters': 'exterior_trim',
+      'Decks & Railings': 'exterior_siding',
+      'Prep Work': 'exterior_siding'
+    };
+    return surfaceTypeMap[surfaceType] || 'interior_walls';
+  };
+
+  const getDefaultsForSurface = (surfaceType) => {
+    const key = mapSurfaceToDefaultKey(surfaceType);
+    return gbbDefaults.find(d => d.surfaceType === key);
+  };
+
   // Initialize product sets if empty - auto-populate from GBB defaults
   useEffect(() => {
     if (productSets.length === 0 && surfaceTypes.length > 0 && gbbDefaults.length > 0) {
@@ -188,7 +218,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       if (area.laborItems) {
         area.laborItems.forEach(item => {
           if (item.selected && item.categoryName === surfaceType && item.gallons) {
-            totalGallons += parseFloat(item.gallons) || 0;
+            totalGallons += Number.parseFloat(item.gallons) || 0;
           }
         });
       }
@@ -202,7 +232,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     const finalGallons = Math.ceil(gallonsWithWaste * 4) / 4;
     
     // Calculate material cost
-    const materialCost = finalGallons * parseFloat(product.pricePerGallon || 0);
+    const materialCost = finalGallons * Number.parseFloat(product.pricePerGallon || 0);
 
     // Update the set with calculated values
     setProductSets(prev => prev.map(set => {
@@ -380,6 +410,18 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                           })()}
                         </div>
                       )}
+                      {!set.products.good && (() => {
+                        const d = getDefaultsForSurface(set.surfaceType);
+                        const p = d?.goodProduct;
+                        return p ? (
+                          <div style={{ marginTop: 8 }}>
+                            <Divider style={{ margin: '8px 0' }} />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              Recommended: {p.brand?.name || 'Brand'} — {p.name} ({p.category})
+                            </Text>
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </Col>
 
@@ -431,6 +473,18 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                           })()}
                         </div>
                       )}
+                      {!set.products.better && (() => {
+                        const d = getDefaultsForSurface(set.surfaceType);
+                        const p = d?.betterProduct;
+                        return p ? (
+                          <div style={{ marginTop: 8 }}>
+                            <Divider style={{ margin: '8px 0' }} />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              Recommended: {p.brand?.name || 'Brand'} — {p.name} ({p.category})
+                            </Text>
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </Col>
 
@@ -482,6 +536,18 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                           })()}
                         </div>
                       )}
+                      {!set.products.best && (() => {
+                        const d = getDefaultsForSurface(set.surfaceType);
+                        const p = d?.bestProduct;
+                        return p ? (
+                          <div style={{ marginTop: 8 }}>
+                            <Divider style={{ margin: '8px 0' }} />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              Recommended: {p.brand?.name || 'Brand'} — {p.name} ({p.category})
+                            </Text>
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </Col>
                 </Row>
@@ -567,6 +633,19 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       </div>
     </div>
   );
+};
+
+ProductsStep.propTypes = {
+  formData: PropTypes.shape({
+    productStrategy: PropTypes.string,
+    allowCustomerProductChoice: PropTypes.bool,
+    productSets: PropTypes.array,
+    pricingSchemeId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    areas: PropTypes.array,
+  }).isRequired,
+  onUpdate: PropTypes.func.isRequired,
+  onNext: PropTypes.func.isRequired,
+  onPrevious: PropTypes.func.isRequired,
 };
 
 export default ProductsStep;

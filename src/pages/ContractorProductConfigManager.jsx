@@ -43,7 +43,7 @@ const ContractorProductConfigManager = () => {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const [activeTab, setActiveTab] = useState('products');
+  const [activeTab, setActiveTab] = useState('labor');
   const [form] = Form.useForm();
   const [laborForm] = Form.useForm();
   const [markupForm] = Form.useForm();
@@ -55,6 +55,15 @@ const ContractorProductConfigManager = () => {
   const [deletingId, setDeletingId] = useState(null);
   const [savingLaborRate, setSavingLaborRate] = useState(false);
   const [deletingLaborRate, setDeletingLaborRate] = useState(null);
+
+  // Pricing Engine: Labor pricing states
+  const [laborLoading, setLaborLoading] = useState(true);
+  const [laborInitializing, setLaborInitializing] = useState(false);
+  const [laborSaving, setLaborSaving] = useState(false);
+  const [laborCategories, setLaborCategories] = useState([]);
+  const [laborRates, setLaborRates] = useState({});
+  const [laborSearchText, setLaborSearchText] = useState('');
+  const [laborHasChanges, setLaborHasChanges] = useState(false);
 
   // Responsive detection
   useEffect(() => {
@@ -74,6 +83,25 @@ const ContractorProductConfigManager = () => {
       markupForm.setFieldsValue({
         defaultMarkup: laborDefaults.defaultMarkup || 15,
         taxRate: laborDefaults.defaultTaxRate || 0,
+        laborHourRate: laborDefaults.defaultLaborHourRate || 0,
+        laborMarkupPercent: laborDefaults.laborMarkupPercent || 0,
+        materialMarkupPercent: laborDefaults.materialMarkupPercent || 0,
+        overheadPercent: laborDefaults.overheadPercent || 0,
+        netProfitPercent: laborDefaults.netProfitPercent || 0,
+        depositPercentage: laborDefaults.depositPercentage || 50,
+        quoteValidityDays: laborDefaults.quoteValidityDays || 30,
+        turnkeyInteriorRate: laborDefaults.turnkeyInteriorRate || 0,
+        turnkeyExteriorRate: laborDefaults.turnkeyExteriorRate || 0,
+        prepRepairHourlyRate: laborDefaults.prepRepairHourlyRate || 0,
+        finishCabinetHourlyRate: laborDefaults.finishCabinetHourlyRate || 0,
+        productionInteriorWalls: laborDefaults.productionInteriorWalls || 0,
+        productionInteriorCeilings: laborDefaults.productionInteriorCeilings || 0,
+        productionInteriorTrim: laborDefaults.productionInteriorTrim || 0,
+        productionExteriorWalls: laborDefaults.productionExteriorWalls || 0,
+        productionExteriorTrim: laborDefaults.productionExteriorTrim || 0,
+        productionSoffitFascia: laborDefaults.productionSoffitFascia || 0,
+        productionDoors: laborDefaults.productionDoors || 0,
+        productionCabinets: laborDefaults.productionCabinets || 0,
       });
     }
   }, [laborDefaults, markupForm]);
@@ -98,6 +126,132 @@ const ContractorProductConfigManager = () => {
       setLoading(false);
     }
   };
+
+  // Load labor categories + rates for Pricing Engine
+  useEffect(() => {
+    (async () => {
+      await fetchLaborData();
+    })();
+  }, []);
+
+  const fetchLaborData = async () => {
+    try {
+      setLaborLoading(true);
+      const [categoriesResponse, ratesResponse] = await Promise.all([
+        apiService.get('/labor-categories'),
+        apiService.get('/labor-categories/rates'),
+      ]);
+
+      if (categoriesResponse.success) {
+        const cats = categoriesResponse.data || [];
+        setLaborCategories(cats);
+        const ratesObj = {};
+        cats.forEach((cat) => {
+          const existingRate = ratesResponse.data?.find(
+            (r) => r.laborCategoryId === cat.id
+          );
+          ratesObj[cat.id] = existingRate ? parseFloat(existingRate.rate) : 0;
+        });
+        setLaborRates(ratesObj);
+      }
+    } catch (error) {
+      message.error('Failed to load labor categories: ' + error.message);
+    } finally {
+      setLaborLoading(false);
+    }
+  };
+
+  const initializeLaborCategories = async () => {
+    try {
+      setLaborInitializing(true);
+      const response = await apiService.post('/labor-categories/initialize');
+      if (response.success) {
+        message.success('Labor categories initialized successfully');
+        await fetchLaborData();
+      }
+    } catch (error) {
+      message.error('Failed to initialize categories: ' + error.message);
+    } finally {
+      setLaborInitializing(false);
+    }
+  };
+
+  const handleLaborRateChange = (categoryId, value) => {
+    setLaborRates({ ...laborRates, [categoryId]: value });
+    setLaborHasChanges(true);
+  };
+
+  const saveLaborRates = async () => {
+    try {
+      setLaborSaving(true);
+      const ratesArray = Object.entries(laborRates).map(([categoryId, rate]) => ({
+        categoryId: parseInt(categoryId),
+        rate: parseFloat(rate) || 0,
+      }));
+      const response = await apiService.post('/labor-categories/rates/bulk', {
+        rates: ratesArray,
+      });
+      if (response.success) {
+        message.success('Labor rates saved successfully');
+        setLaborHasChanges(false);
+        await fetchLaborData();
+      }
+    } catch (error) {
+      message.error('Failed to save labor rates: ' + error.message);
+    } finally {
+      setLaborSaving(false);
+    }
+  };
+
+  const getUnitLabel = (unit) => {
+    const labels = {
+      sqft: 'per sq ft',
+      linear_foot: 'per linear foot',
+      unit: 'per unit',
+      hour: 'per hour',
+    };
+    return labels[unit] || `per ${unit}`;
+  };
+
+  const laborColumns = [
+    {
+      title: 'Labor Category',
+      dataIndex: 'categoryName',
+      key: 'categoryName',
+      width: isMobile ? 200 : '40%',
+      render: (text, record) => (
+        <div>
+          <span style={{ fontWeight: 600 }}>{text}</span>
+          <br />
+          <span style={{ color: '#888', fontSize: 12 }}>{record.description}</span>
+        </div>
+      ),
+    },
+    {
+      title: 'Measurement Unit',
+      dataIndex: 'measurementUnit',
+      key: 'measurementUnit',
+      width: isMobile ? 120 : '20%',
+      render: (unit) => getUnitLabel(unit),
+    },
+    {
+      title: 'Labor Rate',
+      key: 'rate',
+      width: isMobile ? 180 : '25%',
+      render: (_, record) => (
+        <InputNumber
+          style={{ width: isMobile ? '100%' : 150 }}
+          min={0}
+          step={0.25}
+          precision={2}
+          value={laborRates[record.id] || 0}
+          onChange={(value) => handleLaborRateChange(record.id, value)}
+          prefix="$"
+          addonAfter={getUnitLabel(record.measurementUnit).replace('per ', '')}
+        />
+      ),
+    },
+  ];
 
   const fetchConfigs = async (brandId = null) => {
     setLoading(true);
@@ -317,15 +471,33 @@ const ContractorProductConfigManager = () => {
       const response = await apiService.updateProductConfigDefaults({
         defaultMarkup: values.defaultMarkup,
         defaultTaxRate: values.taxRate,
+        defaultLaborHourRate: values.laborHourRate,
+        laborMarkupPercent: values.laborMarkupPercent,
+        materialMarkupPercent: values.materialMarkupPercent,
+        overheadPercent: values.overheadPercent,
+        netProfitPercent: values.netProfitPercent,
+        depositPercentage: values.depositPercentage,
+        quoteValidityDays: values.quoteValidityDays,
+        turnkeyInteriorRate: values.turnkeyInteriorRate,
+        turnkeyExteriorRate: values.turnkeyExteriorRate,
+        prepRepairHourlyRate: values.prepRepairHourlyRate,
+        finishCabinetHourlyRate: values.finishCabinetHourlyRate,
+        productionInteriorWalls: values.productionInteriorWalls,
+        productionInteriorCeilings: values.productionInteriorCeilings,
+        productionInteriorTrim: values.productionInteriorTrim,
+        productionExteriorWalls: values.productionExteriorWalls,
+        productionExteriorTrim: values.productionExteriorTrim,
+        productionSoffitFascia: values.productionSoffitFascia,
+        productionDoors: values.productionDoors,
+        productionCabinets: values.productionCabinets,
       });
       
       if (response.success) {
         setLaborDefaults(prev => ({
           ...prev,
-          defaultMarkup: values.defaultMarkup,
-          defaultTaxRate: values.taxRate,
+          ...values,
         }));
-        message.success('Markup and tax settings updated successfully');
+        message.success('Pricing settings updated successfully');
       }
     } catch (error) {
       if (error.errorFields) {
@@ -587,8 +759,8 @@ const ContractorProductConfigManager = () => {
   return (
     <div className="p-3 sm:p-6">
       <div className="mb-4">
-        <h2 className="text-xl sm:text-2xl font-semibold">Product Configurations</h2>
-        <p className="text-sm text-gray-500">Manage your product pricing, labor rates, and markup settings</p>
+        <h2 className="text-xl sm:text-2xl font-semibold">Pricing Engine</h2>
+        <p className="text-sm text-gray-500">Manage your labor rates, material costs, markups, and pricing rules</p>
       </div>
 
       <Tabs
@@ -597,8 +769,53 @@ const ContractorProductConfigManager = () => {
         type="card"
         size={isMobile ? 'small' : 'large'}
       >
+        {/* Labor Pricing Tab */}
+        <TabPane tab="Labor Pricing" key="labor">
+          <div className="space-y-6">
+            <div className='flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap items-start sm:items-center justify-between'>
+              <Input
+                placeholder="Search labor categories"
+                value={laborSearchText}
+                onChange={(e) => setLaborSearchText(e.target.value)}
+                allowClear
+                className="w-full sm:w-[250px]"
+              />
+              <Space>
+                {laborCategories.length === 0 && (
+                  <Button type="dashed" onClick={initializeLaborCategories} loading={laborInitializing}>
+                    Initialize Categories
+                  </Button>
+                )}
+                <Button type="primary" onClick={saveLaborRates} loading={laborSaving} disabled={!laborHasChanges}>
+                  Update Rates
+                </Button>
+              </Space>
+            </div>
+
+            <Card size="small" className="mt-2">
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                <span className="font-medium">Labor Hour Rate</span>
+                <Form form={markupForm} layout="inline">
+                  <Form.Item name="laborHourRate" rules={[{ required: true, message: 'Enter hourly rate' }]}> 
+                    <InputNumber prefix="$" min={0} precision={2} style={{ width: 160 }} />
+                  </Form.Item>
+                  <Button onClick={handleSaveMarkupAndTax} loading={savingSettings}>Save</Button>
+                </Form>
+              </div>
+            </Card>
+
+            <Table
+              columns={laborColumns}
+              dataSource={laborCategories.filter(c => c.categoryName?.toLowerCase().includes(laborSearchText.toLowerCase()))}
+              rowKey="id"
+              pagination={false}
+              loading={laborLoading}
+              size="middle"
+            />
+          </div>
+        </TabPane>
         {/* Products Tab */}
-        <TabPane tab="Paint Products" key="products">
+        <TabPane tab="Material Pricing" key="products">
           <div className="space-y-6">
             {/* Filter Controls */}
             <div className='flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap items-start sm:items-center justify-between'>
@@ -665,9 +882,106 @@ const ContractorProductConfigManager = () => {
           </div>
         </TabPane>
 
-        
+        {/* Markup Rules Tab */}
+        <TabPane tab="Markup Rules" key="markup">
+          <Card>
+            <Form form={markupForm} layout={isMobile ? 'vertical' : 'horizontal'} labelCol={{ span: 10 }} wrapperCol={{ span: 12 }}>
+              
+              {/* Markup Percentages */}
+              <Divider orientation="left">Markup Percentages</Divider>
+              <Form.Item name="laborMarkupPercent" label="Labor Markup" rules={[{ required: true }]}> 
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="materialMarkupPercent" label="Material Markup" rules={[{ required: true }]}> 
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="overheadPercent" label="Overhead" rules={[{ required: true }]}> 
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="netProfitPercent" label="Net Profit" rules={[{ required: true }]}> 
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
+              </Form.Item>
 
-      
+              {/* Tax & Quote Settings */}
+              <Divider orientation="left">Tax & Quote Settings</Divider>
+              <Form.Item name="defaultMarkup" label="Default Markup" rules={[{ required: true }]}> 
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="taxRate" label="Tax Rate" rules={[{ required: true }]}> 
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="depositPercentage" label="Deposit Required" rules={[{ required: true }]}> 
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="quoteValidityDays" label="Quote Validity" rules={[{ required: true }]}> 
+                <InputNumber min={1} max={365} precision={0} addonAfter="days" style={{ width: 200 }} />
+              </Form.Item>
+
+              {/* Turnkey Square Foot Rates */}
+              <Divider orientation="left">Turnkey Square Foot Rates</Divider>
+              <Form.Item name="turnkeyInteriorRate" label="Interior Turnkey Rate" tooltip="All-in price per sq ft for interior projects"> 
+                <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="turnkeyExteriorRate" label="Exterior Turnkey Rate" tooltip="All-in price per sq ft for exterior projects"> 
+                <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
+              </Form.Item>
+
+              {/* Global Hourly Labor Rates */}
+              <Divider orientation="left">Global Hourly Labor Rates</Divider>
+              <Form.Item name="laborHourRate" label="Base Hourly Rate" tooltip="Standard labor rate per hour"> 
+                <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ hour" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="prepRepairHourlyRate" label="Prep/Repair Rate" tooltip="Hourly rate for prep and repair work"> 
+                <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ hour" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="finishCabinetHourlyRate" label="Finish/Cabinet Rate" tooltip="Hourly rate for finish and cabinet work"> 
+                <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ hour" style={{ width: 200 }} />
+              </Form.Item>
+
+              {/* Production Rates - Interior */}
+              <Divider orientation="left">Production Rates - Interior</Divider>
+              <Form.Item name="productionInteriorWalls" label="Interior Walls" tooltip="How many sq ft of interior walls per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="productionInteriorCeilings" label="Interior Ceilings" tooltip="How many sq ft of ceiling per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="productionInteriorTrim" label="Interior Trim" tooltip="How many linear feet of trim per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+              </Form.Item>
+
+              {/* Production Rates - Exterior */}
+              <Divider orientation="left">Production Rates - Exterior</Divider>
+              <Form.Item name="productionExteriorWalls" label="Exterior Walls" tooltip="How many sq ft of exterior walls per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="productionExteriorTrim" label="Exterior Trim" tooltip="How many linear feet of exterior trim per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="productionSoffitFascia" label="Soffit & Fascia" tooltip="How many linear feet of soffit/fascia per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+              </Form.Item>
+
+              {/* Production Rates - Optional */}
+              <Divider orientation="left">Production Rates - Optional</Divider>
+              <Form.Item name="productionDoors" label="Doors" tooltip="How many doors per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="units / hour" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="productionCabinets" label="Cabinets" tooltip="How many cabinet units per hour"> 
+                <InputNumber min={0} precision={2} addonAfter="units / hour" style={{ width: 200 }} />
+              </Form.Item>
+
+              {/* Action Buttons */}
+              <Form.Item wrapperCol={{ span: 12, offset: isMobile ? 0 : 10 }}>
+                <Space>
+                  <Button onClick={() => markupForm.resetFields()}>Reset</Button>
+                  <Button type="primary" onClick={handleSaveMarkupAndTax} loading={savingSettings}>Save All Settings</Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </Card>
+        </TabPane>
+
       </Tabs>
 
       <Modal

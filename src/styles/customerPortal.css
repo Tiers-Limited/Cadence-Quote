@@ -1,0 +1,250 @@
+/* Customer Portal Custom Styles */
+
+/* Custom table styles for better responsiveness and appearance */
+.custom-table .ant-table {
+  font-size: 14px;
+}
+
+.custom-table .ant-table-thead > tr > th {
+  background-color: #fafafa;
+  font-weight: 600;
+  color: #262626;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.custom-table .ant-table-tbody > tr:hover {
+  background-color: #f5f5f5;
+  transition: background-color 0.3s;
+}
+
+.custom-table .ant-table-cell {
+  padding: 16px 12px;
+}
+
+/* Responsive table adjustments */
+@media (max-width: 768px) {
+  .custom-table .ant-table-cell {
+    padding: 12px 8px;
+  }
+  
+  .custom-table {
+    font-size: 12px;
+  }
+}
+
+/* Status tag styles */
+.ant-tag {
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* Button group spacing */
+.ant-space-item {
+  margin-right: 8px;
+}
+
+/* Card styles */
+.ant-card {
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* Modal styles */
+.ant-modal-content {
+  border-radius: 8px;
+}
+
+.ant-modal-header {
+  border-radius: 8px 8px 0 0;
+}
+
+/* Search input */
+.ant-input-search {
+  border-radius: 6px;
+}
+
+/* Button styles */
+.ant-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.ant-btn-primary {
+  box-shadow: 0 2px 4px rgba(24, 144, 255, 0.2);
+}
+
+.ant-btn-primary:hover {
+  box-shadow: 0 4px 8px rgba(24, 144, 255, 0.3);
+}
+
+/* Alert styles */
+.ant-alert {
+  border-radius: 6px;
+}
+
+/* Badge styles */
+.ant-badge-count {
+  box-shadow: 0 0 0 1px #fff;
+}
+
+/* Pagination */
+.ant-pagination {
+  margin-top: 16px;
+}
+
+.ant-pagination-item-active {
+  border-color: #1890ff;
+  background-color: #1890ff;
+}
+
+.ant-pagination-item-active a {
+  color: #fff;
+}
+
+/* Loading overlay */
+.ant-spin-nested-loading > div > .ant-spin {
+  max-height: 400px;
+}
+
+/* Table actions column */
+.ant-table-cell .ant-space {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Empty state */
+.ant-empty {
+  padding: 40px 0;
+}
+
+/* Select dropdown */
+.ant-select-selector {
+  border-radius: 6px !important;
+}
+
+/* Form styles for modals */
+.ant-form-item {
+  margin-bottom: 16px;
+}
+
+/* Tag with icon */
+.ant-tag .anticon {
+  margin-right: 4px;
+}
+
+/* Scrollbar styling for table */
+.ant-table-body::-webkit-scrollbar {
+  height: 8px;
+}
+
+.ant-table-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.ant-table-body::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Payment success animation */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.payment-success-container {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+/* Deposit payment card */
+.deposit-card {
+  border: 2px solid #52c41a;
+  background: linear-gradient(135deg, #f6ffed 0%, #ffffff 100%);
+}
+
+/* Proposal tier cards */
+.tier-card {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.tier-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.tier-card.selected {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+/* Quote number badge */
+.quote-number-badge {
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: #1890ff;
+}
+
+/* Expired badge animation */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(255, 77, 79, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0);
+  }
+}
+
+.expired-badge {
+  animation: pulse 2s infinite;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 576px) {
+  .ant-card-body {
+    padding: 16px;
+  }
+  
+  .ant-modal {
+    max-width: calc(100vw - 32px);
+    margin: 16px auto;
+  }
+  
+  .ant-btn-lg {
+    font-size: 14px;
+    padding: 8px 16px;
+  }
+}
+
+/* Print styles */
+@media print {
+  .custom-table .ant-table-thead > tr > th {
+    background-color: #f5f5f5 !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .ant-btn,
+  .ant-pagination,
+  .ant-input-search {
+    display: none !important;
+  }
+}

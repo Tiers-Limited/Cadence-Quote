@@ -18,6 +18,19 @@ import LeadFormBuilder from '../features/leads/LeadFormBuilder';
 import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
 
+// Customer Portal Components
+import CustomerDashboard from '../pages/customer/CustomerDashboard';
+import ViewProposal from '../pages/customer/ViewProposal';
+import DepositPayment from '../pages/customer/DepositPayment';
+import FinishStandardsAcknowledgement from '../pages/customer/FinishStandardsAcknowledgement';
+import ProductSelections from '../pages/customer/ProductSelections';
+import CustomerDocuments from '../pages/customer/CustomerDocuments';
+
+// Client Authentication Components
+import ClientSetPassword from '../pages/ClientSetPassword';
+import ClientForgotPassword from '../pages/ClientForgotPassword';
+import ClientResetPassword from '../pages/ClientResetPassword';
+
 import EmailVerificationPage from '../pages/EmailVerificationPage';
 import TwoFactorVerificationPage from '../pages/TwoFactorVerificationPage';
 import ComingSoonPage from '../pages/ComingSoonPage';
@@ -69,6 +82,12 @@ const AppRoutes = () => {
       <Route path='/register' element={<RegistrationPage />} />
       <Route path='/forgot-password' element={<ForgotPasswordPage />} />
       <Route path='/reset-password' element={<ResetPasswordPage />} />
+      
+      {/* Client Authentication Routes */}
+      <Route path='/client/set-password' element={<ClientSetPassword />} />
+      <Route path='/client/forgot-password' element={<ClientForgotPassword />} />
+      <Route path='/client/reset-password' element={<ClientResetPassword />} />
+      
       <Route path='/auth/apple/success' element={<AuthSuccess />} />
       <Route path='/auth/google/success' element={<GoogleAuthSuccessPage />} />
       <Route path='/auth/resume-payment' element={<ResumePaymentPage />} />
@@ -97,6 +116,7 @@ const AppRoutes = () => {
         <Route path='/quotes' element={<QuotesListPage />} />
         <Route path='/quotes/new' element={<QuoteBuilderPage />} />
         <Route path='/quote-builder' element={<QuoteBuilderPage />} />
+        <Route path='/pricing-engine' element={<ContractorProductConfigManager />} />
         <Route path='/products/catalog' element={<ContractorProductConfigManager />} />
         <Route path='/products/colors' element={<ColorLibrary />} />
         <Route path='/pricing/schemes' element={<PricingSchemes />} />
@@ -107,6 +127,7 @@ const AppRoutes = () => {
         />
         <Route path='/proposal-defaults' element={<ProposalDefaultsPage />} />
         <Route path='/service-types' element={<ServiceTypesPage />} />
+        {/* Labor rates consolidated under Pricing Engine, route preserved if needed */}
         <Route path='/labor-rates' element={<LaborRatesPage />} />
       </Route>
 
@@ -121,6 +142,25 @@ const AppRoutes = () => {
         }
       >
         <Route path='/settings' element={<SettingsPage />} />
+      </Route>
+
+      {/* Customer Portal Routes - Only accessible to customer role */}
+      <Route
+        path='/portal/*'
+        element={
+          <RoleBasedRoute allowedRoles={['customer']}>
+            <MainLayout>
+              <Outlet />
+            </MainLayout>
+          </RoleBasedRoute>
+        }
+      >
+        <Route path='dashboard' element={<CustomerDashboard />} />
+        <Route path='proposal/:proposalId' element={<ViewProposal />} />
+        <Route path='payment/:proposalId' element={<DepositPayment />} />
+        <Route path='finish-standards/:proposalId' element={<FinishStandardsAcknowledgement />} />
+        <Route path='selections/:proposalId' element={<ProductSelections />} />
+        <Route path='documents/:proposalId' element={<CustomerDocuments />} />
       </Route>
 
       {/* Admin Routes - Only accessible to admin role */}

@@ -3,10 +3,11 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi'
 import { useLogin } from '../hooks/useLogin'
 import { useAuth } from '../hooks/useAuth'
-import { Spin, message, Alert } from 'antd'
+import { Spin, message, Alert, Tabs } from 'antd'
 import GoogleAuthButton from '../components/GoogleAuthButton'
 import AppleAuthButton from '../components/AppleAuthButton'
 import Logo from '../components/Logo'
+import { apiService } from '../services/apiService'
 
 function LoginPage () {
   const [searchParams] = useSearchParams()
@@ -14,6 +15,8 @@ function LoginPage () {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [urlError, setUrlError] = useState(null)
+  const [loginType, setLoginType] = useState('contractor') // 'contractor' or 'client'
+  const [clientLoading, setClientLoading] = useState(false)
   const { login, loading, error } = useLogin()
   const { login: contextLogin } = useAuth()
   const navigate = useNavigate()
@@ -45,9 +48,51 @@ function LoginPage () {
     }
   }, [searchParams])
 
+  const handleClientLogin = async (e) => {
+    e.preventDefault()
+
+    if (!email || !password) {
+      message.error('Please fill in all fields')
+      return
+    }
+
+    try {
+      setClientLoading(true)
+      const response = await apiService.post('/client-auth/login', {
+        email,
+        password
+      })
+
+      if (response.success) {
+        // Store token and user data
+        localStorage.setItem('token', response.data.token)
+        localStorage.setItem('user', JSON.stringify(response.data.user))
+        
+        contextLogin(
+          response.data.user,
+          response.data.token,
+          null // No refresh token for clients
+        )
+        
+        message.success('Welcome back!')
+        navigate('/portal/dashboard')
+      }
+    } catch (error) {
+      message.error(error.message || 'Login failed')
+    } finally {
+      setClientLoading(false)
+    }
+  }
+
   const handleSubmit = async e => {
     e.preventDefault()
 
+    // Handle client login
+    if (loginType === 'client') {
+      return handleClientLogin(e)
+    }
+
+    // Handle contractor login
     if (!email || !password) {
       message.error('Please fill in all fields')
       return
@@ -90,13 +135,33 @@ function LoginPage () {
             <Logo width={100} />
           </div>
           <div>
-            <h1 className='text-3xl font-bold text-gray-900'>Contractor Hub</h1>
+            <h1 className='text-3xl font-bold text-gray-900'>
+              {loginType === 'contractor' ? 'Contractor Hub' : 'Customer Portal'}
+            </h1>
             <p className='text-gray-600'>Sign in to your account</p>
           </div>
         </div>
 
         {/* Login Form */}
         <div className='bg-white rounded-xl shadow-lg p-8'>
+          {/* Login Type Tabs */}
+          <Tabs
+            activeKey={loginType}
+            onChange={setLoginType}
+            centered
+            className="mb-6"
+            items={[
+              {
+                key: 'contractor',
+                label: 'Contractor Login'
+              },
+              {
+                key: 'client',
+                label: 'Customer Login'
+              }
+            ]}
+          />
+
           {urlError && urlError.includes('incomplete') && (
             <Alert
               message="Incomplete Registration"
@@ -181,12 +246,12 @@ function LoginPage () {
                 <input
                   type='checkbox'
                   className='w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500'
-                  disabled={loading}
+                  disabled={loading || clientLoading}
                 />
                 <span className='ml-2 text-sm text-gray-600'>Remember me</span>
               </label>
               <Link
-                to='/forgot-password'
+                to={loginType === 'contractor' ? '/forgot-password' : '/client/forgot-password'}
                 className='text-sm text-blue-600 hover:text-blue-700 font-medium'
               >
                 Forgot password?
@@ -196,43 +261,51 @@ function LoginPage () {
             {/* Submit Button */}
             <button
               type='submit'
-              disabled={loading}
+              disabled={loginType === 'contractor' ? loading : clientLoading}
               className='w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 flex items-center justify-center gap-2'
             >
-              {loading ? (
-                <>
-                  <Spin size='small' />
-                  Signing in...
-                </>
-              ) : (
-                'Sign In'
-              )}
+              {(() => {
+                const isLoading = loginType === 'contractor' ? loading : clientLoading;
+                return isLoading ? (
+                  <>
+                    <Spin size='small' />
+                    Signing in...
+                  </>
+                ) : (
+                  'Sign In'
+                );
+              })()}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className='my-6 flex items-center'>
-            <div className='flex-1 border-t border-gray-300'></div>
-            <span className='px-3 text-sm text-gray-500'>or</span>
-            <div className='flex-1 border-t border-gray-300'></div>
-          </div>
+          {/* OAuth Sign In Options - Only show for contractors */}
+          {loginType === 'contractor' && (
+            <>
+              {/* Divider */}
+              <div className='my-6 flex items-center'>
+                <div className='flex-1 border-t border-gray-300'></div>
+                <span className='px-3 text-sm text-gray-500'>or</span>
+                <div className='flex-1 border-t border-gray-300'></div>
+              </div>
 
-          {/* OAuth Sign In Options */}
-          <div className='space-y-3'>
-            <GoogleAuthButton mode='login' />
-            <AppleAuthButton mode='login' />
-          </div>
+              {/* OAuth Sign In Options */}
+              <div className='space-y-3'>
+                <GoogleAuthButton mode='login' />
+                <AppleAuthButton mode='login' />
+              </div>
 
-          {/* Sign Up Link */}
-          <p className='mt-6 text-center text-gray-600'>
-            Don&apos;t have an account?{' '}
-            <Link
-              to='/register'
-              className='text-blue-600 hover:text-blue-700 font-semibold'
-            >
-              Sign up here
-            </Link>
-          </p>
+              {/* Sign Up Link */}
+              <p className='mt-6 text-center text-gray-600'>
+                Don&apos;t have an account?{' '}
+                <Link
+                  to='/register'
+                  className='text-blue-600 hover:text-blue-700 font-semibold'
+                >
+                  Sign up here
+                </Link>
+              </p>
+            </>
+          )}
         </div>
 
         {/* Footer */}

@@ -3,6 +3,7 @@ import { FiLogOut, FiHome, FiSettings, FiUsers, FiPackage, FiSidebar, FiMenu, Fi
 import { message, Layout, Menu, Button, theme, Drawer, Badge } from 'antd'
 import { useAuth } from '../hooks/useAuth'
 import { useState, useEffect } from 'react'
+import { apiService } from '../services/apiService'
 import '../styles/sidebar.css'
 import Logo from './Logo'
 import LogoIcon from './LogoIcon'
@@ -14,6 +15,7 @@ function MainLayout({ children }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [activeProposalId, setActiveProposalId] = useState(null)
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken()
@@ -31,6 +33,26 @@ function MainLayout({ children }) {
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
+
+  // Fetch active proposal for customer users
+  useEffect(() => {
+    const fetchActiveProposal = async () => {
+      if (user?.role === 'customer') {
+        try {
+          const response = await apiService.get('/customer/proposals')
+          if (response.success && response.data && response.data.length > 0) {
+            // Get the first proposal or the most recent one
+            const activeProposal = response.data[0]
+            setActiveProposalId(activeProposal.id)
+          }
+        } catch (error) {
+          console.error('Failed to fetch proposals:', error)
+        }
+      }
+    }
+
+    fetchActiveProposal()
+  }, [user])
 
   const handleLogout = () => {
     logout()
@@ -121,11 +143,11 @@ function MainLayout({ children }) {
       onClick: () => handleMenuClick('/dashboard')
     },
     {
-      key: 'products',
-      path: '/products',
-      icon: <FiPackage size={20} />,
-      label: 'Product & Rates',
-      onClick: () => handleMenuClick('/products/catalog')
+      key: 'pricing-engine',
+      path: '/pricing-engine',
+      icon: <FiDollarSign size={20} />,
+      label: 'Pricing Engine',
+      onClick: () => handleMenuClick('/pricing-engine')
     },
      {
       label: 'New Quote',
@@ -166,13 +188,7 @@ function MainLayout({ children }) {
     //   label: 'Service Types',
     //   onClick: () => handleMenuClick('/service-types')
     // },
-    {
-      key: 'labor-rates',
-      path: '/labor-rates',
-      icon: <FiDollarSign size={20} />,
-      label: 'Labor Rates',
-      onClick: () => handleMenuClick('/labor-rates')
-    },
+    // Removed standalone labor rates; consolidated under Pricing Engine
     {
       key: 'settings',
       path: '/settings',
@@ -182,7 +198,45 @@ function MainLayout({ children }) {
     },
   ]
 
-  const menuItems = (user && user.role === 'admin') ? adminMenuItems : normalMenuItems
+  const customerMenuItems = [
+    {
+      key: 'portal-dashboard',
+      path: '/portal/dashboard',
+      exactMatch: true,
+      icon: <FiHome size={20} />,
+      label: 'Dashboard',
+      onClick: () => handleMenuClick('/portal/dashboard')
+    },
+    ...(activeProposalId ? [
+      {
+        key: 'portal-proposal',
+        path: `/portal/proposal/${activeProposalId}`,
+        icon: <FiFileText size={20} />,
+        label: 'My Proposal',
+        onClick: () => handleMenuClick(`/portal/proposal/${activeProposalId}`)
+      },
+      {
+        key: 'portal-selections',
+        path: `/portal/selections/${activeProposalId}`,
+        icon: <FiPackage size={20} />,
+        label: 'Product Selections',
+        onClick: () => handleMenuClick(`/portal/selections/${activeProposalId}`)
+      },
+      {
+        key: 'portal-documents',
+        path: `/portal/documents/${activeProposalId}`,
+        icon: <FiClipboard size={20} />,
+        label: 'Documents',
+        onClick: () => handleMenuClick(`/portal/documents/${activeProposalId}`)
+      },
+    ] : []),
+  ]
+
+  const menuItems = user?.role === 'admin' 
+    ? adminMenuItems 
+    : user?.role === 'customer' 
+      ? customerMenuItems 
+      : normalMenuItems
   
   // Generic and dynamic selectedKey logic
   const getSelectedKey = () => {
@@ -215,6 +269,8 @@ function MainLayout({ children }) {
   }
   
   const selectedKey = getSelectedKey()
+  const currentMenuItem = menuItems.find(item => item.key === selectedKey)
+  const headerTitle = currentMenuItem?.label || 'Dashboard'
 
   // Sidebar content component (reusable for both desktop and mobile)
   const SidebarContent = () => (
@@ -326,7 +382,7 @@ function MainLayout({ children }) {
             onClick={() => isMobile ? setMobileOpen(!mobileOpen) : setCollapsed(!collapsed)}
             className="text-gray-500 flex items-center justify-center"
           />
-          <span className="text-base md:text-lg font-semibold">Dashboard</span>
+          <span className="text-base md:text-lg font-semibold">{headerTitle}</span>
         </Layout.Header>
 
         <Layout.Content

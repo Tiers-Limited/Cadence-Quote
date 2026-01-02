@@ -101,11 +101,12 @@ const AreasStepEnhanced = ({ formData, onUpdate, onNext, onPrevious }) => {
     }
   };
 
-  const addArea = (areaName) => {
+  const addArea = (areaName, isCustom = false) => {
     const newArea = {
       id: Date.now(),
       name: areaName,
       jobType,
+      isCustom,
       laborItems: availableCategories.map(cat => ({
         categoryName: cat.name,
         measurementUnit: cat.unit,
@@ -201,7 +202,15 @@ const AreasStepEnhanced = ({ formData, onUpdate, onNext, onPrevious }) => {
 
   const handleCustomAreaSubmit = () => {
     if (customAreaName.trim()) {
-      addArea(customAreaName.trim());
+      const alreadyExists = areas.some(a => a.isCustom);
+      if (alreadyExists) {
+        Modal.warning({
+          title: 'Custom Area Limit',
+          content: 'Only one custom area can be added. Remove the existing custom area to add a different one.'
+        });
+        return;
+      }
+      addArea(customAreaName.trim(), true);
       setCustomAreaName('');
       setShowCustomAreaModal(false);
     }
@@ -248,14 +257,24 @@ const AreasStepEnhanced = ({ formData, onUpdate, onNext, onPrevious }) => {
         <Text strong>Select Areas:</Text>
         <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
           {availableRooms.map(room => {
+            const allowMultiple = room === 'Kitchen' || room === 'Bathroom' || room.toLowerCase().includes('bedroom');
             const isSelected = areas.some(a => a.name === room);
+            const handleClick = () => {
+              if (allowMultiple) {
+                const sameCount = areas.filter(a => a.name.startsWith(room)).length;
+                const displayName = sameCount > 0 ? `${room} ${sameCount + 1}` : room;
+                addArea(displayName);
+              } else {
+                return isSelected ? removeArea(areas.find(a => a.name === room)?.id) : addArea(room);
+              }
+            };
             return (
               <Col key={room} xs={12} sm={8} md={6} lg={4}>
                 <Button
                   size="small"
-                  type={isSelected ? 'primary' : 'default'}
+                  type={isSelected && !allowMultiple ? 'primary' : 'default'}
                   block
-                  onClick={() => isSelected ? removeArea(areas.find(a => a.name === room)?.id) : addArea(room)}
+                  onClick={handleClick}
                 >
                   {room}
                 </Button>

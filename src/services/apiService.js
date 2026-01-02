@@ -549,6 +549,32 @@ class ApiService {
   async updateProductConfigDefaults(data) {
     return this.put('/contractor/product-configs/defaults', data);
   }
+
+  // ==================== Client Portal Invitations ====================
+
+  /**
+   * Invite a client to access the customer portal
+   * @param {number} clientId - Client ID to invite
+   */
+  async inviteClientToPortal(clientId) {
+    return this.post('/client-auth/invite', { clientId });
+  }
+
+  /**
+   * Resend portal invitation to a client
+   * @param {number} clientId - Client ID to resend invitation
+   */
+  async resendClientInvitation(clientId) {
+    return this.post('/client-auth/resend-invitation', { clientId });
+  }
+
+  /**
+   * Get client details including portal access status
+   * @param {number} clientId - Client ID
+   */
+  async getClientDetails(clientId) {
+    return this.get(`/clients/${clientId}`);
+  }
 }
 
 export const apiService = new ApiService(API_BASE_URL)

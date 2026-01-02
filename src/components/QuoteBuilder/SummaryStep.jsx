@@ -22,6 +22,11 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
     fetchProducts();
   }, []);
 
+  // Recalculate when key inputs change (areas, product sets)
+  useEffect(() => {
+    calculateQuote();
+  }, [JSON.stringify(formData.areas), JSON.stringify(formData.productSets), formData.pricingSchemeId, formData.jobType]);
+
   useEffect(() => {
     onUpdate({ notes });
   }, [notes]);
@@ -31,12 +36,25 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
       const response = await apiService.get('/contractor/product-configs');
       if (response.success) {
         const productMap = {};
-        (response.data || []).forEach(config => {
+        const list = response.data || [];
+        list.forEach(config => {
           productMap[config.id] = {
             brandName: config.globalProduct?.brand?.name || 'Unknown',
             productName: config.globalProduct?.name || 'Unknown',
-            pricePerGallon: config.sheens?.[0]?.price || 0
+            pricePerGallon: config.sheens?.[0]?.price || 0,
+            globalProductId: config.globalProductId
           };
+        });
+        // Also map by globalProductId so productSets using global ids resolve names
+        list.forEach(config => {
+          if (config.globalProductId && !productMap[config.globalProductId]) {
+            productMap[config.globalProductId] = {
+              brandName: config.globalProduct?.brand?.name || 'Unknown',
+              productName: config.globalProduct?.name || 'Unknown',
+              pricePerGallon: config.sheens?.[0]?.price || 0,
+              globalProductId: config.globalProductId
+            };
+          }
         });
         setProductsMap(productMap);
       }
@@ -81,7 +99,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
       };
 
       const saveResponse = await quoteBuilderApi.saveDraft(quoteData);
-      const quoteId = formData.quoteId || saveResponse.data?.id;
+      const quoteId = formData.quoteId || saveResponse.quote?.id;
       
       if (!quoteId) {
         throw new Error('Failed to save quote');
@@ -209,6 +227,27 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
 
   const areaDetails = getAreaDetails();
   const productDetails = getProductDetails();
+
+  const getRunningProductTotals = () => {
+    const totals = {};
+    (formData.productSets || []).forEach(set => {
+      const tier = set.activeTier || 'good';
+      const productId = set.products?.[tier];
+      if (productId && set.gallons) {
+        if (!totals[productId]) {
+          totals[productId] = { gallons: 0, surfaceTypes: new Set(), retail: 0, material: 0 };
+        }
+        totals[productId].gallons += Number(set.gallons || 0);
+        totals[productId].surfaceTypes.add(set.surfaceType);
+        const retailPerGal = set.retailPrices?.[tier];
+        if (retailPerGal) totals[productId].retail += Number(set.gallons) * Number(retailPerGal);
+        if (set.materialCost) totals[productId].material += Number(set.materialCost);
+      }
+    });
+    return totals;
+  };
+
+  const runningTotals = getRunningProductTotals();
 
   return (
     <div className="summary-step">
@@ -403,6 +442,46 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         ))}
       </Card>
 
+      {/* Running Product Totals */}
+      {Object.keys(runningTotals).length > 0 && (
+        <Card title="Running Product Totals (gallons)" style={{ marginBottom: 16 }}>
+          {Object.entries(runningTotals).map(([productId, info]) => {
+            const product = productsMap[productId] || {};
+            return (
+              <div key={productId} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                <div>
+                  <Text strong>{product.brandName} - {product.productName}</Text>
+                  <Text type="secondary" style={{ marginLeft: 8 }}>
+                    ({Array.from(info.surfaceTypes).join(', ')})
+                  </Text>
+                </div>
+                <div>
+                  <Text>{info.gallons.toFixed(2)} gal</Text>
+                </div>
+              </div>
+            );
+          })}
+          <Divider />
+          {(() => {
+            const materialSubtotal = (formData.productSets || []).reduce((sum, s) => sum + (Number(s.materialCost) || 0), 0);
+            const retailSubtotal = (formData.productSets || []).reduce((sum, s) => {
+              const tier = s.activeTier || 'good';
+              const retail = s.retailPrices?.[tier];
+              return sum + ((Number(s.gallons) || 0) * (Number(retail) || 0));
+            }, 0);
+            const savings = Math.max(retailSubtotal - materialSubtotal, 0);
+            const pct = retailSubtotal > 0 ? (savings / retailSubtotal) * 100 : 0;
+            return (
+              <div style={{ textAlign: 'right' }}>
+                <Text type="secondary" style={{ display: 'block' }}>Materials Subtotal: ${materialSubtotal.toFixed(2)}</Text>
+                <Text type="secondary" style={{ display: 'block' }}>Retail Total (ref): ${retailSubtotal.toFixed(2)}</Text>
+                <Text strong style={{ display: 'block', marginTop: 4 }}>Your Savings: ${savings.toFixed(2)} ({pct.toFixed(1)}%)</Text>
+              </div>
+            );
+          })()}
+        </Card>
+      )}
+
       {/* Cost Breakdown */}
       {calculatedQuote && (
         <Card title="Cost Breakdown" loading={loading} style={{ marginBottom: 16 }}>
@@ -436,14 +515,28 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
 
           <Divider orientation="left">Detailed Breakdown</Divider>
           
-          {/* Pricing Settings Info */}
-          {calculatedQuote.markupPercent !== undefined && calculatedQuote.taxRate !== undefined && (
+          {/* Quote Validity Notice */}
+          {calculatedQuote.quoteValidityDays && (
             <Alert
-              message="Pricing Settings Applied"
+              message={`Quote Valid for ${calculatedQuote.quoteValidityDays} Days`}
+              description={`This quote is valid until ${new Date(Date.now() + calculatedQuote.quoteValidityDays * 24 * 60 * 60 * 1000).toLocaleDateString()}`}
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
+          
+          {/* Pricing Settings Info */}
+          {calculatedQuote.laborMarkupPercent !== undefined && calculatedQuote.materialMarkupPercent !== undefined && (
+            <Alert
+              message="Pricing Engine Settings Applied"
               description={
                 <Space direction="vertical" size={0}>
-                  <Text>Markup: {calculatedQuote.markupPercent}% (from contractor settings)</Text>
-                  <Text>Tax Rate: {calculatedQuote.taxRate}% (from contractor settings)</Text>
+                  <Text>Labor Markup: {calculatedQuote.laborMarkupPercent}%</Text>
+                  <Text>Material Markup: {calculatedQuote.materialMarkupPercent}%</Text>
+                  <Text>Overhead: {calculatedQuote.overheadPercent}%</Text>
+                  <Text>Net Profit: {calculatedQuote.profitMarginPercent}%</Text>
+                  <Text>Tax Rate: {calculatedQuote.taxPercent}%</Text>
                 </Space>
               }
               type="info"
@@ -453,38 +546,55 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
           )}
           
           <Descriptions column={2} bordered size="small">
-            <Descriptions.Item label="Labor Cost">
+            {/* Base Costs */}
+            <Descriptions.Item label="Labor Cost (Base)">
               ${calculatedQuote.laborTotal?.toFixed(2) || '0.00'}
             </Descriptions.Item>
-            <Descriptions.Item label="Material Cost">
+            <Descriptions.Item label={`Labor Markup (${calculatedQuote.laborMarkupPercent || 0}%)`}>
+              +${calculatedQuote.laborMarkupAmount?.toFixed(2) || '0.00'}
+            </Descriptions.Item>
+            
+            <Descriptions.Item label="Material Cost (Base)">
               ${calculatedQuote.materialTotal?.toFixed(2) || '0.00'}
             </Descriptions.Item>
-            <Descriptions.Item label="Prep Work">
-              ${calculatedQuote.prepTotal?.toFixed(2) || '0.00'}
+            <Descriptions.Item label={`Material Markup (${calculatedQuote.materialMarkupPercent || 0}%)`}>
+              +${calculatedQuote.materialMarkupAmount?.toFixed(2) || '0.00'}
             </Descriptions.Item>
-            <Descriptions.Item label="Add-Ons">
-              ${calculatedQuote.addOnsTotal?.toFixed(2) || '0.00'}
+            
+            {/* Subtotal with markups */}
+            <Descriptions.Item label="Labor with Markup" span={2}>
+              <strong>${calculatedQuote.laborCostWithMarkup?.toFixed(2) || '0.00'}</strong>
             </Descriptions.Item>
-            <Descriptions.Item label="Overhead" span={2}>
-              ${calculatedQuote.overhead?.toFixed(2) || '0.00'}
-              {calculatedQuote.travelCost > 0 && (
-                <Text type="secondary" style={{ marginLeft: 8 }}>
-                  (Travel: ${calculatedQuote.travelCost?.toFixed(2)}, Cleanup: ${calculatedQuote.cleanupCost?.toFixed(2)})
-                </Text>
-              )}
+            <Descriptions.Item label="Materials with Markup" span={2}>
+              <strong>${calculatedQuote.materialCostWithMarkup?.toFixed(2) || '0.00'}</strong>
             </Descriptions.Item>
-            <Descriptions.Item label="Subtotal Before Markup">
-              ${calculatedQuote.subtotalBeforeMarkup?.toFixed(2) || '0.00'}
+            
+            {/* Overhead */}
+            <Descriptions.Item label={`Overhead (${calculatedQuote.overheadPercent || 0}%)`} span={2}>
+              +${calculatedQuote.overhead?.toFixed(2) || '0.00'}
             </Descriptions.Item>
-            <Descriptions.Item label={`Markup (${calculatedQuote.markupPercent || 0}%)`}>
-              ${calculatedQuote.markupAmount?.toFixed(2) || '0.00'}
+            
+            {/* Subtotal before profit */}
+            <Descriptions.Item label="Subtotal Before Profit" span={2}>
+              <strong>${calculatedQuote.subtotalBeforeProfit?.toFixed(2) || '0.00'}</strong>
             </Descriptions.Item>
-            <Descriptions.Item label="Subtotal">
-              ${calculatedQuote.subtotal?.toFixed(2) || '0.00'}
+            
+            {/* Net Profit */}
+            <Descriptions.Item label={`Net Profit (${calculatedQuote.profitMarginPercent || 0}%)`} span={2}>
+              +${calculatedQuote.profitAmount?.toFixed(2) || '0.00'}
             </Descriptions.Item>
-            <Descriptions.Item label={`Tax (${calculatedQuote.taxRate || 0}%)`}>
-              ${calculatedQuote.taxAmount?.toFixed(2) || '0.00'}
+            
+            {/* Subtotal before tax */}
+            <Descriptions.Item label="Subtotal" span={2}>
+              <strong>${calculatedQuote.subtotal?.toFixed(2) || '0.00'}</strong>
             </Descriptions.Item>
+            
+            {/* Tax */}
+            <Descriptions.Item label={`Tax (${calculatedQuote.taxPercent || 0}%)`} span={2}>
+              +${calculatedQuote.tax?.toFixed(2) || '0.00'}
+            </Descriptions.Item>
+            
+            {/* Grand Total */}
             <Descriptions.Item label={<strong>Grand Total</strong>} span={2}>
               <div style={{ textAlign: 'right', width: '100%' }}>
                 <strong style={{ fontSize: '18px', color: '#3f8600' }}>

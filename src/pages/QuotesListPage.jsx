@@ -25,9 +25,12 @@ import {
   FileTextOutlined,
   SendOutlined,
   CheckCircleOutlined,
-  CalendarOutlined
+  CalendarOutlined,
+  MailOutlined,
+  UserAddOutlined
 } from '@ant-design/icons';
 import quoteApiService from '../services/quoteApiService';
+import { apiService } from '../services/apiService';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -40,6 +43,8 @@ const QuotesListPage = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [invitingClient, setInvitingClient] = useState(null);
   const [productNames, setProductNames] = useState({});
   const [loadingProducts, setLoadingProducts] = useState(false);
   
@@ -257,6 +262,47 @@ const QuotesListPage = () => {
     });
   };
 
+  const handleInviteClient = (record) => {
+    if (!record.clientId) {
+      message.warning('This quote does not have an associated client');
+      return;
+    }
+    setInvitingClient(record);
+    setInviteModalVisible(true);
+  };
+
+  const handleSendInvitation = async () => {
+    if (!invitingClient?.clientId) return;
+
+    try {
+      const response = await apiService.inviteClientToPortal(invitingClient.clientId);
+      if (response.success) {
+        message.success(`Portal invitation sent to ${invitingClient.customerEmail}`);
+        setInviteModalVisible(false);
+        setInvitingClient(null);
+        // Refresh quotes to update portal access status
+        fetchQuotes();
+      }
+    } catch (error) {
+      console.error('Error inviting client:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to send invitation';
+      message.error(errorMessage);
+    }
+  };
+
+  const handleResendInvitation = async (clientId, customerEmail) => {
+    try {
+      const response = await apiService.resendClientInvitation(clientId);
+      if (response.success) {
+        message.success(`Invitation resent to ${customerEmail}`);
+        fetchQuotes();
+      }
+    } catch (error) {
+      console.error('Error resending invitation:', error);
+      message.error('Failed to resend invitation');
+    }
+  };
+
   const StatusBadge = ({ status }) => {
     const statusConfig = {
       draft: { color: 'default', icon: <FileTextOutlined /> },
@@ -295,7 +341,18 @@ const QuotesListPage = () => {
       responsive: ['sm'],
       render: (text, record) => (
         <div>
-          <div><strong>{text}</strong></div>
+          <div>
+            <strong>{text}</strong>
+            {record.client?.hasPortalAccess && (
+              <Tag 
+                color="success" 
+                style={{ marginLeft: 8, fontSize: '10px' }}
+                icon={<CheckCircleOutlined />}
+              >
+                Portal
+              </Tag>
+            )}
+          </div>
           {record.customerEmail && (
             <div style={{ fontSize: '12px', color: '#888' }}>{record.customerEmail}</div>
           )}
@@ -402,6 +459,19 @@ const QuotesListPage = () => {
               >
                 Copy
               </Button>
+
+              {record.clientId && (
+                <Button
+                  type="link"
+                  icon={<MailOutlined />}
+                  onClick={() => handleInviteClient(record)}
+                  size="small"
+                  style={{ color: record.client?.hasPortalAccess ? '#52c41a' : '#1890ff' }}
+                  title={record.client?.hasPortalAccess ? 'Portal access granted' : 'Invite to portal'}
+                >
+                  {record.client?.hasPortalAccess ? 'Invited' : 'Invite'}
+                </Button>
+              )}
               
               <Button
                 type="link"
@@ -421,24 +491,37 @@ const QuotesListPage = () => {
                 icon={<EyeOutlined />}
                 onClick={() => handleViewQuote(record.id)}
                 size="small"
+                title="View"
               />
               {record.status === 'draft' && (
                 <Button
                   icon={<EditOutlined />}
                   onClick={() => handleEditQuote(record.id)}
                   size="small"
+                  title="Edit"
                 />
               )}
               <Button
                 icon={<CopyOutlined />}
                 onClick={() => handleDuplicateQuote(record.id)}
                 size="small"
+                title="Copy"
               />
+              {record.clientId && (
+                <Button
+                  icon={<MailOutlined />}
+                  onClick={() => handleInviteClient(record)}
+                  size="small"
+                  style={{ color: record.client?.hasPortalAccess ? '#52c41a' : '#1890ff' }}
+                  title={record.client?.hasPortalAccess ? 'Portal access granted' : 'Invite to portal'}
+                />
+              )}
               <Button
                 danger
                 icon={<DeleteOutlined />}
                 onClick={() => handleDeleteQuote(record.id)}
                 size="small"
+                title="Delete"
               />
             </Space.Compact>
           )}
@@ -635,6 +718,20 @@ const QuotesListPage = () => {
             }}>
               Close
             </Button>,
+            selectedQuote?.clientId && (
+              <Button
+                key="invite"
+                icon={<MailOutlined />}
+                type={selectedQuote?.client?.hasPortalAccess ? 'default' : 'primary'}
+                onClick={() => {
+                  setDetailsModalVisible(false);
+                  handleInviteClient(selectedQuote);
+                }}
+                style={selectedQuote?.client?.hasPortalAccess ? { color: '#52c41a', borderColor: '#52c41a' } : {}}
+              >
+                {selectedQuote?.client?.hasPortalAccess ? 'Resend Invitation' : 'Invite to Portal'}
+              </Button>
+            ),
             selectedQuote?.status === 'draft' && (
               <Button
                 key="edit"
@@ -660,7 +757,24 @@ const QuotesListPage = () => {
                   <StatusBadge status={selectedQuote.status} />
                 </Descriptions.Item>
                 <Descriptions.Item label="Customer Name">
-                  {selectedQuote.customerName}
+                  <Space>
+                    {selectedQuote.customerName}
+                    {selectedQuote.client?.hasPortalAccess && (
+                      <Tag color="success" icon={<CheckCircleOutlined />}>
+                        Portal Access
+                      </Tag>
+                    )}
+                  </Space>
+                  {selectedQuote.client?.hasPortalAccess && selectedQuote.client?.portalActivatedAt && (
+                    <div style={{ fontSize: '12px', color: '#52c41a', marginTop: '4px' }}>
+                      Activated: {new Date(selectedQuote.client.portalActivatedAt).toLocaleDateString()}
+                    </div>
+                  )}
+                  {selectedQuote.client?.hasPortalAccess && selectedQuote.client?.portalInvitedAt && !selectedQuote.client?.portalActivatedAt && (
+                    <div style={{ fontSize: '12px', color: '#faad14', marginTop: '4px' }}>
+                      Invited: {new Date(selectedQuote.client.portalInvitedAt).toLocaleDateString()} (Pending)
+                    </div>
+                  )}
                 </Descriptions.Item>
                 <Descriptions.Item label="Customer Email">
                   {selectedQuote.customerEmail}
@@ -784,6 +898,105 @@ const QuotesListPage = () => {
                 </>
               )}
             </>
+          )}
+        </Modal>
+
+        {/* Invite Client to Portal Modal */}
+        <Modal
+          title={
+            <Space>
+              <UserAddOutlined />
+              <span>Invite Client to Portal</span>
+            </Space>
+          }
+          open={inviteModalVisible}
+          onOk={() => {
+            if (invitingClient?.client?.hasPortalAccess) {
+              handleResendInvitation(invitingClient.clientId, invitingClient.customerEmail);
+            } else {
+              handleSendInvitation();
+            }
+          }}
+          onCancel={() => {
+            setInviteModalVisible(false);
+            setInvitingClient(null);
+          }}
+          okText={invitingClient?.client?.hasPortalAccess ? 'Resend Invitation' : 'Send Invitation'}
+          cancelText="Cancel"
+          width={500}
+        >
+          {invitingClient && (
+            <div style={{ padding: '16px 0' }}>
+              {invitingClient.client?.hasPortalAccess ? (
+                <>
+                  <div style={{ 
+                    padding: '12px', 
+                    background: '#f6ffed', 
+                    border: '1px solid #b7eb8f',
+                    borderRadius: '6px',
+                    marginBottom: '16px'
+                  }}>
+                    <Space>
+                      <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '18px' }} />
+                      <span style={{ color: '#52c41a', fontWeight: 500 }}>
+                        This client already has portal access
+                      </span>
+                    </Space>
+                  </div>
+                  <p style={{ marginBottom: '8px' }}>
+                    <strong>Client:</strong> {invitingClient.customerName}
+                  </p>
+                  <p style={{ marginBottom: '8px' }}>
+                    <strong>Email:</strong> {invitingClient.customerEmail}
+                  </p>
+                  <p style={{ marginBottom: '16px', color: '#666' }}>
+                    Click "Resend Invitation" to send a new portal access email.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ marginBottom: '16px' }}>
+                    Send a portal invitation to the following client:
+                  </p>
+                  <div style={{ 
+                    padding: '12px', 
+                    background: '#f5f5f5',
+                    borderRadius: '6px',
+                    marginBottom: '16px'
+                  }}>
+                    <p style={{ margin: '4px 0' }}>
+                      <strong>Client:</strong> {invitingClient.customerName}
+                    </p>
+                    <p style={{ margin: '4px 0' }}>
+                      <strong>Email:</strong> {invitingClient.customerEmail}
+                    </p>
+                    {invitingClient.customerPhone && (
+                      <p style={{ margin: '4px 0' }}>
+                        <strong>Phone:</strong> {invitingClient.customerPhone}
+                      </p>
+                    )}
+                    <p style={{ margin: '4px 0' }}>
+                      <strong>Quote:</strong> {invitingClient.quoteNumber}
+                    </p>
+                  </div>
+                  <div style={{ 
+                    padding: '12px', 
+                    background: '#e6f7ff', 
+                    border: '1px solid #91d5ff',
+                    borderRadius: '6px'
+                  }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#0050b3' }}>
+                      <strong>What happens next?</strong>
+                    </p>
+                    <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px', fontSize: '13px', color: '#0050b3' }}>
+                      <li>Client receives an email invitation</li>
+                      <li>They can set up their password (valid for 72 hours)</li>
+                      <li>Access the customer portal to view quotes and make selections</li>
+                    </ul>
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </Modal>
       </div>

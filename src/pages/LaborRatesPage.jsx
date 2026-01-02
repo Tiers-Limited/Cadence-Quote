@@ -21,11 +21,10 @@ function LaborRatesPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      
       // Fetch categories and rates in parallel
       const [categoriesResponse, ratesResponse] = await Promise.all([
         apiService.get('/labor-categories'),
-        apiService.get('/labor-categories/rates')
+        apiService.get('/labor-categories/rates'),
       ]);
 
       if (categoriesResponse.success) {
@@ -34,8 +33,10 @@ function LaborRatesPage() {
 
         // Initialize rates object
         const ratesObj = {};
-        cats.forEach(cat => {
-          const existingRate = ratesResponse.data?.find(r => r.laborCategoryId === cat.id);
+        cats.forEach((cat) => {
+          const existingRate = ratesResponse.data?.find(
+            (r) => r.laborCategoryId === cat.id
+          );
           ratesObj[cat.id] = existingRate ? parseFloat(existingRate.rate) : 0;
         });
         setRates(ratesObj);
@@ -141,16 +142,6 @@ function LaborRatesPage() {
           addonAfter={getUnitLabel(record.measurementUnit).replace('per ', '')}
         />
       )
-    },
-    {
-      title: 'Total for 100 units',
-      key: 'example',
-      width: '15%',
-      render: (_, record) => {
-        const rate = rates[record.id] || 0;
-        const total = rate * 100;
-        return <Text type="secondary">${total.toFixed(2)}</Text>;
-      }
     }
   ];
 
