@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Client = require('../models/Client');
 const Tenant = require('../models/Tenant');
 
 const auth = async (req, res, next) => {
@@ -17,8 +18,45 @@ const auth = async (req, res, next) => {
 
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Decoded token:', decoded);
 
-    // Find user
+    // Check if it's a client token
+    if (decoded.clientId) {
+      const client = await Client.findOne({
+        where: {
+          id: decoded.clientId,
+          isActive: true,
+          hasPortalAccess: true
+        },
+        include: [{
+          model: Tenant,
+          as: 'tenant',
+          attributes: ['id', 'companyName']
+        }]
+      });
+
+      if (!client) {
+        return res.status(401).json({
+          success: false,
+          message: 'Client not found or access revoked'
+        });
+      }
+
+      // Attach client to request
+      req.user = {
+        id: client.id,
+        fullName: client.name,
+        email: client.email,
+        role: 'customer',
+        tenantId: client.tenantId,
+        tenant: client.tenant,
+        isClient: true
+      };
+
+      return next();
+    }
+
+    // Otherwise it's a regular user
     const user = await User.findOne({
       where: {
         id: decoded.userId,
@@ -53,7 +91,8 @@ const auth = async (req, res, next) => {
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
-      tenant: user.tenant
+      tenant: user.tenant,
+      isClient: false
     };
 
     next();

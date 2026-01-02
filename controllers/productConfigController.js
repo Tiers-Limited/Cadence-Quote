@@ -510,6 +510,32 @@ const getDefaults = async (req, res) => {
         defaultMarkup: Number(settings.productConfigDefaultMarkup) || 15,
         defaultTaxRate: Number(settings.productConfigDefaultTaxRate) || 0,
         defaultCoverage: 350,
+        // Global Pricing & Metrics
+        defaultLaborHourRate: Number(settings.defaultLaborHourRate) || 0,
+        laborMarkupPercent: Number(settings.laborMarkupPercent) || 0,
+        materialMarkupPercent: Number(settings.materialMarkupPercent) || 0,
+        overheadPercent: Number(settings.overheadPercent) || 0,
+        netProfitPercent: Number(settings.netProfitPercent) || 0,
+        // Quote Settings
+        depositPercentage: Number(settings.depositPercentage) || 50,
+        quoteValidityDays: Number(settings.quoteValidityDays) || 30,
+        // Turnkey Square Foot Rates
+        turnkeyInteriorRate: Number(settings.turnkeyInteriorRate) || 0,
+        turnkeyExteriorRate: Number(settings.turnkeyExteriorRate) || 0,
+        // Additional Hourly Labor Rates
+        prepRepairHourlyRate: Number(settings.prepRepairHourlyRate) || 0,
+        finishCabinetHourlyRate: Number(settings.finishCabinetHourlyRate) || 0,
+        // Production Rates - Interior
+        productionInteriorWalls: Number(settings.productionInteriorWalls) || 0,
+        productionInteriorCeilings: Number(settings.productionInteriorCeilings) || 0,
+        productionInteriorTrim: Number(settings.productionInteriorTrim) || 0,
+        // Production Rates - Exterior
+        productionExteriorWalls: Number(settings.productionExteriorWalls) || 0,
+        productionExteriorTrim: Number(settings.productionExteriorTrim) || 0,
+        productionSoffitFascia: Number(settings.productionSoffitFascia) || 0,
+        // Production Rates - Optional
+        productionDoors: Number(settings.productionDoors) || 0,
+        productionCabinets: Number(settings.productionCabinets) || 0,
       },
     });
   } catch (error) {
@@ -529,7 +555,16 @@ const getDefaults = async (req, res) => {
 const updateDefaults = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
-    const { laborRates, defaultMarkup, defaultTaxRate } = req.body;
+    const { 
+      laborRates, defaultMarkup, defaultTaxRate, defaultLaborHourRate, 
+      laborMarkupPercent, materialMarkupPercent, overheadPercent, netProfitPercent,
+      depositPercentage, quoteValidityDays,
+      turnkeyInteriorRate, turnkeyExteriorRate,
+      prepRepairHourlyRate, finishCabinetHourlyRate,
+      productionInteriorWalls, productionInteriorCeilings, productionInteriorTrim,
+      productionExteriorWalls, productionExteriorTrim, productionSoffitFascia,
+      productionDoors, productionCabinets
+    } = req.body;
     
     // Get or create contractor settings
     let settings = await ContractorSettings.findOne({
@@ -551,6 +586,69 @@ const updateDefaults = async (req, res) => {
     if (defaultTaxRate !== undefined) {
       updates.productConfigDefaultTaxRate = defaultTaxRate;
     }
+    if (defaultLaborHourRate !== undefined) {
+      updates.defaultLaborHourRate = defaultLaborHourRate;
+    }
+    if (laborMarkupPercent !== undefined) {
+      updates.laborMarkupPercent = laborMarkupPercent;
+    }
+    if (materialMarkupPercent !== undefined) {
+      updates.materialMarkupPercent = materialMarkupPercent;
+    }
+    if (overheadPercent !== undefined) {
+      updates.overheadPercent = overheadPercent;
+    }
+    if (netProfitPercent !== undefined) {
+      updates.netProfitPercent = netProfitPercent;
+    }
+    // Quote Settings
+    if (depositPercentage !== undefined) {
+      updates.depositPercentage = depositPercentage;
+    }
+    if (quoteValidityDays !== undefined) {
+      updates.quoteValidityDays = quoteValidityDays;
+    }
+    // Turnkey Rates
+    if (turnkeyInteriorRate !== undefined) {
+      updates.turnkeyInteriorRate = turnkeyInteriorRate;
+    }
+    if (turnkeyExteriorRate !== undefined) {
+      updates.turnkeyExteriorRate = turnkeyExteriorRate;
+    }
+    // Hourly Rates
+    if (prepRepairHourlyRate !== undefined) {
+      updates.prepRepairHourlyRate = prepRepairHourlyRate;
+    }
+    if (finishCabinetHourlyRate !== undefined) {
+      updates.finishCabinetHourlyRate = finishCabinetHourlyRate;
+    }
+    // Production Rates - Interior
+    if (productionInteriorWalls !== undefined) {
+      updates.productionInteriorWalls = productionInteriorWalls;
+    }
+    if (productionInteriorCeilings !== undefined) {
+      updates.productionInteriorCeilings = productionInteriorCeilings;
+    }
+    if (productionInteriorTrim !== undefined) {
+      updates.productionInteriorTrim = productionInteriorTrim;
+    }
+    // Production Rates - Exterior
+    if (productionExteriorWalls !== undefined) {
+      updates.productionExteriorWalls = productionExteriorWalls;
+    }
+    if (productionExteriorTrim !== undefined) {
+      updates.productionExteriorTrim = productionExteriorTrim;
+    }
+    if (productionSoffitFascia !== undefined) {
+      updates.productionSoffitFascia = productionSoffitFascia;
+    }
+    // Production Rates - Optional
+    if (productionDoors !== undefined) {
+      updates.productionDoors = productionDoors;
+    }
+    if (productionCabinets !== undefined) {
+      updates.productionCabinets = productionCabinets;
+    }
     
     await settings.update(updates);
     
@@ -561,6 +659,25 @@ const updateDefaults = async (req, res) => {
         laborRates: settings.productConfigLaborRates,
         defaultMarkup: Number(settings.productConfigDefaultMarkup),
         defaultTaxRate: Number(settings.productConfigDefaultTaxRate),
+        defaultLaborHourRate: Number(settings.defaultLaborHourRate) || 0,
+        laborMarkupPercent: Number(settings.laborMarkupPercent) || 0,
+        materialMarkupPercent: Number(settings.materialMarkupPercent) || 0,
+        overheadPercent: Number(settings.overheadPercent) || 0,
+        netProfitPercent: Number(settings.netProfitPercent) || 0,
+        depositPercentage: Number(settings.depositPercentage) || 50,
+        quoteValidityDays: Number(settings.quoteValidityDays) || 30,
+        turnkeyInteriorRate: Number(settings.turnkeyInteriorRate) || 0,
+        turnkeyExteriorRate: Number(settings.turnkeyExteriorRate) || 0,
+        prepRepairHourlyRate: Number(settings.prepRepairHourlyRate) || 0,
+        finishCabinetHourlyRate: Number(settings.finishCabinetHourlyRate) || 0,
+        productionInteriorWalls: Number(settings.productionInteriorWalls) || 0,
+        productionInteriorCeilings: Number(settings.productionInteriorCeilings) || 0,
+        productionInteriorTrim: Number(settings.productionInteriorTrim) || 0,
+        productionExteriorWalls: Number(settings.productionExteriorWalls) || 0,
+        productionExteriorTrim: Number(settings.productionExteriorTrim) || 0,
+        productionSoffitFascia: Number(settings.productionSoffitFascia) || 0,
+        productionDoors: Number(settings.productionDoors) || 0,
+        productionCabinets: Number(settings.productionCabinets) || 0,
       },
     });
   } catch (error) {

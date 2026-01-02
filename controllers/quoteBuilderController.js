@@ -29,13 +29,19 @@ const { htmlToPdfBuffer } = require('../services/pdfService');
  */
 async function calculateQuotePricing(quote, tenantId) {
   try {
-    // Get contractor settings for default markups and tax rates
+    // Get contractor settings for comprehensive pricing configuration
     const settings = await ContractorSettings.findOne({
       where: { tenantId },
     });
 
-    const defaultMarkup = settings?.defaultMarkup || 25;
+    // Get Pricing Engine metrics
+    const laborMarkupPercent = settings?.laborMarkupPercent || 0;
+    const materialMarkupPercent = settings?.materialMarkupPercent || 25;
+    const overheadPercent = settings?.overheadPercent || 0;
+    const netProfitPercent = settings?.netProfitPercent || 0;
     const taxRate = settings?.taxRate || 8.25;
+    const quoteValidityDays = settings?.quoteValidityDays || 30;
+    const depositPercent = settings?.depositPercent || 50;
 
     // Initialize pricing totals
     let laborTotal = 0;
@@ -114,36 +120,84 @@ async function calculateQuotePricing(quote, tenantId) {
       }
     }
 
-    // Calculate overhead
-    const overhead = 0; // Can add travel/cleanup costs here
+    // Step 1: Base costs
+    const baseMaterialCost = materialTotal;
+    const baseLaborCost = laborTotal;
 
-    // Subtotal before markup
-    const subtotalBeforeMarkup = laborTotal + materialTotal + overhead;
+    // Step 2: Apply markups
+    const materialMarkupAmount = baseMaterialCost * (materialMarkupPercent / 100);
+    const materialCostWithMarkup = baseMaterialCost + materialMarkupAmount;
+    
+    const laborMarkupAmount = baseLaborCost * (laborMarkupPercent / 100);
+    const laborCostWithMarkup = baseLaborCost + laborMarkupAmount;
 
-    // Apply markup on materials
-    const markupAmount = materialTotal * (defaultMarkup / 100);
+    // Step 3: Subtotal before overhead and profit
+    const subtotalBeforeOverhead = materialCostWithMarkup + laborCostWithMarkup;
 
-    // Subtotal after markup
-    const subtotal = subtotalBeforeMarkup + markupAmount;
+    // Step 4: Apply overhead
+    const overheadAmount = subtotalBeforeOverhead * (overheadPercent / 100);
+    const subtotalBeforeProfit = subtotalBeforeOverhead + overheadAmount;
 
-    // Calculate tax (on materials + markup)
-    const taxableAmount = materialTotal + markupAmount;
-    const taxAmount = taxableAmount * (taxRate / 100);
+    // Step 5: Apply net profit
+    const profitAmount = subtotalBeforeProfit * (netProfitPercent / 100);
+    const subtotal = subtotalBeforeProfit + profitAmount;
+
+    // Step 6: Calculate tax
+    const taxAmount = subtotal * (taxRate / 100);
 
     // Final total
     const total = subtotal + taxAmount;
+    
+    // Calculate deposit and balance
+    const deposit = total * (depositPercent / 100);
+    const balance = total - deposit;
 
     return {
-      laborTotal: parseFloat(laborTotal.toFixed(2)),
-      materialTotal: parseFloat(materialTotal.toFixed(2)),
+      // Base costs
+      laborTotal: parseFloat(baseLaborCost.toFixed(2)),
+      materialTotal: parseFloat(baseMaterialCost.toFixed(2)),
+      materialCost: parseFloat(baseMaterialCost.toFixed(2)), // For compatibility
+      
+      // Markup details
+      laborMarkupPercent: parseFloat(laborMarkupPercent.toFixed(2)),
+      laborMarkupAmount: parseFloat(laborMarkupAmount.toFixed(2)),
+      laborCostWithMarkup: parseFloat(laborCostWithMarkup.toFixed(2)),
+      
+      materialMarkupPercent: parseFloat(materialMarkupPercent.toFixed(2)),
+      materialMarkupAmount: parseFloat(materialMarkupAmount.toFixed(2)),
+      materialCostWithMarkup: parseFloat(materialCostWithMarkup.toFixed(2)),
+      
+      // Overhead and profit
+      overheadPercent: parseFloat(overheadPercent.toFixed(2)),
+      overhead: parseFloat(overheadAmount.toFixed(2)),
+      subtotalBeforeProfit: parseFloat(subtotalBeforeProfit.toFixed(2)),
+      
+      profitMarginPercent: parseFloat(netProfitPercent.toFixed(2)),
+      profitAmount: parseFloat(profitAmount.toFixed(2)),
+      
+      // Final totals
       subtotal: parseFloat(subtotal.toFixed(2)),
-      markupAmount: parseFloat(markupAmount.toFixed(2)),
-      markupPercent: parseFloat(defaultMarkup.toFixed(2)),
-      taxAmount: parseFloat(taxAmount.toFixed(2)),
-      taxRate: parseFloat(taxRate.toFixed(2)),
+      taxPercent: parseFloat(taxRate.toFixed(2)),
+      taxRate: parseFloat(taxRate.toFixed(2)), // For compatibility
+      tax: parseFloat(taxAmount.toFixed(2)),
+      taxAmount: parseFloat(taxAmount.toFixed(2)), // For compatibility
       total: parseFloat(total.toFixed(2)),
+      
+      // Payment terms
+      depositPercent: parseFloat(depositPercent.toFixed(2)),
+      deposit: parseFloat(deposit.toFixed(2)),
+      balance: parseFloat(balance.toFixed(2)),
+      
+      // Quote validity
+      quoteValidityDays: parseInt(quoteValidityDays),
+      
+      // Additional info
       totalSqft: parseFloat(totalSqft.toFixed(2)),
       breakdown,
+      
+      // Legacy fields for backward compatibility
+      markupPercent: parseFloat(materialMarkupPercent.toFixed(2)),
+      markupAmount: parseFloat(materialMarkupAmount.toFixed(2)),
     };
   } catch (error) {
     console.error('Calculate quote pricing error:', error);

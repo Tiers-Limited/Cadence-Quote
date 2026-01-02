@@ -51,6 +51,14 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
         await handleTrialWillEnd(event.data.object);
         break;
 
+      case 'payment_intent.succeeded':
+        await handlePaymentIntentSucceeded(event.data.object);
+        break;
+
+      case 'payment_intent.payment_failed':
+        await handlePaymentIntentFailed(event.data.object);
+        break;
+
       default:
         console.log(`Unhandled event type: ${event.type}`);
     }
@@ -312,6 +320,79 @@ async function handleTrialWillEnd(subscription) {
   console.log(`📧 Send trial ending notification to: ${subscriptionRecord.tenant.email}`);
   
   console.log('✅ Trial ending notification sent');
+}
+
+/**
+ * Handle payment_intent.succeeded for customer portal deposits
+ */
+async function handlePaymentIntentSucceeded(paymentIntent) {
+  console.log('Payment intent succeeded:', paymentIntent.id);
+
+  // Check if this is a customer portal deposit payment
+  const { proposalId, customerId } = paymentIntent.metadata;
+
+  if (!proposalId) {
+    console.log('Not a customer portal payment, skipping');
+    return;
+  }
+
+  const Quote = require('../models/Quote');
+  const { createAuditLog } = require('../controllers/auditLogController');
+  const emailService = require('../services/emailService');
+
+  // Update proposal
+  const proposal = await Quote.findByPk(proposalId);
+  if (!proposal) {
+    console.error(`Proposal ${proposalId} not found`);
+    return;
+  }
+
+  await proposal.update({
+    depositVerified: true,
+    depositVerifiedAt: new Date(),
+    depositPaymentMethod: 'stripe',
+    depositTransactionId: paymentIntent.id,
+    portalOpen: true,
+    portalOpenedAt: new Date()
+  });
+
+  // Create audit log
+  await createAuditLog({
+    userId: Number.parseInt(customerId),
+    tenantId: proposal.tenantId,
+    action: 'deposit_verified_stripe',
+    entityType: 'Quote',
+    entityId: proposalId,
+    details: {
+      paymentIntentId: paymentIntent.id,
+      amount: paymentIntent.amount / 100
+    }
+  });
+
+  // Send email notification to customer
+  try {
+    await emailService.sendDepositVerifiedEmail(proposal.customerEmail, {
+      quoteNumber: proposal.quoteNumber,
+      customerName: proposal.customerName,
+      id: proposal.id
+    });
+  } catch (emailError) {
+    console.error('Error sending deposit verified email:', emailError);
+  }
+
+  console.log(`✅ Deposit verified for proposal ${proposalId}`);
+}
+
+/**
+ * Handle payment_intent.payment_failed for customer portal deposits
+ */
+async function handlePaymentIntentFailed(paymentIntent) {
+  const { proposalId } = paymentIntent.metadata;
+  
+  if (proposalId) {
+    console.error(`❌ Payment failed for proposal ${proposalId}:`, paymentIntent.last_payment_error?.message);
+    // TODO: Optionally send notification to customer about failed payment
+  }
 }
 
 module.exports = router;

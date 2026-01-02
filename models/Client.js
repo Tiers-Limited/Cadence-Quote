@@ -66,6 +66,67 @@ const Client = sequelize.define('Client', {
     defaultValue: true,
     field: 'is_active',
   },
+  // Authentication fields
+  password: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'password',
+    comment: 'Hashed password for client portal access'
+  },
+  hasPortalAccess: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'has_portal_access',
+    comment: 'Whether client has been granted portal access'
+  },
+  portalInvitedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'portal_invited_at',
+    comment: 'When invitation email was sent'
+  },
+  portalActivatedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'portal_activated_at',
+    comment: 'When client first logged into portal'
+  },
+  emailVerified: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'email_verified',
+    comment: 'Whether email has been verified'
+  },
+  emailVerifiedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'email_verified_at'
+  },
+  verificationToken: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'verification_token'
+  },
+  verificationTokenExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'verification_token_expiry'
+  },
+  passwordResetToken: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'password_reset_token'
+  },
+  passwordResetExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'password_reset_expiry'
+  },
+  lastLoginAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'last_login_at'
+  },
 }, {
   tableName: 'clients',
   timestamps: true,

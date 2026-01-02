@@ -33,6 +33,9 @@ const serviceTypesRouter = require('./routes/serviceTypes'); // NEW FEATURE: Ser
 const surfaceTypesRouter = require('./routes/surfaceTypes'); // NEW FEATURE: Surface Types
 const globalProductsRouter = require('./routes/globalProducts'); // Global Products API
 const laborCategoriesRouter = require('./routes/laborCategories'); // Labor Categories & Rates
+const customerPortalRouter = require('./routes/customerPortal'); // Customer Portal
+const contractorPortalRouter = require('./routes/contractorPortal'); // Contractor Portal Management
+const clientAuthRouter = require('./routes/clientAuth'); // Client Authentication
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 // Load all models and associations
@@ -99,6 +102,9 @@ app.use('/api/v1/service-types', serviceTypesRouter); // Service Types
 app.use('/api/v1/surface-types', surfaceTypesRouter); // Surface Types
 app.use('/api/v1/global-products', globalProductsRouter); // Global Products API
 app.use('/api/v1/labor-categories', laborCategoriesRouter); // Labor Categories & Rates
+app.use('/api/v1/customer', customerPortalRouter); // Customer Portal
+app.use('/api/v1/contractor-portal', contractorPortalRouter); // Contractor Portal Management
+app.use('/api/v1/client-auth', clientAuthRouter); // Client Authentication
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler

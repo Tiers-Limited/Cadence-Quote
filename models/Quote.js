@@ -274,6 +274,137 @@ const Quote = sequelize.define('Quote', {
     comment: 'Detailed cost breakdown by area and surface'
   },
   
+  // Customer Portal Fields
+  selectedTier: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+    field: 'selected_tier',
+    comment: 'Customer selected tier: Good, Better, or Best'
+  },
+  
+  depositAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    field: 'deposit_amount',
+    comment: 'Required deposit amount for this quote'
+  },
+  
+  depositVerified: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'deposit_verified',
+    comment: 'Whether deposit payment has been verified by contractor'
+  },
+  
+  depositVerifiedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'deposit_verified_at',
+    comment: 'When deposit was verified'
+  },
+  
+  depositVerifiedBy: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'deposit_verified_by',
+    comment: 'User ID of contractor who verified deposit',
+    references: {
+      model: 'Users',
+      key: 'id'
+    }
+  },
+  
+  depositPaymentMethod: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+    field: 'deposit_payment_method',
+    comment: 'Payment method: stripe, cash, check, wire_transfer'
+  },
+  
+  depositTransactionId: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'deposit_transaction_id',
+    comment: 'Stripe payment intent ID or check number'
+  },
+  
+  finishStandardsAcknowledged: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'finish_standards_acknowledged',
+    comment: 'Whether customer acknowledged finish standards'
+  },
+  
+  finishStandardsAcknowledgedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'finish_standards_acknowledged_at',
+    comment: 'When customer acknowledged finish standards'
+  },
+  
+  portalOpen: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'portal_open',
+    comment: 'Whether customer portal is currently open for selections'
+  },
+  
+  portalOpenedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'portal_opened_at',
+    comment: 'When portal was opened for customer'
+  },
+  
+  portalClosedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'portal_closed_at',
+    comment: 'When portal was closed'
+  },
+  
+  selectionsComplete: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'selections_complete',
+    comment: 'Whether customer has completed all product selections'
+  },
+  
+  selectionsCompletedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'selections_completed_at',
+    comment: 'When customer submitted all selections'
+  },
+  
+  tierChangeRequested: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+    field: 'tier_change_requested',
+    comment: 'Requested tier change (upgrade/downgrade)'
+  },
+  
+  tierChangeRequestedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'tier_change_requested_at',
+    comment: 'When tier change was requested'
+  },
+  
+  tierChangeApproved: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: null,
+    field: 'tier_change_approved',
+    comment: 'Whether tier change was approved by contractor'
+  },
+  
+  tierChangeApprovedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'tier_change_approved_at',
+    comment: 'When tier change was approved/denied'
+  },
+  
   // Dates
   validUntil: {
     type: DataTypes.DATE,
@@ -294,6 +425,13 @@ const Quote = sequelize.define('Quote', {
     allowNull: true,
     field: 'viewed_at',
     comment: 'When client first viewed the quote'
+  },
+  
+  acceptedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'accepted_at',
+    comment: 'When customer accepted the proposal'
   },
   
   approvedAt: {

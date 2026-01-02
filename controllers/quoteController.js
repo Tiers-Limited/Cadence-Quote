@@ -1,7 +1,7 @@
 // controllers/quoteController.js
 // Professional Quote Builder APIs - Optimized for performance and data efficiency
 
-const { ProductConfig, GlobalProduct, GlobalColor, Brand, PricingScheme, ContractorSettings, Quote, User } = require('../models');
+const { ProductConfig, GlobalProduct, GlobalColor, Brand, PricingScheme, ContractorSettings, Quote, User, Client } = require('../models');
 const { Op } = require('sequelize');
 const { getFormFields, calculateSurfaceArea, validateDimensions } = require('../utils/surfaceDimensions');
 
@@ -819,6 +819,12 @@ exports.getQuotes = async (req, res) => {
           model: PricingScheme,
           as: 'pricingScheme',
           attributes: ['id', 'name', 'type']
+        },
+        {
+          model: Client,
+          as: 'client',
+          attributes: ['id', 'name', 'email', 'phone', 'hasPortalAccess', 'portalInvitedAt', 'portalActivatedAt'],
+          required: false
         }
       ],
       limit: parseInt(limit),
@@ -871,6 +877,12 @@ exports.getQuoteById = async (req, res) => {
           model: PricingScheme,
           as: 'pricingScheme',
           attributes: ['id', 'name', 'type', 'description', 'pricingRules']
+        },
+        {
+          model: Client,
+          as: 'client',
+          attributes: ['id', 'name', 'email', 'phone', 'hasPortalAccess', 'portalInvitedAt', 'portalActivatedAt'],
+          required: false
         }
       ]
     });
@@ -1098,6 +1110,7 @@ exports.updateQuoteStatus = async (req, res) => {
       userId,
       tenantId,
       action: 'quote_status_updated',
+      category: 'quote',
       resourceType: 'quote',
       resourceId: quote.id,
       details: {

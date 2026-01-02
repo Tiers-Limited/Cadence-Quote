@@ -1018,6 +1018,415 @@ class EmailService {
       throw new Error('Failed to send password reset email');
     }
   }
+
+  /**
+   * Send email notification when deposit is verified
+   */
+  async sendDepositVerifiedEmail(customerEmail, proposalDetails) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to: customerEmail,
+      subject: `Your deposit has been verified - ${proposalDetails.quoteNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+            .button { display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .footer { text-align: center; margin-top: 20px; font-size: 0.9em; color: #6b7280; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header"><h1>Deposit Verified!</h1></div>
+            <div class="content">
+              <h2>Great news, ${proposalDetails.customerName}!</h2>
+              <p>Your deposit for proposal <strong>${proposalDetails.quoteNumber}</strong> has been verified.</p>
+              <p>You can now access the customer portal to acknowledge finish standards and make your product selections.</p>
+              <p style="text-align: center;">
+                <a href="${frontendUrl}/portal/finish-standards/${proposalDetails.id}" class="button">Access Customer Portal</a>
+              </p>
+              <p><strong>Next Steps:</strong></p>
+              <ol>
+                <li>Review and acknowledge the finish standards</li>
+                <li>Select your preferred products, colors, and sheens for each area</li>
+                <li>Submit your selections when complete</li>
+              </ol>
+            </div>
+            <div class="footer"><p>© ${new Date().getFullYear()} Cadence Painting</p></div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Deposit verified email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending deposit verified email:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send email notification when customer completes selections
+   */
+  async sendSelectionsCompletedEmail(contractorEmail, proposalDetails) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to: contractorEmail,
+      subject: `Customer completed selections - ${proposalDetails.quoteNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #10b981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+            .button { display: inline-block; background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .info-box { background-color: white; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header"><h1>🎉 Customer Selections Complete</h1></div>
+            <div class="content">
+              <h2>Selections Submitted</h2>
+              <p>${proposalDetails.customerName} has completed all product selections for proposal <strong>${proposalDetails.quoteNumber}</strong>.</p>
+              <div class="info-box">
+                <p><strong>Customer:</strong> ${proposalDetails.customerName}</p>
+                <p><strong>Quote Number:</strong> ${proposalDetails.quoteNumber}</p>
+                <p><strong>Selected Tier:</strong> ${proposalDetails.selectedTier?.toUpperCase() || 'N/A'}</p>
+                <p><strong>Completed:</strong> ${new Date().toLocaleString()}</p>
+              </div>
+              <p style="text-align: center;">
+                <a href="${frontendUrl}/quotes" class="button">View Selections</a>
+              </p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Selections completed email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending selections completed email:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send email notification when proposal is accepted
+   */
+  async sendProposalAcceptedEmail(contractorEmail, proposalDetails) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to: contractorEmail,
+      subject: `Proposal accepted - ${proposalDetails.quoteNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #10b981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+            .button { display: inline-block; background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .info-box { background-color: white; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header"><h1>🎉 Proposal Accepted!</h1></div>
+            <div class="content">
+              <p>${proposalDetails.customerName} has accepted proposal <strong>${proposalDetails.quoteNumber}</strong>.</p>
+              <div class="info-box">
+                <p><strong>Customer:</strong> ${proposalDetails.customerName}</p>
+                <p><strong>Quote Number:</strong> ${proposalDetails.quoteNumber}</p>
+                <p><strong>Selected Tier:</strong> ${proposalDetails.selectedTier?.toUpperCase() || 'N/A'}</p>
+              </div>
+              <p style="text-align: center;">
+                <a href="${frontendUrl}/quotes" class="button">View Proposal</a>
+              </p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Proposal accepted email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending proposal accepted email:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send email notification when portal is reopened
+   */
+  async sendPortalReopenedEmail(customerEmail, proposalDetails) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to: customerEmail,
+      subject: `Portal reopened for changes - ${proposalDetails.quoteNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+            .button { display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header"><h1>Portal Reopened</h1></div>
+            <div class="content">
+              <p>Hello ${proposalDetails.customerName},</p>
+              <p>The customer portal for proposal <strong>${proposalDetails.quoteNumber}</strong> has been reopened.</p>
+              <p>You can now make changes to your product selections if needed.</p>
+              <p style="text-align: center;">
+                <a href="${frontendUrl}/portal/selections/${proposalDetails.id}" class="button">Access Portal</a>
+              </p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Portal reopened email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending portal reopened email:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send client portal invitation email
+   * @param {string} email - Client email address
+   * @param {Object} details - Invitation details
+   */
+  async sendClientInvitationEmail(email, details) {
+    const { clientName, contractorName, invitationLink, expiryHours } = details;
+
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'You\'re Invited to Access Your Customer Portal',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .button { display: inline-block; background: #667eea; color: white; padding: 14px 32px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+            .info-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; border-radius: 4px; }
+            .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Welcome to Your Customer Portal</h1>
+            <p>Set up your account to get started</p>
+          </div>
+
+          <div class="content">
+            <h2>Hello ${clientName}!</h2>
+            <p>${contractorName} has invited you to access your dedicated customer portal where you can:</p>
+            
+            <ul style="margin: 20px 0; padding-left: 20px;">
+              <li>View your project quotes and proposals</li>
+              <li>Accept or decline quotes</li>
+              <li>Make secure deposit payments</li>
+              <li>Select products and finishes</li>
+              <li>Track your project progress</li>
+              <li>Access important documents</li>
+            </ul>
+
+            <div class="info-box">
+              <strong>🔐 Set Up Your Password</strong><br>
+              Click the button below to create your secure password and activate your account.
+            </div>
+
+            <div style="text-align: center;">
+              <a href="${invitationLink}" class="button">Set Up My Account</a>
+            </div>
+
+            <p>If the button doesn't work, copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; background: #f0f0f0; padding: 10px; border-radius: 5px; font-size: 12px;">${invitationLink}</p>
+
+            <p style="color: #666; font-size: 14px; margin-top: 25px;">
+              <strong>Note:</strong> This invitation link will expire in ${expiryHours} hours. If you need a new link, please contact ${contractorName}.
+            </p>
+
+            <p style="margin-top: 25px;">Best regards,<br>The Cadence Team</p>
+          </div>
+
+          <div class="footer">
+            <p>This email was sent to ${email} on behalf of ${contractorName}.</p>
+            <p>&copy; 2025 Cadence. All rights reserved.</p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Hello ${clientName}!
+
+        ${contractorName} has invited you to access your dedicated customer portal.
+
+        Click the link below to set up your password and activate your account:
+        ${invitationLink}
+
+        With your customer portal, you can:
+        - View your project quotes and proposals
+        - Accept or decline quotes
+        - Make secure deposit payments
+        - Select products and finishes
+        - Track your project progress
+        - Access important documents
+
+        This invitation link will expire in ${expiryHours} hours.
+
+        Best regards,
+        The Cadence Team
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Client invitation email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending client invitation email:', error);
+      throw new Error('Failed to send invitation email');
+    }
+  }
+
+  /**
+   * Send client password reset email
+   * @param {string} email - Client email address
+   * @param {Object} details - Reset details
+   */
+  async sendClientPasswordResetEmail(email, details) {
+    const { clientName, resetLink, expiryHours } = details;
+
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'Reset Your Customer Portal Password',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .button { display: inline-block; background: #667eea; color: white; padding: 14px 32px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+            .warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; }
+            .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Reset Your Password</h1>
+            <p>Customer Portal Access</p>
+          </div>
+
+          <div class="content">
+            <h2>Hello ${clientName}!</h2>
+            <p>We received a request to reset your customer portal password. If you made this request, click the button below to create a new password:</p>
+
+            <div style="text-align: center;">
+              <a href="${resetLink}" class="button">Reset My Password</a>
+            </div>
+
+            <p>If the button doesn't work, copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; background: #f0f0f0; padding: 10px; border-radius: 5px; font-size: 12px;">${resetLink}</p>
+
+            <div class="warning">
+              <strong>⏰ Time Sensitive:</strong> This password reset link will expire in ${expiryHours} hours for security reasons.
+            </div>
+
+            <p style="margin-top: 25px;">
+              <strong>Didn't request this?</strong><br>
+              If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.
+            </p>
+
+            <p style="margin-top: 25px;">Best regards,<br>The Cadence Team</p>
+          </div>
+
+          <div class="footer">
+            <p>This email was sent to ${email}. If you need help, please contact your contractor.</p>
+            <p>&copy; 2025 Cadence. All rights reserved.</p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Hello ${clientName}!
+
+        We received a request to reset your customer portal password.
+
+        Click the link below to create a new password:
+        ${resetLink}
+
+        This password reset link will expire in ${expiryHours} hours for security reasons.
+
+        If you didn't request a password reset, you can safely ignore this email.
+
+        Best regards,
+        The Cadence Team
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Client password reset email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending client password reset email:', error);
+      throw new Error('Failed to send password reset email');
+    }
+  }
 }
 
 module.exports = new EmailService()
