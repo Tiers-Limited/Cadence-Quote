@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Select, Typography, Space, message, Spin, Alert, Tag, Modal, Table, Empty } from 'antd';
 import { FiCheckCircle, FiEdit, FiLock } from 'react-icons/fi';
 import { apiService } from '../../services/apiService';
+import PortalStatusIndicator from '../../components/PortalStatusIndicator';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -14,8 +15,11 @@ function ProductSelections() {
   const [saving, setSaving] = useState(false);
   const [proposal, setProposal] = useState(null);
   const [areas, setAreas] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [colors, setColors] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [allProducts, setAllProducts] = useState([]); // Store all products
+  const [allColors, setAllColors] = useState([]); // Store all colors
+  const [filteredProducts, setFilteredProducts] = useState([]);
+  const [filteredColors, setFilteredColors] = useState([]);
   const [sheens, setSheens] = useState([]);
   const [editingArea, setEditingArea] = useState(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -32,8 +36,9 @@ function ProductSelections() {
 
   useEffect(() => {
     fetchProposal();
-    fetchProducts();
-    fetchColors();
+    fetchBrands();
+    fetchAllProducts();
+    fetchAllColors();
     fetchSheens();
   }, [proposalId]);
 
@@ -57,37 +62,59 @@ function ProductSelections() {
     }
   };
 
-  const fetchProducts = async () => {
+  const fetchBrands = async () => {
     try {
-      const response = await apiService.get('/global-products?limit=1000');
+      const response = await apiService.get('/customer/brands');
       if (response.success) {
-        setProducts(response.data || []);
+        setBrands(response.data || []);
       }
     } catch (error) {
-      console.error('Failed to load products:', error);
+      console.error('Failed to load brands:', error);
+      message.error('Failed to load brands');
     }
   };
 
-  const fetchColors = async () => {
+  const fetchAllProducts = async () => {
     try {
-      const response = await apiService.get('/global-colors?limit=1000');
+      const response = await apiService.get('/customer/products?limit=1000');
       if (response.success) {
-        setColors(response.data || []);
+        setAllProducts(response.data || []);
+      }
+    } catch (error) {
+      console.error('Failed to load products:', error);
+      message.error('Failed to load products');
+    }
+  };
+
+  const fetchAllColors = async () => {
+    try {
+      const response = await apiService.get('/customer/colors?limit=1000');
+      if (response.success) {
+        setAllColors(response.data || []);
       }
     } catch (error) {
       console.error('Failed to load colors:', error);
+      message.error('Failed to load colors');
     }
   };
 
   const fetchSheens = async () => {
-    // Typically sheens are: Flat, Eggshell, Satin, Semi-Gloss, Gloss
-    setSheens([
-      { id: 1, name: 'Flat' },
-      { id: 2, name: 'Eggshell' },
-      { id: 3, name: 'Satin' },
-      { id: 4, name: 'Semi-Gloss' },
-      { id: 5, name: 'Gloss' }
-    ]);
+    try {
+      const response = await apiService.get('/customer/sheens');
+      if (response.success) {
+        setSheens(response.data || []);
+      }
+    } catch (error) {
+      console.error('Failed to load sheens:', error);
+      // Fallback to hardcoded sheens if API fails
+      setSheens([
+        { id: 1, name: 'Flat' },
+        { id: 2, name: 'Eggshell' },
+        { id: 3, name: 'Satin' },
+        { id: 4, name: 'Semi-Gloss' },
+        { id: 5, name: 'Gloss' }
+      ]);
+    }
   };
 
   const handleEditArea = (area) => {
@@ -97,14 +124,96 @@ function ProductSelections() {
     }
 
     setEditingArea(area);
+    const savedBrandId = area.selections?.brandId || null;
+    const savedProductId = area.selections?.productId || null;
+    
     setEditForm({
-      brand: area.selections?.brand || null,
-      product: area.selections?.productId || null,
+      brand: savedBrandId,
+      product: savedProductId,
       color: area.selections?.colorId || null,
       customColor: area.selections?.customColor || null,
       sheen: area.selections?.sheen || null
     });
+
+    // Filter products and colors based on saved selections
+    if (savedBrandId) {
+      filterProductsByBrand(savedBrandId);
+      if (savedProductId) {
+        const product = allProducts.find(p => p.id === savedProductId);
+        if (product) {
+          filterColorsByBrandAndProduct(savedBrandId, product);
+        }
+      }
+    }
+
     setEditModalVisible(true);
+  };
+
+  const filterProductsByBrand = (brandId) => {
+    if (!brandId) {
+      setFilteredProducts([]);
+      return;
+    }
+
+    // Filter products by brand and tier
+    const tierFiltered = allProducts.filter(product => {
+      const matchesBrand = product.brandId === brandId;
+      
+      // Filter by tier based on proposal
+      if (!proposal?.selectedTier) return matchesBrand;
+      
+      const productTier = product.tier?.toLowerCase();
+      const selectedTier = proposal.selectedTier.toLowerCase();
+      
+      if (selectedTier === 'good') return matchesBrand && productTier === 'good';
+      if (selectedTier === 'better') return matchesBrand && (productTier === 'good' || productTier === 'better');
+      if (selectedTier === 'best') return matchesBrand; // All tiers available
+      
+      return matchesBrand;
+    });
+
+    setFilteredProducts(tierFiltered);
+  };
+
+  const filterColorsByBrandAndProduct = (brandId, product) => {
+    if (!brandId) {
+      setFilteredColors([]);
+      return;
+    }
+
+    // Filter colors by brand
+    // Some products may support all colors of the brand, others may have specific colors
+    const brandColors = allColors.filter(color => color.brandId === brandId);
+    
+    setFilteredColors(brandColors);
+  };
+
+  const handleBrandChange = (brandId) => {
+    setEditForm({
+      brand: brandId,
+      product: null,
+      color: null,
+      customColor: null,
+      sheen: null
+    });
+    
+    filterProductsByBrand(brandId);
+    setFilteredColors([]);
+  };
+
+  const handleProductChange = (productId) => {
+    setEditForm(prev => ({
+      ...prev,
+      product: productId,
+      color: null,
+      customColor: null,
+      sheen: null
+    }));
+    
+    const product = allProducts.find(p => p.id === productId);
+    if (product && editForm.brand) {
+      filterColorsByBrandAndProduct(editForm.brand, product);
+    }
   };
 
   const handleSaveSelection = async () => {
@@ -116,7 +225,7 @@ function ProductSelections() {
     try {
       setSaving(true);
       const response = await apiService.post(`/customer/proposals/${proposalId}/areas/${editingArea.id}/selections`, {
-        brand: editForm.brand,
+        brandId: editForm.brand,
         productId: editForm.product,
         colorId: editForm.color,
         customColor: editForm.customColor,
@@ -163,17 +272,7 @@ function ProductSelections() {
     }
   };
 
-  const getAvailableProducts = () => {
-    if (!proposal?.selectedTier) return products;
-    
-    // Filter products by tier
-    return products.filter(product => {
-      const tier = product.tier?.toLowerCase();
-      if (proposal.selectedTier === 'good') return tier === 'good';
-      if (proposal.selectedTier === 'better') return tier === 'good' || tier === 'better';
-      return proposal.selectedTier === 'best';
-    });
-  };
+
 
   const columns = [
     {
@@ -185,14 +284,18 @@ function ProductSelections() {
     {
       title: 'Brand',
       key: 'brand',
-      render: (_, record) => record.selections?.brand || <Text type="secondary">Not selected</Text>
+      render: (_, record) => {
+        if (!record.selections?.brandId) return <Text type="secondary">Not selected</Text>;
+        const brand = brands.find(b => b.id === record.selections.brandId);
+        return brand?.name || 'Unknown';
+      }
     },
     {
       title: 'Product',
       key: 'product',
       render: (_, record) => {
         if (!record.selections?.productId) return <Text type="secondary">Not selected</Text>;
-        const product = products.find(p => p.id === record.selections.productId);
+        const product = allProducts.find(p => p.id === record.selections.productId);
         return product?.name || 'Unknown';
       }
     },
@@ -204,15 +307,15 @@ function ProductSelections() {
           return <Text>{record.selections.customColor} (Custom)</Text>;
         }
         if (!record.selections?.colorId) return <Text type="secondary">Not selected</Text>;
-        const color = colors.find(c => c.id === record.selections.colorId);
+        const color = allColors.find(c => c.id === record.selections.colorId);
         return (
           <Space>
-            {color && (
+            {color && color.hexValue && (
               <div 
                 style={{ 
                   width: 20, 
                   height: 20, 
-                  backgroundColor: color.hexCode, 
+                  backgroundColor: color.hexValue, 
                   border: '1px solid #d9d9d9',
                   borderRadius: 4
                 }} 
@@ -279,6 +382,9 @@ function ProductSelections() {
             </Tag>
           </div>
         </Card>
+
+        {/* Portal Status Indicator */}
+        <PortalStatusIndicator proposal={proposal} />
 
         {/* Status Alert */}
         {!proposal?.portalOpen && proposal?.selectionsComplete && (
@@ -358,68 +464,102 @@ function ProductSelections() {
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div>
-            <Text strong>Paint Brand</Text>
+            <Text strong>Paint Brand *</Text>
             <Select
               style={{ width: '100%', marginTop: 8 }}
-              placeholder="Select brand"
+              placeholder="Select brand first"
               value={editForm.brand}
-              onChange={(value) => setEditForm({ ...editForm, brand: value })}
-              showSearch
-            >
-              <Option value="Sherwin Williams">Sherwin Williams</Option>
-              <Option value="Benjamin Moore">Benjamin Moore</Option>
-              <Option value="Behr">Behr</Option>
-              <Option value="PPG">PPG</Option>
-            </Select>
-          </div>
-
-          <div>
-            <Text strong>Paint Product</Text>
-            <Select
-              style={{ width: '100%', marginTop: 8 }}
-              placeholder="Select product"
-              value={editForm.product}
-              onChange={(value) => setEditForm({ ...editForm, product: value })}
+              onChange={handleBrandChange}
               showSearch
               filterOption={(input, option) =>
                 option.children.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {getAvailableProducts().map(product => (
-                <Option key={product.id} value={product.id}>
-                  {product.name} - {product.tier}
+              {brands.map(brand => (
+                <Option key={brand.id} value={brand.id}>
+                  {brand.name}
                 </Option>
               ))}
             </Select>
+            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+              Select a brand to see available products
+            </Text>
           </div>
 
           <div>
-            <Text strong>Color</Text>
+            <Text strong>Paint Product *</Text>
             <Select
               style={{ width: '100%', marginTop: 8 }}
-              placeholder="Select color or enter custom"
+              placeholder={editForm.brand ? "Select product" : "Select brand first"}
+              value={editForm.product}
+              onChange={handleProductChange}
+              disabled={!editForm.brand}
+              showSearch
+              filterOption={(input, option) =>
+                option.children.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {filteredProducts.map(product => (
+                <Option key={product.id} value={product.id}>
+                  {product.name} {product.tier && `- ${product.tier}`}
+                </Option>
+              ))}
+            </Select>
+            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+              {editForm.brand ? 
+                `${filteredProducts.length} products available for selected brand` : 
+                'Select a brand first'}
+            </Text>
+          </div>
+
+          <div>
+            <Text strong>Color *</Text>
+            <Select
+              style={{ width: '100%', marginTop: 8 }}
+              placeholder={editForm.product ? "Select color" : "Select product first"}
               value={editForm.color}
               onChange={(value) => setEditForm({ ...editForm, color: value, customColor: null })}
+              disabled={!editForm.product}
               showSearch
               filterOption={(input, option) =>
                 option.children.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {colors.map(color => (
+              {filteredColors.map(color => (
                 <Option key={color.id} value={color.id}>
-                  {color.name} ({color.colorCode})
+                  <Space>
+                    {color.hexValue && (
+                      <div 
+                        style={{ 
+                          width: 16, 
+                          height: 16, 
+                          backgroundColor: color.hexValue, 
+                          border: '1px solid #d9d9d9',
+                          borderRadius: 2,
+                          display: 'inline-block'
+                        }} 
+                      />
+                    )}
+                    {color.name} {color.code && `(${color.code})`}
+                  </Space>
                 </Option>
               ))}
             </Select>
+            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+              {editForm.product ? 
+                `${filteredColors.length} colors available for selected brand` : 
+                'Select a product first'}
+            </Text>
           </div>
 
           <div>
-            <Text strong>Sheen</Text>
+            <Text strong>Sheen / Finish *</Text>
             <Select
               style={{ width: '100%', marginTop: 8 }}
-              placeholder="Select sheen"
+              placeholder={editForm.product ? "Select sheen" : "Select product first"}
               value={editForm.sheen}
               onChange={(value) => setEditForm({ ...editForm, sheen: value })}
+              disabled={!editForm.product}
             >
               {sheens.map(sheen => (
                 <Option key={sheen.id} value={sheen.name}>
@@ -427,6 +567,9 @@ function ProductSelections() {
                 </Option>
               ))}
             </Select>
+            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+              Select the finish level for this area
+            </Text>
           </div>
         </Space>
       </Modal>

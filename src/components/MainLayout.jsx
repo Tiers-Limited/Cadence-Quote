@@ -166,6 +166,13 @@ function MainLayout({ children }) {
       label: 'Quotes',
       onClick: () => handleMenuClick('/quotes')
     },
+    {
+      key: 'product-tiers',
+      path: '/products/tiers',
+      icon: <FiPackage size={20} />,
+      label: 'Product Tiers',
+      onClick: () => handleMenuClick('/products/tiers')
+    },
    
     {
       key: 'leads',
@@ -217,10 +224,10 @@ function MainLayout({ children }) {
       },
       {
         key: 'portal-selections',
-        path: `/portal/selections/${activeProposalId}`,
+        path: `/portal/colors/${activeProposalId}`,
         icon: <FiPackage size={20} />,
-        label: 'Product Selections',
-        onClick: () => handleMenuClick(`/portal/selections/${activeProposalId}`)
+        label: 'Color Selections',
+        onClick: () => handleMenuClick(`/portal/colors/${activeProposalId}`)
       },
       {
         key: 'portal-documents',

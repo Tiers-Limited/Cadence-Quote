@@ -885,7 +885,7 @@ const ContractorProductConfigManager = () => {
         {/* Markup Rules Tab */}
         <TabPane tab="Markup Rules" key="markup">
           <Card>
-            <Form form={markupForm} layout={isMobile ? 'vertical' : 'horizontal'} labelCol={{ span: 10 }} wrapperCol={{ span: 12 }}>
+            <Form form={markupForm} layout={isMobile ? 'vertical' : 'horizontal'} labelCol={{ span: 12 }} wrapperCol={{ span: 12 }}>
               
               {/* Markup Percentages */}
               <Divider orientation="left">Markup Percentages</Divider>

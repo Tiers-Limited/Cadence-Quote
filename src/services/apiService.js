@@ -575,6 +575,32 @@ class ApiService {
   async getClientDetails(clientId) {
     return this.get(`/clients/${clientId}`);
   }
+
+  // ==================== Contractor Portal Controls ====================
+
+  /**
+   * Manually open customer portal for a proposal
+   * @param {number} proposalId - Proposal ID
+   */
+  async openCustomerPortal(proposalId) {
+    return this.post(`/contractor-portal/proposals/${proposalId}/open-portal`);
+  }
+
+  /**
+   * Manually close customer portal for a proposal
+   * @param {number} proposalId - Proposal ID
+   */
+  async closeCustomerPortal(proposalId) {
+    return this.post(`/contractor-portal/proposals/${proposalId}/close-portal`);
+  }
+
+  /**
+   * Get customer selections for a proposal (contractor view)
+   * @param {number} proposalId - Proposal ID
+   */
+  async getCustomerSelections(proposalId) {
+    return this.get(`/contractor-portal/proposals/${proposalId}/selections`);
+  }
 }
 
 export const apiService = new ApiService(API_BASE_URL)

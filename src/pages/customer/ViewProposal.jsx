@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Radio, Typography, Space, message, Spin, Alert, Tag, Modal } from 'antd';
-import { FiCheckCircle, FiDollarSign } from 'react-icons/fi';
+import { FiCheckCircle, FiDollarSign, FiEdit } from 'react-icons/fi';
 import { apiService } from '../../services/apiService';
+import PortalStatusIndicator from '../../components/PortalStatusIndicator';
+import TierChangeModal from '../../components/TierChangeModal';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -14,6 +16,7 @@ function ViewProposal() {
   const [proposal, setProposal] = useState(null);
   const [selectedTier, setSelectedTier] = useState(null);
   const [acceptModalVisible, setAcceptModalVisible] = useState(false);
+  const [tierChangeModalVisible, setTierChangeModalVisible] = useState(false);
 
   useEffect(() => {
     fetchProposal();
@@ -58,9 +61,13 @@ function ViewProposal() {
       });
       
       if (response.success) {
-        message.success('Proposal accepted successfully');
+        message.success('Proposal accepted! Redirecting to deposit payment...');
         setAcceptModalVisible(false);
-        fetchProposal();
+        
+        // Redirect to deposit payment page after 1.5 seconds
+        setTimeout(() => {
+          navigate(`/portal/payment/${proposalId}`);
+        }, 1500);
       }
     } catch (error) {
       message.error('Failed to accept proposal: ' + error.message);
@@ -104,6 +111,37 @@ function ViewProposal() {
     return proposal.tiers[tier];
   };
 
+  const handleTierChangeConfirm = async (newTier, change) => {
+    try {
+      if (change.isUpgrade) {
+        // For upgrades, redirect to payment page with additional amount
+        const response = await apiService.post(`/customer/proposals/${proposalId}/upgrade-tier`, {
+          newTier,
+          additionalAmount: change.depositDiff
+        });
+
+        if (response.success) {
+          message.success('Redirecting to payment for tier upgrade...');
+          // Redirect to payment page with upgrade information
+          navigate(`/portal/payment/${proposalId}?upgrade=true&newTier=${newTier}`);
+        }
+      } else if (change.isDowngrade) {
+        // For downgrades, send request to contractor
+        const response = await apiService.post(`/customer/proposals/${proposalId}/request-tier-change`, {
+          newTier,
+          reason: 'Customer requested downgrade'
+        });
+
+        if (response.success) {
+          message.success('Downgrade request sent to contractor for approval');
+          fetchProposal(); // Refresh proposal data
+        }
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -137,6 +175,9 @@ function ViewProposal() {
             </Tag>
           </div>
         </Card>
+
+        {/* Portal Status Indicator */}
+        <PortalStatusIndicator proposal={proposal} />
 
         {/* Status Alert */}
         {proposal.status === 'accepted' && !proposal.depositVerified && (
@@ -173,6 +214,17 @@ function ViewProposal() {
 
         {/* Tier Selection */}
         <Card title="Select Your Quality Tier">
+          {proposal.depositVerified && (
+            <Alert
+              message="Tier Selection Locked"
+              description="Your tier selection is locked after deposit verification. Contact your contractor if you need to change tiers."
+              type="info"
+              showIcon
+              icon={<FiCheckCircle />}
+              style={{ marginBottom: 16 }}
+            />
+          )}
+          
           <Radio.Group 
             value={selectedTier} 
             onChange={handleTierChange}
@@ -186,7 +238,12 @@ function ViewProposal() {
                   <Radio value="good" className="w-full">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <Title level={4}>GOOD – Clean and Functional</Title>
+                        <Space>
+                          <Title level={4}>GOOD – Clean and Functional</Title>
+                          {proposal.depositVerified && selectedTier === 'good' && (
+                            <Tag color="green" icon={<FiCheckCircle />}>Current</Tag>
+                          )}
+                        </Space>
                         <Paragraph>
                           Basic preparation focused on repainting the space cleanly. Spot patching only.
                         </Paragraph>
@@ -211,7 +268,12 @@ function ViewProposal() {
                   <Radio value="better" className="w-full">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <Title level={4}>BETTER – Smooth and Consistent</Title>
+                        <Space>
+                          <Title level={4}>BETTER – Smooth and Consistent</Title>
+                          {proposal.depositVerified && selectedTier === 'better' && (
+                            <Tag color="green" icon={<FiCheckCircle />}>Current</Tag>
+                          )}
+                        </Space>
                         <Paragraph>
                           Expanded surface preparation including feather sanding. Recommended for most homes.
                         </Paragraph>
@@ -236,7 +298,12 @@ function ViewProposal() {
                   <Radio value="best" className="w-full">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <Title level={4}>BEST – High End Finish</Title>
+                        <Space>
+                          <Title level={4}>BEST – High End Finish</Title>
+                          {proposal.depositVerified && selectedTier === 'best' && (
+                            <Tag color="green" icon={<FiCheckCircle />}>Current</Tag>
+                          )}
+                        </Space>
                         <Paragraph>
                           Advanced surface correction including skim coating. Best for luxury spaces.
                         </Paragraph>
@@ -256,6 +323,18 @@ function ViewProposal() {
               )}
             </Space>
           </Radio.Group>
+          
+          {/* Change Tier Button */}
+          {proposal.depositVerified && proposal.selectedTier && (
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Button
+                icon={<FiEdit />}
+                onClick={() => setTierChangeModalVisible(true)}
+              >
+                Request Tier Change
+              </Button>
+            </div>
+          )}
         </Card>
 
         {/* Project Scope */}
@@ -277,7 +356,7 @@ function ViewProposal() {
         )}
 
         {/* Actions */}
-        {proposal.status === 'pending' && (
+        {(proposal.status === 'sent' || proposal.status === 'pending') && (
           <Card>
             <Space size="middle" className="w-full justify-end">
               <Button size="large" onClick={handleDecline}>
@@ -342,6 +421,15 @@ function ViewProposal() {
           </Paragraph>
         </Space>
       </Modal>
+
+      {/* Tier Change Modal */}
+      <TierChangeModal
+        visible={tierChangeModalVisible}
+        onClose={() => setTierChangeModalVisible(false)}
+        currentTier={proposal?.selectedTier}
+        proposal={proposal}
+        onConfirm={handleTierChangeConfirm}
+      />
     </div>
   );
 }

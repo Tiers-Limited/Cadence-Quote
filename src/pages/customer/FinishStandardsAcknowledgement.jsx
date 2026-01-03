@@ -25,9 +25,9 @@ function FinishStandardsAcknowledgement() {
       if (response.success) {
         setProposal(response.data);
         
-        // If already acknowledged, redirect to selections
+        // If already acknowledged, redirect to color selections
         if (response.data.finishStandardsAcknowledged) {
-          navigate(`/portal/selections/${proposalId}`);
+          navigate(`/portal/colors/${proposalId}`);
         }
       }
     } catch (error) {
@@ -49,7 +49,7 @@ function FinishStandardsAcknowledgement() {
       
       if (response.success) {
         message.success('Finish standards acknowledged successfully');
-        navigate(`/portal/selections/${proposalId}`);
+        navigate(`/portal/colors/${proposalId}`);
       }
     } catch (error) {
       message.error('Failed to acknowledge: ' + error.message);

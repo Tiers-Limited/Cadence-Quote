@@ -105,8 +105,9 @@ function CustomerDashboard() {
   };
 
   const getStatusText = (record) => {
-    if (record.isExpired && record.status === 'pending') return 'Expired';
-    if (record.status === 'pending') return 'Awaiting Review';
+    if (record.isExpired && (record.status === 'sent' || record.status === 'pending')) return 'Expired';
+    if (record.status === 'sent') return 'Awaiting Your Review';
+    if (record.status === 'pending') return 'Awaiting Your Review';
     if (record.status === 'accepted' && !record.depositVerified) return 'Payment Required';
     if (record.depositVerified && !record.finishStandardsAcknowledged) return 'Acknowledge Standards';
     if (record.portalOpen) return 'Portal Open';
@@ -117,31 +118,8 @@ function CustomerDashboard() {
   };
 
   const showAcceptModal = (record) => {
-    confirm({
-      title: 'Accept Proposal',
-      icon: <FiCheck className="text-green-500" />,
-      content: (
-        <div className="py-4">
-          <Paragraph>
-            You are about to accept proposal <strong>{record.quoteNumber}</strong>
-          </Paragraph>
-          <Paragraph>
-            Deposit Amount: <strong className="text-green-600">${record.depositAmount || (record.total * 0.5).toFixed(2)}</strong>
-          </Paragraph>
-          <Alert
-            message="Next Steps"
-            description="After accepting, you will be directed to make a deposit payment. Once the deposit is paid, you'll get access to the Customer Portal to make your product and color selections."
-            type="info"
-            showIcon
-          />
-        </div>
-      ),
-      okText: 'Accept & Continue to Payment',
-      cancelText: 'Cancel',
-      okButtonProps: { type: 'primary', size: 'large' },
-      width: 600,
-      onOk: () => handleAccept(record.id)
-    });
+    // Instead of accepting directly, navigate to proposal view where customer can select tier
+    navigate(`/portal/proposal/${record.id}`);
   };
 
   const showDeclineModal = (record) => {
@@ -174,22 +152,9 @@ function CustomerDashboard() {
   };
 
   const handleAccept = async (proposalId) => {
-    try {
-      setActionLoading(true);
-      const response = await apiService.post(`/customer/proposals/${proposalId}/accept`, {
-        selectedTier: 'standard' // Can be modified based on your tier selection logic
-      });
-      
-      if (response.success) {
-        message.success(response.message || 'Proposal accepted successfully!');
-        // Navigate to payment page
-        navigate(`/portal/proposal/${proposalId}?payment=true`);
-      }
-    } catch (error) {
-      message.error(error.message || 'Failed to accept proposal');
-    } finally {
-      setActionLoading(false);
-    }
+    // This function is no longer used - acceptance happens on ViewProposal page with tier selection
+    // Keeping for backward compatibility but redirecting to proposal view
+    navigate(`/portal/proposal/${proposalId}`);
   };
 
   const handleDecline = async (proposalId, reason) => {
@@ -218,7 +183,7 @@ function CustomerDashboard() {
     } else if (record.depositVerified && !record.finishStandardsAcknowledged) {
       navigate(`/portal/finish-standards/${record.id}`);
     } else if (record.portalOpen || record.selectionsComplete) {
-      navigate(`/portal/selections/${record.id}`);
+      navigate(`/portal/colors/${record.id}`);
     } else {
       navigate(`/portal/proposal/${record.id}`);
     }
@@ -316,9 +281,9 @@ function CustomerDashboard() {
             </Button>
           </Tooltip>
           
-          {record.status === 'pending' && !record.isExpired && (
+          {(record.status === 'sent' || record.status === 'pending') && !record.isExpired && (
             <>
-              <Tooltip title="Accept Proposal">
+              <Tooltip title="View & Accept Proposal">
                 <Button
                   type="primary"
                   size="small"
@@ -326,7 +291,7 @@ function CustomerDashboard() {
                   onClick={() => showAcceptModal(record)}
                   loading={actionLoading}
                 >
-                  Accept
+                  Review
                 </Button>
               </Tooltip>
               
@@ -387,8 +352,8 @@ function CustomerDashboard() {
               value={statusFilter}
               onChange={handleStatusFilterChange}
               options={[
-                { label: 'All Status', value: 'all' },
-                { label: 'Pending', value: 'pending' },
+                { label: 'All Quotes', value: 'all' },
+                { label: 'Awaiting Review', value: 'sent' },
                 { label: 'Accepted', value: 'accepted' },
                 { label: 'Declined', value: 'declined' },
                 { label: 'Completed', value: 'completed' }

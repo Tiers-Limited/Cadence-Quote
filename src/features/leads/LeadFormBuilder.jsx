@@ -22,6 +22,14 @@ const LeadFormBuilder = () => {
   const [activeTab, setActiveTab] = useState('forms');
   const [form] = Form.useForm();
   const [isMobile, setIsMobile] = useState(false);
+  
+  // Search and pagination states
+  const [formsSearchText, setFormsSearchText] = useState('');
+  const [leadsSearchText, setLeadsSearchText] = useState('');
+  const [formsCurrentPage, setFormsCurrentPage] = useState(1);
+  const [leadsCurrentPage, setLeadsCurrentPage] = useState(1);
+  const [formsPageSize, setFormsPageSize] = useState(10);
+  const [leadsPageSize, setLeadsPageSize] = useState(10);
 
   // Detect mobile screen
   useEffect(() => {
@@ -436,6 +444,28 @@ const LeadFormBuilder = () => {
       required: false,
     },
   ];
+
+  // Filter forms based on search
+  const filteredForms = forms.filter(form => {
+    const searchLower = formsSearchText.toLowerCase();
+    return (
+      form.formName?.toLowerCase().includes(searchLower) ||
+      form.formTitle?.toLowerCase().includes(searchLower)
+    );
+  });
+
+  // Filter leads based on search
+  const filteredLeads = leads.filter(lead => {
+    const searchLower = leadsSearchText.toLowerCase();
+    return (
+      lead.fullName?.toLowerCase().includes(searchLower) ||
+      lead.email?.toLowerCase().includes(searchLower) ||
+      lead.phone?.toLowerCase().includes(searchLower) ||
+      lead.projectType?.toLowerCase().includes(searchLower) ||
+      lead.status?.toLowerCase().includes(searchLower)
+    );
+  });
+
   return (
     <div className="p-3 md:p-6">
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
@@ -452,13 +482,37 @@ const LeadFormBuilder = () => {
             </Button>
           </div>
 
+          <div className="mb-4">
+            <Input.Search
+              placeholder="Search by form name or title..."
+              value={formsSearchText}
+              onChange={(e) => {
+                setFormsSearchText(e.target.value);
+                setFormsCurrentPage(1);
+              }}
+              allowClear
+              style={{ maxWidth: isMobile ? '100%' : 400 }}
+            />
+          </div>
+
           <Table
             columns={formColumns}
-            dataSource={forms}
+            dataSource={filteredForms}
             loading={loading}
             rowKey="id"
             scroll={{ x: 'max-content' }}
-            pagination={{ pageSize: isMobile ? 10 : 20 }}
+            pagination={{
+              current: formsCurrentPage,
+              pageSize: formsPageSize,
+              total: filteredForms.length,
+              onChange: (page, pageSize) => {
+                setFormsCurrentPage(page);
+                setFormsPageSize(pageSize);
+              },
+              showSizeChanger: true,
+              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} forms`,
+              pageSizeOptions: ['10', '20', '50', '100'],
+            }}
           />
         </TabPane>
 
@@ -467,13 +521,37 @@ const LeadFormBuilder = () => {
             <h2 className="text-xl md:text-2xl font-semibold">Lead Management</h2>
           </div>
 
+          <div className="mb-4">
+            <Input.Search
+              placeholder="Search by name, email, phone, project type, or status..."
+              value={leadsSearchText}
+              onChange={(e) => {
+                setLeadsSearchText(e.target.value);
+                setLeadsCurrentPage(1);
+              }}
+              allowClear
+              style={{ maxWidth: isMobile ? '100%' : 500 }}
+            />
+          </div>
+
           <Table
             columns={leadColumns}
-            dataSource={leads}
+            dataSource={filteredLeads}
             loading={loading}
             rowKey="id"
             scroll={{ x: 'max-content' }}
-            pagination={{ pageSize: isMobile ? 10 : 20 }}
+            pagination={{
+              current: leadsCurrentPage,
+              pageSize: leadsPageSize,
+              total: filteredLeads.length,
+              onChange: (page, pageSize) => {
+                setLeadsCurrentPage(page);
+                setLeadsPageSize(pageSize);
+              },
+              showSizeChanger: true,
+              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} leads`,
+              pageSizeOptions: ['10', '20', '50', '100'],
+            }}
           />
         </TabPane>
       </Tabs>

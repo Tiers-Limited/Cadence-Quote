@@ -206,23 +206,32 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
 
   // Prepare product details for display
   const getProductDetails = () => {
+    if (!formData.productSets || formData.productSets.length === 0) {
+      return [];
+    }
+    
     return (formData.productSets || []).map(set => {
       const products = [];
       
-      if (formData.productStrategy === 'gbb') {
+      // Handle Good-Better-Best strategy
+      if (formData.productStrategy === 'GBB' && set.products) {
         if (set.products.good) products.push({ tier: 'Good', productId: set.products.good });
         if (set.products.better) products.push({ tier: 'Better', productId: set.products.better });
         if (set.products.best) products.push({ tier: 'Best', productId: set.products.best });
-      } else {
-        if (set.products.single) products.push({ tier: 'Selected', productId: set.products.single });
+      }
+      // Handle Single Product strategy
+      else if (set.products && set.products.single) {
+        products.push({ tier: 'Selected', productId: set.products.single });
       }
 
       return {
         surfaceType: set.surfaceType,
         products,
-        gallons: set.gallons
+        gallons: set.gallons,
+        materialCost: set.materialCost,
+        hasProducts: products.length > 0
       };
-    });
+    }).filter(detail => detail.hasProducts || detail.surfaceType); // Show all surface types, even if no products yet
   };
 
   const areaDetails = getAreaDetails();
@@ -398,36 +407,48 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         style={{ marginBottom: 16 }}
       >
         <Paragraph>
-          <strong>Strategy:</strong> {formData.productStrategy === 'gbb' ? 'Good-Better-Best' : 'Single Product'}
+          <strong>Strategy:</strong> {formData.productStrategy === 'GBB' ? 'Good-Better-Best' : 'Single Product'}
         </Paragraph>
         
-        {productDetails.map(detail => (
-          <div key={detail.surfaceType} style={{ marginBottom: 16 }}>
-            <Title level={5}>{detail.surfaceType}</Title>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              {detail.products.map((product, idx) => {
-                const productInfo = productsMap[product.productId];
-                return (
-                  <div key={idx} style={{ padding: '8px', background: '#f5f5f5', borderRadius: '4px' }}>
-                    <Space>
-                      <Tag color={
-                        product.tier === 'Good' ? 'blue' :
-                        product.tier === 'Better' ? 'cyan' :
-                        product.tier === 'Best' ? 'green' : 'default'
-                      }>
-                        {product.tier}
-                      </Tag>
-                      {productInfo ? (
-                        <Text strong>{productInfo.brandName} - {productInfo.productName}</Text>
-                      ) : (
-                        <Text type="secondary">Product ID: {product.productId}</Text>
-                      )}
-                      {productInfo && <Text type="secondary">(${productInfo.pricePerGallon}/gal)</Text>}
-                    </Space>
-                  </div>
-                );
-              })}
-            </Space>
+        {productDetails.length === 0 ? (
+          <Alert 
+            message="No products selected" 
+            description="Products will appear here after you select them in Step 4." 
+            type="info" 
+            showIcon 
+          />
+        ) : (
+          productDetails.map(detail => (
+            <div key={detail.surfaceType} style={{ marginBottom: 16 }}>
+              <Title level={5}>{detail.surfaceType}</Title>
+              {detail.products.length === 0 ? (
+                <Text type="secondary" italic>No products selected for this surface type</Text>
+              ) : (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {detail.products.map((product, idx) => {
+                    const productInfo = productsMap[product.productId];
+                    return (
+                      <div key={idx} style={{ padding: '8px', background: '#f5f5f5', borderRadius: '4px' }}>
+                        <Space>
+                          <Tag color={
+                            product.tier === 'Good' ? 'blue' :
+                            product.tier === 'Better' ? 'cyan' :
+                            product.tier === 'Best' ? 'green' : 'default'
+                          }>
+                            {product.tier}
+                          </Tag>
+                          {productInfo ? (
+                            <Text strong>{productInfo.brandName} - {productInfo.productName}</Text>
+                          ) : (
+                            <Text type="secondary">Product ID: {product.productId}</Text>
+                          )}
+                          {productInfo && <Text type="secondary">(${productInfo.pricePerGallon}/gal)</Text>}
+                        </Space>
+                      </div>
+                    );
+                  })}
+                </Space>
+              )}
             {detail.gallons > 0 && (
               <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
                 Estimated: {detail.gallons.toFixed(2)} gallons
@@ -439,7 +460,8 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
               </Text>
             )}
           </div>
-        ))}
+        )))}
+        
       </Card>
 
       {/* Running Product Totals */}

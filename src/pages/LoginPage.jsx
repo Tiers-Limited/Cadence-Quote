@@ -232,7 +232,7 @@ function LoginPage () {
                 <button
                   type='button'
                   onClick={() => setShowPassword(!showPassword)}
-                  className='absolute right-3 top-3 text-gray-400 hover:text-gray-600'
+                  className='absolute right-0 sm:right-3 sm:top-3 text-gray-400 hover:text-gray-600'
                   disabled={loading}
                 >
                   {showPassword ? <FiEyeOff size={20} /> : <FiEye size={20} />}

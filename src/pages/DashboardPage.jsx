@@ -38,6 +38,7 @@ function DashboardPage () {
     revenue: '0.0'
   })
   const [totalJobs, setTotalJobs] = useState(0)
+  const [avgMargin, setAvgMargin] = useState(10)
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
 
@@ -75,6 +76,7 @@ function DashboardPage () {
       if (analytics.success) {
         setJobAnalyticsData(analytics.data)
         setTotalJobs(analytics.totalJobs || 0)
+        setAvgMargin(analytics.avgMargin || 10)
       }
 
       // Update monthly performance
@@ -316,7 +318,7 @@ function DashboardPage () {
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Avg. Margin</p>
                   <p className="text-lg sm:text-xl font-bold text-green-600">
-                    {jobAnalyticsData.find(item => item.name === 'Net Profit %')?.value || 10}%
+                    {avgMargin}%
                   </p>
                 </div>
               </div>
@@ -478,6 +480,7 @@ function ActivityItem ({ title, description, time, status, amount }) {
     sent: { color: 'bg-yellow-100 text-yellow-800', label: 'Sent' },
     pending: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
     accepted: { color: 'bg-green-100 text-green-800', label: 'Accepted' },
+    deposit_paid: { color: 'bg-blue-100 text-blue-800', label: 'Deposit Paid' },
     scheduled: { color: 'bg-blue-100 text-blue-800', label: 'Scheduled' },
     completed: { color: 'bg-blue-100 text-blue-800', label: 'Completed' },
     rejected: { color: 'bg-red-100 text-red-800', label: 'Rejected' },

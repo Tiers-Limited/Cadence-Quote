@@ -27,10 +27,13 @@ import {
   CheckCircleOutlined,
   CalendarOutlined,
   MailOutlined,
-  UserAddOutlined
+  UserAddOutlined,
+  LockOutlined
 } from '@ant-design/icons';
 import quoteApiService from '../services/quoteApiService';
 import { apiService } from '../services/apiService';
+import ManualDepositVerificationModal from '../components/ManualDepositVerificationModal';
+import ContractorPortalControls from '../components/ContractorPortalControls';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -47,6 +50,7 @@ const QuotesListPage = () => {
   const [invitingClient, setInvitingClient] = useState(null);
   const [productNames, setProductNames] = useState({});
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [depositModalVisible, setDepositModalVisible] = useState(false);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -67,6 +71,7 @@ const QuotesListPage = () => {
     draft: 0,
     sent: 0,
     accepted: 0,
+    deposit_paid: 0,
     scheduled: 0
   });
 
@@ -115,6 +120,7 @@ const QuotesListPage = () => {
           draft: quotesData.filter(q => q.status === 'draft').length,
           sent: quotesData.filter(q => q.status === 'sent').length,
           accepted: quotesData.filter(q => q.status === 'accepted').length,
+          deposit_paid: quotesData.filter(q => q.status === 'deposit_paid').length,
           scheduled: quotesData.filter(q => q.status === 'scheduled').length
         });
       }
@@ -305,18 +311,21 @@ const QuotesListPage = () => {
 
   const StatusBadge = ({ status }) => {
     const statusConfig = {
-      draft: { color: 'default', icon: <FileTextOutlined /> },
-      sent: { color: 'processing', icon: <SendOutlined /> },
-      accepted: { color: 'success', icon: <CheckCircleOutlined /> },
-      scheduled: { color: 'cyan', icon: <CalendarOutlined /> },
-      rejected: { color: 'error', icon: <ExclamationCircleOutlined /> }
+      draft: { color: 'default', icon: <FileTextOutlined />, label: 'DRAFT' },
+      sent: { color: 'processing', icon: <SendOutlined />, label: 'SENT' },
+      accepted: { color: 'success', icon: <CheckCircleOutlined />, label: 'ACCEPTED' },
+      deposit_paid: { color: 'blue', icon: <CheckCircleOutlined />, label: 'DEPOSIT PAID' },
+      scheduled: { color: 'cyan', icon: <CalendarOutlined />, label: 'SCHEDULED' },
+      rejected: { color: 'error', icon: <ExclamationCircleOutlined />, label: 'REJECTED' },
+      completed: { color: 'success', icon: <CheckCircleOutlined />, label: 'COMPLETED' },
+      declined: { color: 'error', icon: <ExclamationCircleOutlined />, label: 'DECLINED' }
     };
 
     const config = statusConfig[status] || statusConfig.draft;
 
     return (
       <Tag color={config.color} icon={config.icon}>
-        {status ? status.toUpperCase() : 'DRAFT'}
+        {config.label}
       </Tag>
     );
   };
@@ -602,8 +611,10 @@ const QuotesListPage = () => {
                 <Option value="draft">Draft</Option>
                 <Option value="sent">Sent</Option>
                 <Option value="accepted">Accepted</Option>
+                <Option value="deposit_paid">Deposit Paid</Option>
                 <Option value="scheduled">Scheduled</Option>
                 <Option value="rejected">Rejected</Option>
+                <Option value="completed">Completed</Option>
               </Select>
             </Col>
             <Col xs={12} sm={8} md={4}>
@@ -707,6 +718,7 @@ const QuotesListPage = () => {
         <Modal
           title={`Quote Details - ${selectedQuote?.quoteNumber || ''}`}
           open={detailsModalVisible}
+          width={isMobile ? '100%' : 800}
           onCancel={() => {
             setDetailsModalVisible(false);
             setProductNames({});
@@ -835,6 +847,55 @@ const QuotesListPage = () => {
                     {selectedQuote.totalSqft} sqft
                   </Descriptions.Item>
                 )}
+                {selectedQuote.depositAmount && (
+                  <Descriptions.Item label="Deposit Amount" span={2}>
+                    <strong>${Number.parseFloat(selectedQuote.depositAmount || 0).toFixed(2)}</strong>
+                    {selectedQuote.depositVerified ? (
+                      <Tag color="success" style={{ marginLeft: 8 }}>
+                        <CheckCircleOutlined /> Verified
+                      </Tag>
+                    ) : selectedQuote.status === 'accepted' ? (
+                      <Tag color="warning" style={{ marginLeft: 8 }}>
+                        Pending Verification
+                      </Tag>
+                    ) : null}
+                  </Descriptions.Item>
+                )}
+                {selectedQuote.selectedTier && (
+                  <Descriptions.Item label="Selected Tier" span={2}>
+                    <Tag color="blue">{selectedQuote.selectedTier.toUpperCase()}</Tag>
+                  </Descriptions.Item>
+                )}
+                {selectedQuote.portalOpen !== undefined && (
+                  <Descriptions.Item label="Portal Status" span={2}>
+                    {selectedQuote.portalOpen ? (
+                      <Tag color="success">
+                        <CheckCircleOutlined /> Open
+                      </Tag>
+                    ) : (
+                      <Tag color="default">
+                        <LockOutlined /> Closed
+                      </Tag>
+                    )}
+                    {selectedQuote.portalClosedAt && selectedQuote.portalOpen && (
+                      <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>
+                        Expires: {new Date(selectedQuote.portalClosedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </Descriptions.Item>
+                )}
+                {selectedQuote.selectionsComplete && (
+                  <Descriptions.Item label="Selections Status" span={2}>
+                    <Tag color="success">
+                      <CheckCircleOutlined /> Complete
+                    </Tag>
+                    {selectedQuote.selectionsCompletedAt && (
+                      <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>
+                        {new Date(selectedQuote.selectionsCompletedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </Descriptions.Item>
+                )}
                 {selectedQuote.notes && (
                   <Descriptions.Item label="Notes" span={2}>
                     {selectedQuote.notes}
@@ -846,6 +907,32 @@ const QuotesListPage = () => {
                   </Descriptions.Item>
                 )}
               </Descriptions>
+
+              {/* Portal Controls */}
+              {selectedQuote.status === 'accepted' && (
+                <div style={{ marginTop: 24, padding: 16, background: '#f9fafb', borderRadius: 8 }}>
+                  <h3 style={{ marginBottom: 16 }}>Customer Portal Management</h3>
+                  <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: '100%' }}>
+                    {!selectedQuote.depositVerified && (
+                      <Button
+                        type="primary"
+                        onClick={() => setDepositModalVisible(true)}
+                      >
+                        Verify Deposit
+                      </Button>
+                    )}
+                    {selectedQuote.depositVerified && (
+                      <ContractorPortalControls 
+                        quote={selectedQuote}
+                        onUpdate={() => {
+                          handleViewQuote(selectedQuote.id);
+                          fetchQuotes();
+                        }}
+                      />
+                    )}
+                  </Space>
+                </div>
+              )}
 
               {selectedQuote.areas && selectedQuote.areas.length > 0 && (
                 <>
@@ -999,6 +1086,17 @@ const QuotesListPage = () => {
             </div>
           )}
         </Modal>
+
+        {/* Manual Deposit Verification Modal */}
+        <ManualDepositVerificationModal
+          visible={depositModalVisible}
+          onClose={() => setDepositModalVisible(false)}
+          quote={selectedQuote}
+          onSuccess={() => {
+            handleViewQuote(selectedQuote.id);
+            fetchQuotes();
+          }}
+        />
       </div>
     </div>
   );

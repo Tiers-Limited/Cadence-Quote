@@ -5,13 +5,15 @@ import {
   Card,
   Form,
   Input,
+  InputNumber,
   Button,
   message,
   Spin,
   Popconfirm,
   Switch,
   Tabs,
-  Select
+  Select,
+  Alert
 } from 'antd'
 import '../styles/cards.css'
 import {
@@ -35,6 +37,7 @@ function SettingsPage () {
 
   // Form instances
   const [companyForm] = Form.useForm()
+  const [portalForm] = Form.useForm()
 
 
 
@@ -60,6 +63,12 @@ function SettingsPage () {
             tradeType: data.tenant.tradeType
           })
         }
+
+        // Populate portal settings form
+        portalForm.setFieldsValue({
+          portalDurationDays: data.portalDurationDays || 14,
+          portalAutoLock: data.portalAutoLock !== false // Default to true
+        })
       }
 
       // Fetch 2FA status
@@ -161,6 +170,7 @@ function SettingsPage () {
               onChange={val => setActiveTab(val)}
               options={[
                 { label: 'Company', value: 'company' },
+                { label: 'Customer Portal', value: 'portal' },
                 { label: 'Account', value: 'account' }
               ]}
               className='ant-segmented--rounded'
@@ -256,6 +266,103 @@ function SettingsPage () {
                       size='large'
                     >
                       Save Company Info
+                    </Button>
+                  </Form.Item>
+                </Form>
+              </div>
+            </TabPane>
+
+            {/* Customer Portal Tab */}
+            <TabPane
+              tab={
+                <span className='flex items-center gap-2'>
+                  <FiSettings />
+                  Customer Portal
+                </span>
+              }
+              key='portal'
+            >
+              <div className='py-4'>
+                <h3 className='text-lg font-semibold mb-4'>Customer Portal Settings</h3>
+                <p className='text-gray-600 mb-6'>
+                  Configure how long customer portals remain open after deposit payment
+                </p>
+                <Form
+                  form={portalForm}
+                  layout='vertical'
+                  className='max-w-2xl'
+                  onFinish={async (values) => {
+                    setSaving(true);
+                    try {
+                      const response = await apiService.put('/settings', {
+                        portalDurationDays: values.portalDurationDays,
+                        portalAutoLock: values.portalAutoLock
+                      });
+                      if (response.success) {
+                        message.success('Portal settings updated successfully');
+                      }
+                    } catch (error) {
+                      message.error('Failed to update settings: ' + error.message);
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  <Form.Item
+                    label='Portal Duration (Days)'
+                    name='portalDurationDays'
+                    rules={[
+                      { required: true, message: 'Please enter portal duration' },
+                      { type: 'number', min: 1, max: 365, message: 'Duration must be between 1 and 365 days' }
+                    ]}
+                    help='Number of days the customer portal remains open after deposit payment'
+                  >
+                    <InputNumber 
+                      size='large' 
+                      min={1} 
+                      max={365}
+                      style={{ width: '100%' }}
+                      addonAfter='days'
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label='Auto-Lock Portal'
+                    name='portalAutoLock'
+                    valuePropName='checked'
+                    help='Automatically lock portal when duration expires. If disabled, portal stays open until manually closed.'
+                  >
+                    <Switch 
+                      checkedChildren='Enabled' 
+                      unCheckedChildren='Disabled'
+                    />
+                  </Form.Item>
+
+                  <Alert
+                    message='Portal Access Rules'
+                    description={
+                      <ul className='list-disc pl-5 mt-2 space-y-1'>
+                        <li>Portal opens automatically after deposit payment is verified</li>
+                        <li>Customer can make product selections during the portal duration</li>
+                        <li>Portal locks automatically when customer submits all selections</li>
+                        <li>Contractors can manually reopen portal if changes are needed</li>
+                        <li>If auto-lock is disabled, contractors must manually close portals</li>
+                      </ul>
+                    }
+                    type='info'
+                    showIcon
+                    className='mb-6'
+                  />
+
+                  <Form.Item>
+                    <Button
+                      type='primary'
+                      htmlType='submit'
+                      icon={<FiSave />}
+                      loading={saving}
+                      size='large'
+                    >
+                      Save Portal Settings
                     </Button>
                   </Form.Item>
                 </Form>

@@ -24,6 +24,7 @@ import ViewProposal from '../pages/customer/ViewProposal';
 import DepositPayment from '../pages/customer/DepositPayment';
 import FinishStandardsAcknowledgement from '../pages/customer/FinishStandardsAcknowledgement';
 import ProductSelections from '../pages/customer/ProductSelections';
+import ColorSelections from '../pages/customer/ColorSelections';
 import CustomerDocuments from '../pages/customer/CustomerDocuments';
 
 // Client Authentication Components
@@ -38,6 +39,7 @@ import RoleBasedRoute from '../pages/RoleBasedRoute';
 import PublicLeadFormPage from '../pages/PublicLeadFormPage';
 import { Spin } from 'antd';
 import BrandProductManager from '../features/admin/BrandProductManager';
+import ProductTierManager from '../features/admin/ProductTierManager';
 import QuoteBuilderPage from '../pages/QuoteBuilderPage';
 import QuotesListPage from '../pages/QuotesListPage';
 import ProposalDefaultsPage from '../pages/ProposalDefaultsPage';
@@ -115,10 +117,12 @@ const AppRoutes = () => {
         <Route path='/dashboard' element={<DashboardPage />} />
         <Route path='/quotes' element={<QuotesListPage />} />
         <Route path='/quotes/new' element={<QuoteBuilderPage />} />
+        <Route path='/quotes/edit/:quoteId' element={<QuoteBuilderPage />} />
         <Route path='/quote-builder' element={<QuoteBuilderPage />} />
         <Route path='/pricing-engine' element={<ContractorProductConfigManager />} />
         <Route path='/products/catalog' element={<ContractorProductConfigManager />} />
         <Route path='/products/colors' element={<ColorLibrary />} />
+        <Route path='/products/tiers' element={<ProductTierManager />} />
         <Route path='/pricing/schemes' element={<PricingSchemes />} />
         <Route path='/leads/forms' element={<LeadFormBuilder />} />
         <Route
@@ -160,6 +164,7 @@ const AppRoutes = () => {
         <Route path='payment/:proposalId' element={<DepositPayment />} />
         <Route path='finish-standards/:proposalId' element={<FinishStandardsAcknowledgement />} />
         <Route path='selections/:proposalId' element={<ProductSelections />} />
+        <Route path='colors/:proposalId' element={<ColorSelections />} />
         <Route path='documents/:proposalId' element={<CustomerDocuments />} />
       </Route>
 

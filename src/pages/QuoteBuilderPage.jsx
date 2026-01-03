@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { Card, Steps, message, Progress } from 'antd';
 import {
   UserOutlined,
@@ -27,8 +27,11 @@ const steps = [
 
 function QuoteBuilderPage() {
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const quoteIdFromUrl = searchParams.get('id');
   const editQuote = location.state?.editQuote;
-  const isEditMode = !!editQuote;
+  const isEditMode = !!editQuote || !!quoteIdFromUrl;
+  const [loadingQuote, setLoadingQuote] = useState(false);
   
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -49,7 +52,7 @@ function QuoteBuilderPage() {
     areas: [],
     
     // Products (Step 4)
-    productStrategy: 'gbb',
+    productStrategy: 'GBB',
     allowCustomerProductChoice: false,
     productSets: [],
     
@@ -92,8 +95,11 @@ function QuoteBuilderPage() {
     const initializePage = async () => {
       await fetchPricingSchemes();
       
-      if (isEditMode && editQuote) {
-        // Load quote data for editing
+      if (quoteIdFromUrl) {
+        // Fetch quote from API using ID from URL
+        await fetchQuoteById(quoteIdFromUrl);
+      } else if (editQuote) {
+        // Load quote data from location state
         loadQuoteForEdit(editQuote);
       } else {
         // Check for existing draft only if not in edit mode
@@ -150,6 +156,23 @@ function QuoteBuilderPage() {
     }
   };
 
+  const fetchQuoteById = async (quoteId) => {
+    try {
+      setLoadingQuote(true);
+      const response = await apiService.get(`/quote-builder/quotes/${quoteId}`);
+      if (response.success && response.data) {
+        loadQuoteForEdit(response.data);
+      } else {
+        message.error('Failed to load quote');
+      }
+    } catch (error) {
+      console.error('Error fetching quote:', error);
+      message.error('Failed to load quote for editing');
+    } finally {
+      setLoadingQuote(false);
+    }
+  };
+
   const loadQuoteForEdit = (quote) => {
     try {
       setFormData({
@@ -170,7 +193,7 @@ function QuoteBuilderPage() {
         areas: quote.areas || [],
         
         // Products
-        productStrategy: quote.productStrategy || 'gbb',
+        productStrategy: quote.productStrategy || 'GBB',
         allowCustomerProductChoice: quote.allowCustomerProductChoice || false,
         productSets: quote.productSets || [],
         

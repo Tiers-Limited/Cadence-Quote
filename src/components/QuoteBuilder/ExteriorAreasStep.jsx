@@ -1,106 +1,195 @@
 // src/components/QuoteBuilder/ExteriorAreasStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Input, InputNumber, Space, Modal, Collapse, Divider } from 'antd';
-import { CaretRightOutlined } from '@ant-design/icons';
+import { Card, Button, Alert, Row, Col, Typography, Input, InputNumber, Space, Modal, Select, Tag } from 'antd';
+import { PlusOutlined, DeleteOutlined, CalculatorOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
+import DimensionCalculator from './DimensionCalculator';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+const { Option } = Select;
 
-// Static list of exterior areas - NO auto-selection, NO nested lists
-const EXTERIOR_AREAS = [
-  'Exterior Walls',
-  'Trim',
-  'Soffits & Fascia',
-  'Gutters',
-  'Shutters',
-  'Doors',
-  'Rails',
-  'Accents',
-  'Deck Floor',
+// Common exterior areas
+const COMMON_EXTERIOR_AREAS = [
+  'Front Exterior',
+  'Back Exterior',
+  'Side Exterior (Left)',
+  'Side Exterior (Right)',
+  'Garage',
+  'Deck',
   'Fence',
-  'Custom'
+  'Shutters'
 ];
 
+// Exterior labor categories
+const EXTERIOR_LABOR_CATEGORIES = [
+  { name: 'Exterior Walls', unit: 'sqft', defaultCoats: 2 },
+  { name: 'Exterior Trim', unit: 'linear_foot', defaultCoats: 2 },
+  { name: 'Exterior Doors', unit: 'unit', defaultCoats: 2 },
+  { name: 'Shutters', unit: 'unit', defaultCoats: 2 },
+  { name: 'Decks & Railings', unit: 'sqft', defaultCoats: 2 },
+  { name: 'Soffit & Fascia', unit: 'linear_foot', defaultCoats: 2 },
+  { name: 'Prep Work', unit: 'hour', defaultCoats: 0 }
+];
+
+const COVERAGE_RATE = 350; // sq ft per gallon
+
 const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
-  const [selectedAreas, setSelectedAreas] = useState(formData.exteriorAreas || []);
-  const [notes, setNotes] = useState(formData.exteriorNotes || '');
+  const [areas, setAreas] = useState(formData.areas || []);
+  const [showCustomAreaModal, setShowCustomAreaModal] = useState(false);
   const [customAreaName, setCustomAreaName] = useState('');
-  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [laborCategories, setLaborCategories] = useState([]);
+  const [laborRates, setLaborRates] = useState([]);
+  const [dimensionCalc, setDimensionCalc] = useState({ visible: false, areaId: null, categoryName: null });
 
   useEffect(() => {
-    onUpdate({ 
-      exteriorAreas: selectedAreas,
-      exteriorNotes: notes
-    });
-  }, [selectedAreas, notes]);
+    fetchLaborCategories();
+    fetchLaborRates();
+  }, []);
 
-  const toggleArea = (areaName) => {
-    const isSelected = selectedAreas.some(a => a.name === areaName);
-    
-    if (isSelected) {
-      // Remove the area
-      setSelectedAreas(selectedAreas.filter(a => a.name !== areaName));
-    } else {
-      // Add new area with measurement fields
-      const newArea = {
-        id: Date.now(),
-        name: areaName,
-        measurements: {
-          length: null,
-          width: null,
-          height: null,
-          quantity: null,
-          linearFeet: null,
-          squareFeet: null
-        }
-      };
-      setSelectedAreas([...selectedAreas, newArea]);
+  useEffect(() => {
+    onUpdate({ areas });
+  }, [areas]);
+
+  const fetchLaborCategories = async () => {
+    try {
+      const response = await apiService.get('/labor-categories');
+      if (response.success) {
+        setLaborCategories(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching labor categories:', error);
     }
   };
 
-  const updateMeasurement = (areaId, field, value) => {
-    setSelectedAreas(selectedAreas.map(area => {
+  const fetchLaborRates = async () => {
+    try {
+      const response = await apiService.get('/labor-categories/rates');
+      if (response.success) {
+        setLaborRates(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching labor rates:', error);
+    }
+  };
+
+  const addArea = (areaName, isCustom = false) => {
+    const newArea = {
+      id: Date.now(),
+      name: areaName,
+      jobType: 'exterior',
+      isCustom,
+      laborItems: EXTERIOR_LABOR_CATEGORIES.map(cat => ({
+        categoryName: cat.name,
+        measurementUnit: cat.unit,
+        selected: false,
+        quantity: null,
+        numberOfCoats: cat.defaultCoats,
+        dimensions: null,
+        laborRate: getLaborRate(cat.name),
+        gallons: null,
+        allowManualGallons: false
+      }))
+    };
+    setAreas([...areas, newArea]);
+  };
+
+  const getLaborRate = (categoryName) => {
+    const category = laborCategories.find(c => c.categoryName === categoryName);
+    if (!category) return 0;
+
+    const rate = laborRates.find(r => r.laborCategoryId === category.id);
+    return rate ? parseFloat(rate.rate) : 0;
+  };
+
+  const removeArea = (areaId) => {
+    setAreas(areas.filter(a => a.id !== areaId));
+  };
+
+  const toggleLaborItem = (areaId, categoryName, checked) => {
+    setAreas(areas.map(area => {
       if (area.id === areaId) {
         return {
           ...area,
-          measurements: {
-            ...area.measurements,
-            [field]: value
-          }
+          laborItems: area.laborItems.map(item => 
+            item.categoryName === categoryName 
+              ? { ...item, selected: checked }
+              : item
+          )
         };
       }
       return area;
     }));
   };
 
+  const updateLaborItem = (areaId, categoryName, field, value) => {
+    setAreas(areas.map(area => {
+      if (area.id === areaId) {
+        return {
+          ...area,
+          laborItems: area.laborItems.map(item => {
+            if (item.categoryName === categoryName) {
+              const updatedItem = { ...item, [field]: value };
+
+              // Auto-calculate gallons when quantity or coats change
+              if ((field === 'quantity' || field === 'numberOfCoats') && !item.allowManualGallons) {
+                const qty = field === 'quantity' ? value : item.quantity;
+                const coats = field === 'numberOfCoats' ? value : item.numberOfCoats;
+
+                if (qty && coats && item.measurementUnit === 'sqft') {
+                  const totalSqft = parseFloat(qty) * parseInt(coats);
+                  const calculatedGallons = totalSqft / COVERAGE_RATE;
+                  // Round up to nearest 0.5 gallon
+                  updatedItem.gallons = Math.ceil(calculatedGallons * 2) / 2;
+                }
+              }
+
+              return updatedItem;
+            }
+            return item;
+          })
+        };
+      }
+      return area;
+    }));
+  };
+
+  const openDimensionCalculator = (areaId, categoryName) => {
+    const area = areas.find(a => a.id === areaId);
+    const item = area?.laborItems.find(i => i.categoryName === categoryName);
+    
+    setDimensionCalc({
+      visible: true,
+      areaId,
+      categoryName,
+      initialDimensions: item?.dimensions
+    });
+  };
+
+  const handleDimensionCalculation = (sqft, dimensions) => {
+    updateLaborItem(dimensionCalc.areaId, dimensionCalc.categoryName, 'quantity', sqft);
+    updateLaborItem(dimensionCalc.areaId, dimensionCalc.categoryName, 'dimensions', dimensions);
+    setDimensionCalc({ visible: false, areaId: null, categoryName: null });
+  };
+
   const handleCustomAreaSubmit = () => {
     if (customAreaName.trim()) {
-      toggleArea(customAreaName.trim());
+      addArea(customAreaName.trim(), true);
       setCustomAreaName('');
-      setShowCustomModal(false);
+      setShowCustomAreaModal(false);
     }
   };
 
   const handleNext = () => {
-    if (selectedAreas.length === 0) {
+    const hasAreas = areas.length > 0;
+    const hasSelectedItems = areas.some(area => 
+      area.laborItems.some(item => item.selected)
+    );
+
+    if (!hasAreas || !hasSelectedItems) {
       Modal.warning({
         title: 'No Areas Selected',
-        content: 'Please select at least one exterior area before continuing.',
-      });
-      return;
-    }
-
-    // Validate that selected areas have at least one measurement
-    const areasWithoutMeasurements = selectedAreas.filter(area => {
-      const m = area.measurements;
-      return !m.length && !m.width && !m.height && !m.quantity && !m.linearFeet && !m.squareFeet;
-    });
-
-    if (areasWithoutMeasurements.length > 0) {
-      Modal.warning({
-        title: 'Missing Measurements',
-        content: `Please enter measurements for: ${areasWithoutMeasurements.map(a => a.name).join(', ')}`,
+        content: 'Please select at least one area and labor category before continuing.',
       });
       return;
     }
@@ -108,241 +197,226 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     onNext();
   };
 
-  const isAreaSelected = (areaName) => {
-    return selectedAreas.some(a => a.name === areaName);
-  };
-
-  const getAreaData = (areaName) => {
-    return selectedAreas.find(a => a.name === areaName);
-  };
-
-  const renderMeasurementInputs = (area) => {
-    const m = area.measurements;
-    
-    return (
-      <div style={{ padding: '16px', background: '#f9fafb', borderRadius: '4px', marginTop: '8px' }}>
-        <Text type="secondary" style={{ display: 'block', marginBottom: '12px', fontSize: '13px' }}>
-          Enter measurements for {area.name}:
-        </Text>
-        
-        <Row gutter={[12, 12]}>
-          {/* Length, Width, Height - for walls, deck floor */}
-          {['Exterior Walls', 'Deck Floor', 'Fence'].includes(area.name) && (
-            <>
-              <Col xs={12} sm={8}>
-                <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                  <Text style={{ fontSize: '12px' }}>Length (ft)</Text>
-                  <InputNumber
-                    style={{ width: '100%' }}
-                    min={0}
-                    step={1}
-                    value={m.length}
-                    onChange={(value) => updateMeasurement(area.id, 'length', value)}
-                    placeholder="0"
-                  />
-                </Space>
-              </Col>
-              <Col xs={12} sm={8}>
-                <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                  <Text style={{ fontSize: '12px' }}>Width (ft)</Text>
-                  <InputNumber
-                    style={{ width: '100%' }}
-                    min={0}
-                    step={1}
-                    value={m.width}
-                    onChange={(value) => updateMeasurement(area.id, 'width', value)}
-                    placeholder="0"
-                  />
-                </Space>
-              </Col>
-              {area.name === 'Exterior Walls' && (
-                <Col xs={12} sm={8}>
-                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                    <Text style={{ fontSize: '12px' }}>Height (ft)</Text>
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={0}
-                      step={1}
-                      value={m.height}
-                      onChange={(value) => updateMeasurement(area.id, 'height', value)}
-                      placeholder="0"
-                    />
-                  </Space>
-                </Col>
-              )}
-            </>
-          )}
-
-          {/* Linear Feet - for trim, soffits, gutters, rails */}
-          {['Trim', 'Soffits & Fascia', 'Gutters', 'Rails', 'Accents'].includes(area.name) && (
-            <Col xs={12} sm={8}>
-              <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                <Text style={{ fontSize: '12px' }}>Linear Feet</Text>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  step={1}
-                  value={m.linearFeet}
-                  onChange={(value) => updateMeasurement(area.id, 'linearFeet', value)}
-                  placeholder="0"
-                />
-              </Space>
-            </Col>
-          )}
-
-          {/* Quantity - for shutters, doors */}
-          {['Shutters', 'Doors'].includes(area.name) && (
-            <Col xs={12} sm={8}>
-              <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                <Text style={{ fontSize: '12px' }}>Quantity</Text>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  step={1}
-                  value={m.quantity}
-                  onChange={(value) => updateMeasurement(area.id, 'quantity', value)}
-                  placeholder="0"
-                />
-              </Space>
-            </Col>
-          )}
-
-          {/* Square Feet - custom areas */}
-          {area.name === 'Custom' && (
-            <Col xs={12} sm={8}>
-              <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                <Text style={{ fontSize: '12px' }}>Square Feet</Text>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  step={10}
-                  value={m.squareFeet}
-                  onChange={(value) => updateMeasurement(area.id, 'squareFeet', value)}
-                  placeholder="0"
-                />
-              </Space>
-            </Col>
-          )}
-        </Row>
-
-        {/* Calculated area display */}
-        {area.name === 'Exterior Walls' && m.length && m.width && m.height && (
-          <Alert
-            type="info"
-            message={`Calculated Area: ${(2 * (parseFloat(m.length) + parseFloat(m.width)) * parseFloat(m.height)).toFixed(2)} sq ft`}
-            style={{ marginTop: '12px' }}
-          />
-        )}
-
-        {area.name === 'Deck Floor' && m.length && m.width && (
-          <Alert
-            type="info"
-            message={`Calculated Area: ${(parseFloat(m.length) * parseFloat(m.width)).toFixed(2)} sq ft`}
-            style={{ marginTop: '12px' }}
-          />
-        )}
-      </div>
-    );
+  const getUnitLabel = (unit) => {
+    const labels = {
+      sqft: 'sq ft',
+      linear_foot: 'LF',
+      unit: 'units',
+      hour: 'hrs'
+    };
+    return labels[unit] || unit;
   };
 
   return (
-    <div className="exterior-areas-step" style={{ maxWidth: 1200, margin: '0 auto' }}>
+    <div className="exterior-areas-step" style={{ maxWidth: 1400, margin: '0 auto' }}>
       <Alert
-        message="Step 3: Exterior Areas"
-        description="Select individual exterior areas to paint. Enter measurements for each selected area. Use the Notes section below to specify substrate materials and other details."
+        message="Step 3: Exterior Areas & Labor"
+        description="Select exterior areas, specify labor categories, and enter measurements. Gallons calculate automatically."
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
       />
 
-      {/* Static Area Selection - Individual Checkboxes */}
-      <Card title="Select Exterior Areas" size="small" style={{ marginBottom: 16 }}>
-        <Row gutter={[12, 12]}>
-          {EXTERIOR_AREAS.map(areaName => {
-            const isSelected = isAreaSelected(areaName);
-            const isCustom = areaName === 'Custom';
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Text strong>Select Exterior Areas:</Text>
+        <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
+          {COMMON_EXTERIOR_AREAS.map(areaName => {
+            const isSelected = areas.some(a => a.name === areaName);
+            const allowMultiple = areaName.includes('Side');
+            
+            const handleClick = () => {
+              if (allowMultiple) {
+                const sameCount = areas.filter(a => a.name.startsWith(areaName.split('(')[0].trim())).length;
+                const displayName = sameCount > 0 ? `${areaName} ${sameCount + 1}` : areaName;
+                addArea(displayName);
+              } else {
+                if (isSelected) {
+                  const area = areas.find(a => a.name === areaName);
+                  if (area) removeArea(area.id);
+                } else {
+                  addArea(areaName);
+                }
+              }
+            };
 
             return (
-              <Col key={areaName} xs={24} sm={12} md={8} lg={6}>
-                <Card
+              <Col key={areaName} xs={12} sm={8} md={6} lg={4}>
+                <Button
                   size="small"
-                  hoverable
-                  style={{
-                    borderColor: isSelected ? '#1890ff' : '#d9d9d9',
-                    background: isSelected ? '#e6f7ff' : '#fff',
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    if (isCustom) {
-                      setShowCustomModal(true);
-                    } else {
-                      toggleArea(areaName);
-                    }
-                  }}
+                  type={isSelected && !allowMultiple ? 'primary' : 'default'}
+                  block
+                  onClick={handleClick}
                 >
-                  <Space>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      readOnly
-                      style={{ cursor: 'pointer' }}
-                    />
-                    <Text strong>{areaName}</Text>
-                  </Space>
-                </Card>
+                  {areaName}
+                </Button>
               </Col>
             );
           })}
+          <Col xs={12} sm={8} md={6} lg={4}>
+            <Button
+              size="small"
+              type="dashed"
+              block
+              icon={<PlusOutlined />}
+              onClick={() => setShowCustomAreaModal(true)}
+            >
+              Custom
+            </Button>
+          </Col>
         </Row>
       </Card>
 
-      {/* Expanded Measurement Sections for Selected Areas */}
-      {selectedAreas.length > 0 && (
-        <Card title="Area Measurements" size="small" style={{ marginBottom: 16 }}>
-          <Collapse
-            bordered={false}
-            expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
-            style={{ background: '#fff' }}
-            items={selectedAreas.map(area => ({
-              key: area.id,
-              label: (
+      {areas.length > 0 && (
+        <div>
+          {areas.map(area => (
+            <Card 
+              key={area.id}
+              size="small"
+              title={
                 <Space>
-                  <Text strong>{area.name}</Text>
-                  {area.measurements.length || area.measurements.linearFeet || area.measurements.quantity || area.measurements.squareFeet ? (
-                    <Text type="success" style={{ fontSize: '12px' }}>✓ Measured</Text>
-                  ) : (
-                    <Text type="danger" style={{ fontSize: '12px' }}>⚠ Needs measurements</Text>
-                  )}
+                  <strong>{area.name}</strong>
+                  <Button 
+                    type="text" 
+                    danger 
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={() => removeArea(area.id)}
+                  />
                 </Space>
-              ),
-              children: renderMeasurementInputs(area)
-            }))}
-          />
-        </Card>
+              }
+              style={{ marginBottom: 12 }}
+            >
+              {area?.laborItems?.map(item => (
+                <div key={item.categoryName} style={{ marginBottom: 8, padding: 8, background: '#fafafa', borderRadius: 4, border: '1px solid #e8e8e8' }}>
+                  <Row gutter={8} align="middle">
+                    {/* Category Name */}
+                    <Col xs={24} sm={5}>
+                      <Space size="small">
+                        <input
+                          type="checkbox"
+                          checked={item.selected}
+                          onChange={(e) => toggleLaborItem(area.id, item.categoryName, e.target.checked)}
+                        />
+                        <Text strong>{item.categoryName}</Text>
+                        <Tag color="blue" style={{ margin: 0 }}>{getUnitLabel(item.measurementUnit)}</Tag>
+                      </Space>
+                    </Col>
+
+                    {item.selected && (
+                      <>
+                        {/* Quantity/Measurement */}
+                        <Col xs={12} sm={4}>
+                          <Space.Compact style={{ width: '100%' }}>
+                            <InputNumber
+                              size="small"
+                              style={{ width: '100%' }}
+                              min={0}
+                              step={item.measurementUnit === 'sqft' ? 10 : 1}
+                              value={item.quantity}
+                              onChange={(value) => updateLaborItem(area.id, item.categoryName, 'quantity', value)}
+                              placeholder={getUnitLabel(item.measurementUnit)}
+                            />
+                            {(item.measurementUnit === 'sqft' || item.measurementUnit === 'linear_foot') && (
+                              <Button
+                                size="small"
+                                icon={<CalculatorOutlined />}
+                                onClick={() => openDimensionCalculator(area.id, item.categoryName)}
+                                title="Use dimensions calculator"
+                              />
+                            )}
+                          </Space.Compact>
+                          {item.dimensions && (
+                            <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 2 }}>
+                              {item.categoryName.includes('Wall') ? (
+                                <>2×({item.dimensions.length}+{item.dimensions.width})×{item.dimensions.height}</>
+                              ) : item.categoryName.includes('Deck') ? (
+                                <>{item.dimensions.length}×{item.dimensions.width}</>
+                              ) : item.categoryName.includes('Trim') || item.categoryName.includes('Fascia') ? (
+                                <>2×({item.dimensions.length}+{item.dimensions.width})</>
+                              ) : (
+                                <>{item.dimensions.length}×{item.dimensions.width}</>
+                              )}
+                            </Text>
+                          )}
+                        </Col>
+
+                        {/* Number of Coats (for paint surfaces only) */}
+                        {item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
+                          <Col xs={12} sm={3}>
+                            <Select
+                              size="small"
+                              style={{ width: '100%' }}
+                              value={item.numberOfCoats}
+                              onChange={(value) => updateLaborItem(area.id, item.categoryName, 'numberOfCoats', value)}
+                            >
+                              <Option value={1}>1 Coat</Option>
+                              <Option value={2}>2 Coats</Option>
+                              <Option value={3}>3 Coats</Option>
+                            </Select>
+                          </Col>
+                        )}
+
+                        {/* Auto-calculated Gallons */}
+                        {item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
+                          <Col xs={12} sm={4}>
+                            <Space.Compact style={{ width: '100%' }}>
+                              <InputNumber
+                                size="small"
+                                style={{ width: '100%' }}
+                                min={0}
+                                step={0.5}
+                                value={item.gallons}
+                                onChange={(value) => updateLaborItem(area.id, item.categoryName, 'gallons', value)}
+                                placeholder="Gallons"
+                                disabled={!item.allowManualGallons}
+                                addonAfter="gal"
+                              />
+                            </Space.Compact>
+                            {item.quantity && item.numberOfCoats && (
+                              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                                {item.quantity} × {item.numberOfCoats} ÷ {COVERAGE_RATE} = {item.gallons} gal
+                              </Text>
+                            )}
+                          </Col>
+                        )}
+
+                        {/* Labor Rate Display */}
+                        <Col xs={12} sm={3}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            ${item.laborRate}/{getUnitLabel(item.measurementUnit)}
+                          </Text>
+                        </Col>
+
+                        {/* Allow Manual Override Toggle */}
+                        {item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
+                          <Col xs={12} sm={4}>
+                            <label style={{ fontSize: 11 }}>
+                              <input
+                                type="checkbox"
+                                checked={item.allowManualGallons}
+                                onChange={(e) => updateLaborItem(area.id, item.categoryName, 'allowManualGallons', e.target.checked)}
+                                style={{ marginRight: 4 }}
+                              />
+                              Manual Gallons
+                            </label>
+                          </Col>
+                        )}
+                      </>
+                    )}
+                  </Row>
+                </div>
+              ))}
+            </Card>
+          ))}
+        </div>
       )}
 
-      {/* Universal Notes Section - for substrate and other details */}
-      <Card title="Notes (Substrate, Materials, Special Instructions)" size="small" style={{ marginBottom: 16 }}>
-        <TextArea
-          rows={6}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder={`Example:\n\nSubstrate:\n- Exterior Walls: Wood siding, good condition\n- Trim: Aluminum, some oxidation\n- Deck Floor: Pressure-treated wood, weathered\n\nSpecial Instructions:\n- Power wash all surfaces before painting\n- Replace rotted trim boards on north side\n- Two coats on all surfaces`}
-          style={{ fontFamily: 'monospace', fontSize: '13px' }}
-        />
-        <Text type="secondary" style={{ display: 'block', marginTop: '8px', fontSize: '12px' }}>
-          Use this section to document substrate materials, surface conditions, prep work requirements, 
-          number of coats, and any other important details for the exterior project.
-        </Text>
-      </Card>
-
-      {selectedAreas.length === 0 && (
+      {areas.length === 0 && (
         <Alert
           message="No Areas Selected"
           description="Please select at least one exterior area to continue."
           type="warning"
           showIcon
-          style={{ marginBottom: 16 }}
         />
       )}
 
@@ -361,10 +435,10 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       {/* Custom Area Modal */}
       <Modal
         title="Add Custom Exterior Area"
-        open={showCustomModal}
+        open={showCustomAreaModal}
         onOk={handleCustomAreaSubmit}
         onCancel={() => {
-          setShowCustomModal(false);
+          setShowCustomAreaModal(false);
           setCustomAreaName('');
         }}
         okText="Add Area"
@@ -377,6 +451,19 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
           autoFocus
         />
       </Modal>
+
+      {/* Dimension Calculator Modal */}
+      <DimensionCalculator
+        surfaceType={dimensionCalc.categoryName}
+        visible={dimensionCalc.visible}
+        onCalculate={handleDimensionCalculation}
+        onCancel={() => setDimensionCalc({ visible: false, areaId: null, categoryName: null })}
+        initialDimensions={
+          dimensionCalc.areaId && dimensionCalc.categoryName
+            ? areas.find(a => a.id === dimensionCalc.areaId)?.laborItems.find(i => i.categoryName === dimensionCalc.categoryName)?.dimensions
+            : null
+        }
+      />
     </div>
   );
 };
