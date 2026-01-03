@@ -3,6 +3,8 @@ const sequelize = require('../config/database');
 const { Op } = require('sequelize');
 const Quote = require('../models/Quote');
 const Lead = require('../models/Lead');
+const ContractorSettings = require('../models/ContractorSettings');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 /**
  * GET /api/v1/dashboard/stats
@@ -18,7 +20,7 @@ exports.getDashboardStats = async (req, res) => {
     const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
-    // Fetch all quotes for current month
+    // Fetch all quotes with deposit payments for current month
     const currentMonthQuotes = await Quote.findAll({
       where: {
         tenantId,
@@ -34,34 +36,63 @@ exports.getDashboardStats = async (req, res) => {
         'laborTotal',
         'materialTotal',
         'markup',
-        'createdAt'
+        'createdAt',
+        'depositAmount',
+        'depositTransactionId',
+        'depositPaymentMethod',
+        'depositVerified',
+        'depositVerifiedAt'
       ]
     });
 
-    // Fetch all quotes for last month
+    // Fetch quotes with verified deposits for revenue calculation (from Stripe)
+    const paidQuotes = await Quote.findAll({
+      where: {
+        tenantId,
+        isActive: true,
+        depositVerified: true,
+        depositTransactionId: { [Op.ne]: null },
+        depositPaymentMethod: 'stripe',
+        depositVerifiedAt: {
+          [Op.gte]: firstDayOfMonth
+        }
+      },
+      attributes: ['id', 'total', 'depositAmount', 'depositTransactionId']
+    });
+
+    // Calculate actual revenue from Stripe payments
+    let totalRevenue = 0;
+    for (const quote of paidQuotes) {
+      // Use deposit amount as revenue (deposit paid via Stripe)
+      totalRevenue += Number.parseFloat(quote.depositAmount || 0);
+    }
+
+    // Fetch all quotes for last month (for comparison)
     const lastMonthQuotes = await Quote.findAll({
       where: {
         tenantId,
         isActive: true,
-        createdAt: {
+        depositVerified: true,
+        depositTransactionId: { [Op.ne]: null },
+        depositPaymentMethod: 'stripe',
+        depositVerifiedAt: {
           [Op.gte]: firstDayOfLastMonth,
           [Op.lte]: lastDayOfLastMonth
         }
       },
-      attributes: [
-        'id',
-        'status',
-        'total',
-        'createdAt'
-      ]
+      attributes: ['depositAmount']
     });
+
+    const lastMonthRevenue = lastMonthQuotes.reduce((sum, q) => 
+      sum + Number.parseFloat(q.depositAmount || 0), 0
+    );
 
     // Calculate current month stats
     const currentStats = calculateMonthStats(currentMonthQuotes);
     const lastMonthStats = calculateMonthStats(lastMonthQuotes);
 
     // Calculate changes (percentage or absolute)
-    const revenueChange = calculatePercentageChange(currentStats.totalRevenue, lastMonthStats.totalRevenue);
+    const revenueChange = calculatePercentageChange(totalRevenue, lastMonthRevenue);
     const quotesChange = currentStats.activeQuotes - lastMonthStats.activeQuotes;
     const jobsChange = currentStats.completedJobs - lastMonthStats.completedJobs;
     const avgChange = calculatePercentageChange(currentStats.avgJobValue, lastMonthStats.avgJobValue);
@@ -70,7 +101,7 @@ exports.getDashboardStats = async (req, res) => {
       success: true,
       data: {
         stats: {
-          totalRevenue: currentStats.totalRevenue,
+          totalRevenue: totalRevenue, // Real revenue from Stripe
           activeQuotes: currentStats.activeQuotes,
           completedJobs: currentStats.completedJobs,
           avgJobValue: currentStats.avgJobValue,
@@ -94,38 +125,25 @@ exports.getDashboardStats = async (req, res) => {
 
 /**
  * GET /api/v1/dashboard/job-analytics
- * Get job cost breakdown analytics
+ * Get job cost breakdown analytics from Pricing Engine settings
  */
 exports.getJobAnalytics = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
 
-    // Get completed/accepted quotes from the last 3 months for better data
-    const threeMonthsAgo = new Date();
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-
-    const completedQuotes = await Quote.findAll({
-      where: {
-        tenantId,
-        isActive: true,
-        status: {
-          [Op.in]: ['accepted', 'scheduled']
-        },
-        createdAt: {
-          [Op.gte]: threeMonthsAgo
-        }
-      },
+    // Fetch contractor settings to get pricing engine margins
+    const settings = await ContractorSettings.findOne({
+      where: { tenantId },
       attributes: [
-        'total',
-        'laborTotal',
-        'materialTotal',
-        'markup',
-        'tax'
+        'materialMarkupPercent',
+        'laborMarkupPercent',
+        'overheadPercent',
+        'netProfitPercent'
       ]
     });
 
-    if (completedQuotes.length === 0) {
-      // Return default percentages if no completed quotes
+    if (!settings) {
+      // Return default percentages if no settings found
       return res.json({
         success: true,
         data: [
@@ -133,47 +151,16 @@ exports.getJobAnalytics = async (req, res) => {
           { name: 'Labor %', value: 40, color: '#10b981' },
           { name: 'Overhead %', value: 15, color: '#f59e0b' },
           { name: 'Net Profit %', value: 10, color: '#8b5cf6' }
-        ]
+        ],
+        avgMargin: 10
       });
     }
 
-    // Calculate totals
-    let totalRevenue = 0;
-    let totalMaterial = 0;
-    let totalLabor = 0;
-    let totalMarkup = 0;
-    let totalTax = 0;
-
-    for (const quote of completedQuotes) {
-      totalRevenue += Number.parseFloat(quote.total || 0);
-      totalMaterial += Number.parseFloat(quote.materialTotal || 0);
-      totalLabor += Number.parseFloat(quote.laborTotal || 0);
-      totalMarkup += Number.parseFloat(quote.markup || 0);
-      totalTax += Number.parseFloat(quote.tax || 0);
-    }
-
-    if (totalRevenue === 0) {
-      return res.json({
-        success: true,
-        data: [
-          { name: 'Material %', value: 35, color: '#3b82f6' },
-          { name: 'Labor %', value: 40, color: '#10b981' },
-          { name: 'Overhead %', value: 15, color: '#f59e0b' },
-          { name: 'Net Profit %', value: 10, color: '#8b5cf6' }
-        ]
-      });
-    }
-
-    // Calculate percentages
-    const materialPercent = Math.round((totalMaterial / totalRevenue) * 100);
-    const laborPercent = Math.round((totalLabor / totalRevenue) * 100);
-    const taxPercent = Math.round((totalTax / totalRevenue) * 100);
-    
-    // Overhead estimate (15% or calculated from markup - tax)
-    const overheadPercent = 15;
-    
-    // Net profit = 100 - material - labor - overhead - tax
-    const netProfitPercent = Math.max(0, 100 - materialPercent - laborPercent - overheadPercent - taxPercent);
+    // Get percentages from pricing engine settings
+    const materialPercent = Number.parseFloat(settings.materialMarkupPercent || 35);
+    const laborPercent = Number.parseFloat(settings.laborMarkupPercent || 40);
+    const overheadPercent = Number.parseFloat(settings.overheadPercent || 15);
+    const netProfitPercent = Number.parseFloat(settings.netProfitPercent || 10);
 
     return res.json({
       success: true,
@@ -183,7 +170,7 @@ exports.getJobAnalytics = async (req, res) => {
         { name: 'Overhead %', value: overheadPercent, color: '#f59e0b' },
         { name: 'Net Profit %', value: netProfitPercent, color: '#8b5cf6' }
       ],
-      totalJobs: completedQuotes.length
+      avgMargin: netProfitPercent
     });
   } catch (error) {
     console.error('Error fetching job analytics:', error);
@@ -197,7 +184,7 @@ exports.getJobAnalytics = async (req, res) => {
 
 /**
  * GET /api/v1/dashboard/monthly-performance
- * Get monthly performance metrics
+ * Get monthly performance metrics with real Stripe revenue
  */
 exports.getMonthlyPerformance = async (req, res) => {
   try {
@@ -220,7 +207,12 @@ exports.getMonthlyPerformance = async (req, res) => {
         'total',
         'createdAt',
         'sentAt',
-        'approvedAt'
+        'approvedAt',
+        'depositAmount',
+        'depositVerified',
+        'depositVerifiedAt',
+        'depositTransactionId',
+        'depositPaymentMethod'
       ]
     });
 
@@ -233,8 +225,15 @@ exports.getMonthlyPerformance = async (req, res) => {
       ? ((acceptedQuotes.length / sentQuotes.length) * 100).toFixed(1)
       : '0.0';
 
-    const totalRevenue = acceptedQuotes.reduce((sum, q) => 
-      sum + Number.parseFloat(q.total || 0), 0
+    // Calculate real revenue from Stripe payments
+    const paidQuotes = monthlyQuotes.filter(q => 
+      q.depositVerified && 
+      q.depositTransactionId && 
+      q.depositPaymentMethod === 'stripe'
+    );
+    
+    const totalRevenue = paidQuotes.reduce((sum, q) => 
+      sum + Number.parseFloat(q.depositAmount || 0), 0
     );
 
     // Calculate average response time (time from creation to approval)
@@ -259,7 +258,7 @@ exports.getMonthlyPerformance = async (req, res) => {
         quotesSent: sentQuotes.length,
         conversionRate: conversionRate,
         avgResponseTime: avgResponseTime,
-        revenue: (totalRevenue / 1000).toFixed(1) // in thousands
+        revenue: (totalRevenue / 1000).toFixed(1) // in thousands, from real Stripe payments
       }
     });
   } catch (error) {
@@ -300,6 +299,20 @@ exports.getRecentActivity = async (req, res) => {
       limit
     });
 
+    const getStatusDisplay = (status) => {
+      const statusMap = {
+        'draft': 'Draft',
+        'sent': 'Sent',
+        'accepted': 'Accepted',
+        'deposit_paid': 'Deposit Paid',
+        'scheduled': 'Scheduled',
+        'completed': 'Completed',
+        'rejected': 'Rejected',
+        'declined': 'Declined'
+      };
+      return statusMap[status] || status;
+    };
+
     const activity = recentQuotes.map(q => ({
       id: q.id,
       quoteNumber: q.quoteNumber,
@@ -307,9 +320,10 @@ exports.getRecentActivity = async (req, res) => {
       jobType: q.jobType,
       jobCategory: q.jobCategory,
       status: q.status,
+      statusDisplay: getStatusDisplay(q.status),
       total: q.total,
       createdAt: q.createdAt,
-      description: `${q.jobType || 'Job'} - ${q.jobCategory || 'General'}`
+      description: `${q.jobType ? q.jobType.charAt(0).toUpperCase() + q.jobType.slice(1) : 'Job'} - ${q.jobCategory ? q.jobCategory.charAt(0).toUpperCase() + q.jobCategory.slice(1) : 'General'}`
     }));
 
     return res.json({

@@ -51,6 +51,12 @@ const getSettings = async (req, res) => {
     if (!responseData.profitMarginPercentage) {
       responseData.profitMarginPercentage = 35.00;
     }
+    if (!responseData.portalDurationDays) {
+      responseData.portalDurationDays = 14;
+    }
+    if (responseData.portalAutoLock === undefined || responseData.portalAutoLock === null) {
+      responseData.portalAutoLock = true;
+    }
 
     res.json({
       success: true,
@@ -125,7 +131,9 @@ const updateSettings = async (req, res) => {
       warrantyTerms,
       generalTerms,
       businessHours,
-      quoteValidityDays
+      quoteValidityDays,
+      portalDurationDays,
+      portalAutoLock
     } = req.body;
 
     let settings = await ContractorSettings.findOne({
@@ -155,7 +163,9 @@ const updateSettings = async (req, res) => {
         warrantyTerms: warrantyTerms !== undefined ? warrantyTerms : settings.warrantyTerms,
         generalTerms: generalTerms !== undefined ? generalTerms : settings.generalTerms,
         businessHours: businessHours !== undefined ? businessHours : settings.businessHours,
-        quoteValidityDays: quoteValidityDays !== undefined ? quoteValidityDays : settings.quoteValidityDays
+        quoteValidityDays: quoteValidityDays !== undefined ? quoteValidityDays : settings.quoteValidityDays,
+        portalDurationDays: portalDurationDays !== undefined ? portalDurationDays : settings.portalDurationDays,
+        portalAutoLock: portalAutoLock !== undefined ? portalAutoLock : settings.portalAutoLock
       });
     }
 

@@ -41,26 +41,31 @@ exports.clientLogin = async (req, res) => {
 
     // Check if client has portal access
     if (!client.hasPortalAccess) {
+      console.log('Client portal access not granted for:', client.email);
       return res.status(403).json({
         success: false,
-        message: 'Portal access not granted. Please contact your contractor.'
+        message: 'Invalid Credentials. Please try again.'
+        // message: 'Portal access not granted. Please contact your contractor.'
       });
     }
 
     // Check if password is set
     if (!client.password) {
+      console.log('Client password not set for:', client.email);
       return res.status(400).json({
         success: false,
-        message: 'Password not set. Please use the invitation link sent to your email to set your password.'
+        message: 'Invalid Credentials. Please try again.'
+        // message: 'Password not set. Please use the invitation link sent to your email to set your password.'
       });
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, client.password);
     if (!isPasswordValid) {
+      console.log('Invalid password attempt for:', client.email);
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid Credentials. Please try again.'
       });
     }
 

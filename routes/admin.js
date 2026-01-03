@@ -23,16 +23,17 @@ const adminSettingsController = require('../controllers/adminSettingsController'
 
 // Apply auth and admin role check to all routes
 router.use(auth);
-router.use(requireRole('admin','contractor_admin'));
+router.use(requireRole('admin','contractor_admin','customer'));
 
 // ===== GLOBAL PRODUCTS ROUTES =====
 router.get('/products', globalProductController.getAllGlobalProducts);
-router.get('/products/:id', globalProductController.getGlobalProductById);
 router.post('/products', globalProductController.createGlobalProduct);
-router.put('/products/:id', globalProductController.updateGlobalProduct);
-router.delete('/products/:id', globalProductController.deleteGlobalProduct);
 router.post('/products/bulk-import', globalProductController.bulkImportGlobalProducts);
 router.post('/products/bulk-upload', upload.single('file'), globalProductController.bulkUploadGlobalProducts);
+router.put('/products/bulk-update-tiers', globalProductController.bulkUpdateProductTiers);
+router.get('/products/:id', globalProductController.getGlobalProductById);
+router.put('/products/:id', globalProductController.updateGlobalProduct);
+router.delete('/products/:id', globalProductController.deleteGlobalProduct);
 
 // ===== GLOBAL COLORS ROUTES =====
 router.get('/colors', globalColorController.getAllGlobalColors);

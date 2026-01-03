@@ -492,11 +492,11 @@ Quote.associate = (models) => {
 };
 
 // Class methods
-Quote.generateQuoteNumber = async function(tenantId) {
+Quote.generateQuoteNumber = async function(tenantId, transaction = null) {
   const year = new Date().getFullYear();
   
   // Find the highest quote number for this year and tenant
-  const lastQuote = await Quote.findOne({
+  const queryOptions = {
     where: {
       tenantId,
       quoteNumber: {
@@ -504,7 +504,13 @@ Quote.generateQuoteNumber = async function(tenantId) {
       }
     },
     order: [['quoteNumber', 'DESC']]
-  });
+  };
+  
+  if (transaction) {
+    queryOptions.transaction = transaction;
+  }
+  
+  const lastQuote = await Quote.findOne(queryOptions);
   
   let nextNumber = 1;
   if (lastQuote) {

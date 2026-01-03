@@ -34,14 +34,14 @@ async function calculateQuotePricing(quote, tenantId) {
       where: { tenantId },
     });
 
-    // Get Pricing Engine metrics
-    const laborMarkupPercent = settings?.laborMarkupPercent || 0;
-    const materialMarkupPercent = settings?.materialMarkupPercent || 25;
-    const overheadPercent = settings?.overheadPercent || 0;
-    const netProfitPercent = settings?.netProfitPercent || 0;
-    const taxRate = settings?.taxRate || 8.25;
-    const quoteValidityDays = settings?.quoteValidityDays || 30;
-    const depositPercent = settings?.depositPercent || 50;
+    // Get Pricing Engine metrics - Ensure all values are numbers
+    const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 0;
+    const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || 25;
+    const overheadPercent = parseFloat(settings?.overheadPercent) || 0;
+    const netProfitPercent = parseFloat(settings?.netProfitPercent) || 0;
+    const taxRate = parseFloat(settings?.taxRate) || 8.25;
+    const quoteValidityDays = parseInt(settings?.quoteValidityDays) || 30;
+    const depositPercent = parseFloat(settings?.depositPercent) || 50;
 
     // Initialize pricing totals
     let laborTotal = 0;
@@ -152,52 +152,58 @@ async function calculateQuotePricing(quote, tenantId) {
     const deposit = total * (depositPercent / 100);
     const balance = total - deposit;
 
+    // Helper to safely format numbers
+    const safeFormat = (value) => {
+      const num = parseFloat(value);
+      return isNaN(num) ? 0 : parseFloat(num.toFixed(2));
+    };
+
     return {
       // Base costs
-      laborTotal: parseFloat(baseLaborCost.toFixed(2)),
-      materialTotal: parseFloat(baseMaterialCost.toFixed(2)),
-      materialCost: parseFloat(baseMaterialCost.toFixed(2)), // For compatibility
+      laborTotal: safeFormat(baseLaborCost),
+      materialTotal: safeFormat(baseMaterialCost),
+      materialCost: safeFormat(baseMaterialCost), // For compatibility
       
       // Markup details
-      laborMarkupPercent: parseFloat(laborMarkupPercent.toFixed(2)),
-      laborMarkupAmount: parseFloat(laborMarkupAmount.toFixed(2)),
-      laborCostWithMarkup: parseFloat(laborCostWithMarkup.toFixed(2)),
+      laborMarkupPercent: safeFormat(laborMarkupPercent),
+      laborMarkupAmount: safeFormat(laborMarkupAmount),
+      laborCostWithMarkup: safeFormat(laborCostWithMarkup),
       
-      materialMarkupPercent: parseFloat(materialMarkupPercent.toFixed(2)),
-      materialMarkupAmount: parseFloat(materialMarkupAmount.toFixed(2)),
-      materialCostWithMarkup: parseFloat(materialCostWithMarkup.toFixed(2)),
+      materialMarkupPercent: safeFormat(materialMarkupPercent),
+      materialMarkupAmount: safeFormat(materialMarkupAmount),
+      materialCostWithMarkup: safeFormat(materialCostWithMarkup),
       
       // Overhead and profit
-      overheadPercent: parseFloat(overheadPercent.toFixed(2)),
-      overhead: parseFloat(overheadAmount.toFixed(2)),
-      subtotalBeforeProfit: parseFloat(subtotalBeforeProfit.toFixed(2)),
+      overheadPercent: safeFormat(overheadPercent),
+      overhead: safeFormat(overheadAmount),
+      subtotalBeforeProfit: safeFormat(subtotalBeforeProfit),
       
-      profitMarginPercent: parseFloat(netProfitPercent.toFixed(2)),
-      profitAmount: parseFloat(profitAmount.toFixed(2)),
+      profitMarginPercent: safeFormat(netProfitPercent),
+      profitAmount: safeFormat(profitAmount),
       
       // Final totals
-      subtotal: parseFloat(subtotal.toFixed(2)),
-      taxPercent: parseFloat(taxRate.toFixed(2)),
-      taxRate: parseFloat(taxRate.toFixed(2)), // For compatibility
-      tax: parseFloat(taxAmount.toFixed(2)),
-      taxAmount: parseFloat(taxAmount.toFixed(2)), // For compatibility
-      total: parseFloat(total.toFixed(2)),
+      subtotal: safeFormat(subtotal),
+      taxPercent: safeFormat(taxRate),
+      taxRate: safeFormat(taxRate), // For compatibility
+      tax: safeFormat(taxAmount),
+      taxAmount: safeFormat(taxAmount), // For compatibility
+      total: safeFormat(total),
       
       // Payment terms
-      depositPercent: parseFloat(depositPercent.toFixed(2)),
-      deposit: parseFloat(deposit.toFixed(2)),
-      balance: parseFloat(balance.toFixed(2)),
+      depositPercent: safeFormat(depositPercent),
+      deposit: safeFormat(deposit),
+      balance: safeFormat(balance),
       
       // Quote validity
-      quoteValidityDays: parseInt(quoteValidityDays),
+      quoteValidityDays: parseInt(quoteValidityDays) || 30,
       
       // Additional info
-      totalSqft: parseFloat(totalSqft.toFixed(2)),
+      totalSqft: safeFormat(totalSqft),
       breakdown,
       
       // Legacy fields for backward compatibility
-      markupPercent: parseFloat(materialMarkupPercent.toFixed(2)),
-      markupAmount: parseFloat(materialMarkupAmount.toFixed(2)),
+      markupPercent: safeFormat(materialMarkupPercent),
+      markupAmount: safeFormat(materialMarkupAmount),
     };
   } catch (error) {
     console.error('Calculate quote pricing error:', error);
@@ -348,7 +354,7 @@ exports.saveDraft = async (req, res) => {
       }
     } else {
       isNewQuote = true;
-      const quoteNumber = await Quote.generateQuoteNumber(tenantId);
+      const quoteNumber = await Quote.generateQuoteNumber(tenantId, transaction);
 
       quote = await Quote.create({
         tenantId,
@@ -368,7 +374,7 @@ exports.saveDraft = async (req, res) => {
         allowCustomerProductChoice: allowCustomerProductChoice !== undefined ? allowCustomerProductChoice : false,
         areas: areas || [],
         productSets: productSets || {},
-        status: 'draft',
+      status: 'draft',
       }, { transaction });
     }
 
@@ -394,9 +400,28 @@ exports.saveDraft = async (req, res) => {
       await quote.update(updateData, { transaction });
     }
 
-    // Calculate pricing totals if areas or productSets are provided
-    if (areas || productSets) {
+    // Reload quote to get updated areas and productSets
+    await quote.reload({ transaction });
+
+    // Calculate pricing totals if quote has areas and productSets
+    // Always recalculate to ensure pricing is up-to-date
+    if (quote.areas && quote.areas.length > 0 && quote.productSets && quote.productSets.length > 0) {
       const pricingCalculation = await calculateQuotePricing(quote, tenantId);
+      
+      // Get contractor settings for validity days and deposit percent
+      const settings = await ContractorSettings.findOne({
+        where: { tenantId }
+      });
+      
+      const quoteValidityDays = settings?.quoteValidityDays || 30;
+      const depositPercent = settings?.depositPercent || 50;
+      
+      // Calculate validUntil date
+      const validUntil = new Date();
+      validUntil.setDate(validUntil.getDate() + quoteValidityDays);
+      
+      // Calculate deposit amount based on total
+      const depositAmount = pricingCalculation.total * (depositPercent / 100);
       
       // Update quote with calculated pricing
       await quote.update({
@@ -412,6 +437,8 @@ exports.saveDraft = async (req, res) => {
         total: pricingCalculation.total,
         totalSqft: pricingCalculation.totalSqft,
         breakdown: pricingCalculation.breakdown,
+        validUntil: validUntil,
+        depositAmount: depositAmount
       }, { transaction });
     }
 
@@ -854,21 +881,21 @@ exports.calculateQuote = async (req, res) => {
     res.json({
       success: true,
       calculation: {
-        laborTotal: parseFloat(laborTotal.toFixed(2)),
-        materialTotal: parseFloat(materialTotal.toFixed(2)),
-        prepTotal: parseFloat(prepTotal.toFixed(2)),
-        addOnsTotal: parseFloat(addOnsTotal.toFixed(2)),
-        overhead: parseFloat(overhead.toFixed(2)),
-        subtotalBeforeMarkup: parseFloat(subtotalBeforeMarkup.toFixed(2)),
-        markupAmount: parseFloat(markupAmount.toFixed(2)),
+        laborTotal: parseFloat(laborTotal?.toFixed(2)),
+        materialTotal: parseFloat(materialTotal?.toFixed(2)),
+        prepTotal: parseFloat(prepTotal?.toFixed(2)),
+        addOnsTotal: parseFloat(addOnsTotal?.toFixed(2)),
+        overhead: parseFloat(overhead?.toFixed(2)),
+        subtotalBeforeMarkup: parseFloat(subtotalBeforeMarkup?.toFixed(2)),
+        markupAmount: parseFloat(markupAmount?.toFixed(2)),
         markupPercent: parseFloat(markup),
-        subtotal: parseFloat(subtotal.toFixed(2)),
-        taxAmount: parseFloat(taxAmount.toFixed(2)),
+        subtotal: parseFloat(subtotal?.toFixed(2)),
+        taxAmount: parseFloat(taxAmount?.toFixed(2)),
         taxRate: parseFloat(taxRate),
-        total: parseFloat(total.toFixed(2)),
+        total: parseFloat(total?.toFixed(2)),
         breakdown,
-        travelCost: parseFloat(travelCost.toFixed(2)),
-        cleanupCost: parseFloat(cleanupCost.toFixed(2))
+        travelCost: parseFloat(travelCost?.toFixed(2)),
+        cleanupCost: parseFloat(cleanupCost?.toFixed(2))
       },
     });
   } catch (error) {
@@ -1378,39 +1405,39 @@ exports.calculateQuoteData = async (quote) => {
   
   return {
     // Labor
-    laborTotal: parseFloat(laborTotal.toFixed(2)),
+    laborTotal: parseFloat(laborTotal?.toFixed(2)),
     
     // Materials
-    materialCost: parseFloat(materialCost.toFixed(2)), // Raw material cost
+    materialCost: parseFloat(materialCost?.toFixed(2)), // Raw material cost
     materialMarkupPercent: markupPercent,
-    materialMarkupAmount: parseFloat((materialTotal - materialCost).toFixed(2)),
-    materialTotal: parseFloat(materialTotal.toFixed(2)), // After markup
+    materialMarkupAmount: parseFloat((materialTotal - materialCost)?.toFixed(2)),
+    materialTotal: parseFloat(materialTotal?.toFixed(2)), // After markup
     
     // Overhead
     overheadPercent: overheadPercent,
-    overhead: parseFloat(overhead.toFixed(2)),
+    overhead: parseFloat(overhead?.toFixed(2)),
     
     // Profit
     profitMarginPercent: profitMarginPercent,
-    profitAmount: parseFloat(profitAmount.toFixed(2)),
+    profitAmount: parseFloat(profitAmount?.toFixed(2)),
     
     // Products detail
     products: Object.values(productCosts).map(p => ({
       ...p,
-      cost: parseFloat(p.cost.toFixed(2))
+      cost: parseFloat(p.cost?.toFixed(2))
     })),
     
     // Totals
-    subtotalBeforeProfit: parseFloat(subtotalBeforeProfit.toFixed(2)),
-    subtotal: parseFloat(subtotal.toFixed(2)),
+    subtotalBeforeProfit: parseFloat(subtotalBeforeProfit?.toFixed(2)),
+    subtotal: parseFloat(subtotal?.toFixed(2)),
     taxPercent: taxPercent,
-    tax: parseFloat(tax.toFixed(2)),
-    total: parseFloat(total.toFixed(2)),
+    tax: parseFloat(tax?.toFixed(2)),
+    total: parseFloat(total?.toFixed(2)),
     
     // Payment
     depositPercent: depositPercent,
-    deposit: parseFloat(deposit.toFixed(2)),
-    balance: parseFloat((total - deposit).toFixed(2)),
+    deposit: parseFloat(deposit?.toFixed(2)),
+    balance: parseFloat((total - deposit)?.toFixed(2)),
     
     // Breakdown for detailed view
     breakdown

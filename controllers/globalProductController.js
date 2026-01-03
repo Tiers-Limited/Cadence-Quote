@@ -407,3 +407,77 @@ exports.bulkUploadGlobalProducts = async (req, res) => {
     });
   }
 };
+
+// Bulk update product tiers
+exports.bulkUpdateProductTiers = async (req, res) => {
+  const t = await sequelize.transaction();
+  
+  try {
+    const { updates } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Updates array is required and cannot be empty'
+      });
+    }
+
+    // Validate all updates
+    for (const update of updates) {
+      if (!update.id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Each update must have an id'
+        });
+      }
+      
+      if (update.tier && !['Good', 'Better', 'Best'].includes(update.tier)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tier must be Good, Better, or Best'
+        });
+      }
+    }
+
+    // Perform bulk update
+    const results = [];
+    for (const update of updates) {
+      const product = await GlobalProduct.findByPk(update.id, { transaction: t });
+      
+      if (!product) {
+        results.push({
+          id: update.id,
+          success: false,
+          message: 'Product not found'
+        });
+        continue;
+      }
+
+      await product.update({
+        tier: update.tier || null
+      }, { transaction: t });
+
+      results.push({
+        id: update.id,
+        success: true,
+        tier: product.tier
+      });
+    }
+
+    await t.commit();
+
+    res.json({
+      success: true,
+      data: results,
+      message: `Successfully updated ${results.filter(r => r.success).length} product tiers`
+    });
+  } catch (error) {
+    await t.rollback();
+    console.error('Bulk update product tiers error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update product tiers',
+      error: error.message
+    });
+  }
+};

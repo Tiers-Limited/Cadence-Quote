@@ -1,5 +1,6 @@
 // controllers/authController.js
 const User = require("../models/User");
+const Client = require("../models/Client");
 const Tenant = require("../models/Tenant");
 const Payment = require("../models/Payment");
 const TwoFactorCode = require("../models/TwoFactorCode");
@@ -758,7 +759,72 @@ const disableTwoFactor = async (req, res) => {
  */
 const getProfile = async (req, res) => {
   try {
-    // User is already attached by authenticateToken middleware (optimized query)
+    // Check if it's a client (customer) request
+    if (req.user.isClient) {
+      // Client is already attached by auth middleware
+      const client = await Client.findOne({
+        where: { id: req.user.id },
+        attributes: [
+          "id",
+          "name",
+          "email",
+          "phone",
+          "street",
+          "city",
+          "state",
+          "zip",
+          "isActive",
+          "emailVerified",
+          "hasPortalAccess",
+          "createdAt",
+        ],
+        include: [
+          {
+            model: Tenant,
+            as: 'tenant',
+            attributes: [
+              "id",
+              "companyName",
+              "tradeType",
+              "phoneNumber",
+              "businessAddress",
+            ],
+            required: true,
+          },
+        ],
+      });
+
+      if (!client) {
+        return res.status(404).json({
+          success: false,
+          message: "Client not found",
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          user: {
+            id: client.id,
+            fullName: client.name,
+            email: client.email,
+            phone: client.phone,
+            street: client.street,
+            city: client.city,
+            state: client.state,
+            zip: client.zip,
+            role: 'customer',
+            isActive: client.isActive,
+            emailVerified: client.emailVerified,
+            hasPortalAccess: client.hasPortalAccess,
+            createdAt: client.createdAt,
+          },
+          tenant: client.tenant,
+        },
+      });
+    }
+
+    // Regular user (contractor/admin) - already attached by authenticateToken middleware
     const user = await User.findOne({
       where: { id: req.user.id },
       attributes: [
@@ -786,6 +852,13 @@ const getProfile = async (req, res) => {
         },
       ],
     });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
     res.json({
       success: true,

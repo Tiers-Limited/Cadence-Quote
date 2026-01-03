@@ -21,7 +21,11 @@ exports.getCustomerProposals = async (req, res) => {
     
     // Build where clause
     const whereClause = {
-      clientId: customerId
+      clientId: customerId,
+      // Filter out draft quotes - customers should only see sent/accepted/declined/completed quotes
+      status: {
+        [Op.notIn]: ['draft']
+      }
     };
 
     // Add search filter
@@ -33,7 +37,7 @@ exports.getCustomerProposals = async (req, res) => {
       ];
     }
 
-    // Add status filter
+    // Add status filter (override the default not-draft filter if specific status requested)
     if (status && status !== 'all') {
       whereClause.status = status;
     }
@@ -45,6 +49,7 @@ exports.getCustomerProposals = async (req, res) => {
       offset: offset,
       attributes: [
         'id',
+        'clientId',
         'quoteNumber',
         'customerName',
         'customerEmail',
@@ -114,7 +119,8 @@ exports.getProposalDetail = async (req, res) => {
 
     const proposal = await Quote.findOne({
       where: { 
-        id: proposalId
+        id: proposalId,
+        clientId: customerId
       }
     });
 
@@ -125,9 +131,47 @@ exports.getProposalDetail = async (req, res) => {
       });
     }
 
+    // Calculate tier pricing structure for customer portal
+    const ContractorSettings = require('../models/ContractorSettings');
+    const settings = await ContractorSettings.findOne({ 
+      where: { tenantId: proposal.tenantId }
+    });
+    
+    const depositPercent = settings?.depositPercent || 50;
+    const baseTotal = parseFloat(proposal.total || 0);
+    
+    // Calculate all three tier options
+    const tiers = {
+      good: {
+        total: parseFloat((baseTotal * 0.85).toFixed(2)),
+        deposit: parseFloat((baseTotal * 0.85 * (depositPercent / 100)).toFixed(2)),
+        description: 'Basic preparation focused on repainting the space cleanly. Spot patching only.'
+      },
+      better: {
+        total: baseTotal,
+        deposit: parseFloat((baseTotal * (depositPercent / 100)).toFixed(2)),
+        description: 'Expanded surface preparation including feather sanding. Recommended for most homes.'
+      },
+      best: {
+        total: parseFloat((baseTotal * 1.15).toFixed(2)),
+        deposit: parseFloat((baseTotal * 1.15 * (depositPercent / 100)).toFixed(2)),
+        description: 'Advanced surface correction including skim coating. Best for luxury spaces.'
+      }
+    };
+
+    // If tier is already selected, ensure depositAmount matches that tier
+    let effectiveDepositAmount = proposal.depositAmount;
+    if (proposal.selectedTier && tiers[proposal.selectedTier.toLowerCase()]) {
+      effectiveDepositAmount = tiers[proposal.selectedTier.toLowerCase()].deposit;
+    }
+
     res.json({
       success: true,
-      data: proposal
+      data: {
+        ...proposal.toJSON(),
+        tiers,
+        depositAmount: effectiveDepositAmount
+      }
     });
   } catch (error) {
     console.error('Get proposal detail error:', error);
@@ -151,8 +195,7 @@ exports.acceptProposal = async (req, res) => {
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
-        clientId: customerId,
-        status: 'pending'
+        clientId: customerId
       }
     });
 
@@ -171,20 +214,32 @@ exports.acceptProposal = async (req, res) => {
       });
     }
 
-    // Calculate deposit amount based on contractor settings or default 50%
+    // Calculate deposit amount based on selected tier
     const ContractorSettings = require('../models/ContractorSettings');
     const settings = await ContractorSettings.findOne({
       where: { tenantId: proposal.tenantId }
     });
     
-    const depositPercent = settings?.depositPercentage || 50;
-    const depositAmount = (parseFloat(proposal.total) * depositPercent / 100).toFixed(2);
+    const depositPercent = settings?.depositPercent || 50;
+    const baseTotal = parseFloat(proposal.total || 0);
+    
+    // Calculate tier pricing
+    const tierMultipliers = {
+      good: 0.85,
+      better: 1.0,
+      best: 1.15
+    };
+    
+    const multiplier = tierMultipliers[selectedTier.toLowerCase()] || 1.0;
+    const tierTotal = baseTotal * multiplier;
+    const depositAmount = parseFloat((tierTotal * (depositPercent / 100)).toFixed(2));
 
     // Update proposal status - mark as accepted but portal remains closed until deposit
     await proposal.update({
       status: 'accepted',
       selectedTier,
       depositAmount,
+      total: parseFloat(tierTotal.toFixed(2)), // Update total to match selected tier
       acceptedAt: new Date(),
       // Portal stays closed until deposit is verified
       portalOpen: false
@@ -402,7 +457,7 @@ exports.acknowledgeFinishStandards = async (req, res) => {
 exports.saveAreaSelections = async (req, res) => {
   try {
     const { proposalId, areaId } = req.params;
-    const { brand, productId, colorId, customColor, sheen } = req.body;
+    const { brandId, productId, colorId, customColor, sheen } = req.body;
     const customerId = req.user.id;
 
     const proposal = await Quote.findOne({
@@ -432,7 +487,7 @@ exports.saveAreaSelections = async (req, res) => {
     }
 
     areas[areaIndex].selections = {
-      brand,
+      brandId,
       productId,
       colorId,
       customColor,
@@ -456,7 +511,7 @@ exports.saveAreaSelections = async (req, res) => {
       details: {
         proposalId,
         areaId,
-        brand,
+        brandId,
         productId,
         colorId,
         sheen
@@ -490,6 +545,7 @@ exports.saveAreaSelections = async (req, res) => {
 exports.submitAllSelections = async (req, res) => {
   try {
     const { proposalId } = req.params;
+    const { selections } = req.body;
     const customerId = req.user.id;
 
     const proposal = await Quote.findOne({
@@ -507,23 +563,67 @@ exports.submitAllSelections = async (req, res) => {
       });
     }
 
-    // Validate all areas have selections
+    // Get areas from proposal
     const areas = proposal.areas || [];
-    const incomplete = areas.filter(area => !area.selections || !area.selections.productId);
+    
+    // If selections are provided in new format (from ColorSelections component)
+    if (selections && typeof selections === 'object') {
+      // Update each area with its selections
+      const updatedAreas = areas.map(area => {
+        const areaSelection = selections[area.id];
+        if (areaSelection) {
+          return {
+            ...area,
+            selections: areaSelection
+          };
+        }
+        return area;
+      });
 
-    if (incomplete.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'All areas must have complete selections'
+      // Validate all areas have complete selections
+      const incomplete = updatedAreas.filter(area => {
+        if (!area.selections) return true;
+        const sel = area.selections;
+        // Must have either a color selection or custom/other brand
+        const hasColor = sel.colorId || sel.isCustom || sel.isOtherBrand;
+        // Must have a sheen
+        const hasSheen = sel.sheen;
+        return !hasColor || !hasSheen;
+      });
+
+      if (incomplete.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `All areas must have complete selections. ${incomplete.length} area(s) incomplete.`,
+          incompleteAreas: incomplete.map(a => a.name)
+        });
+      }
+
+      // Save updated areas back to proposal
+      await proposal.update({
+        areas: updatedAreas,
+        selectionsComplete: true,
+        selectionsCompletedAt: new Date(),
+        portalOpen: false
+      });
+    } else {
+      // Old format validation (from ProductSelections component)
+      const incomplete = areas.filter(area => !area.selections || !area.selections.productId);
+
+      if (incomplete.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'All areas must have complete selections'
+        });
+      }
+
+      // Lock portal and mark selections complete
+      await proposal.update({
+        selectionsComplete: true,
+        selectionsCompletedAt: new Date(),
+        portalOpen: false
       });
     }
-
-    // Lock portal and mark selections complete
-    await proposal.update({
-      selectionsComplete: true,
-      selectionsCompletedAt: new Date(),
-      portalOpen: false
-    });
 
     // Fetch client info for audit log
     const client = await Client.findByPk(customerId);
@@ -792,6 +892,7 @@ exports.createPaymentIntent = async (req, res) => {
 /**
  * Verify deposit payment and open customer portal
  * Called after successful Stripe payment
+ * Implements idempotency and comprehensive error handling
  */
 exports.verifyDepositAndOpenPortal = async (req, res) => {
   try {
@@ -799,19 +900,51 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
     const { paymentIntentId } = req.body;
     const customerId = req.user?.id || 212;
 
+    // Validate input
+    if (!paymentIntentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment intent ID is required'
+      });
+    }
+
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
         clientId: customerId,
-        status: 'accepted',
-        depositVerified: false
+        status: 'accepted'
       }
     });
 
     if (!proposal) {
       return res.status(404).json({
         success: false,
-        message: 'Proposal not found or deposit already verified'
+        message: 'Proposal not found or not in accepted status'
+      });
+    }
+
+    // IDEMPOTENCY CHECK: If deposit already verified with same transaction ID, return success
+    if (proposal.depositVerified && proposal.depositTransactionId === paymentIntentId) {
+      return res.json({
+        success: true,
+        message: 'Deposit already verified for this payment',
+        data: {
+          portalOpen: proposal.portalOpen,
+          portalExpiresAt: proposal.portalClosedAt,
+          portalDurationDays: Math.ceil((new Date(proposal.portalClosedAt) - new Date(proposal.portalOpenedAt)) / (1000 * 60 * 60 * 24)),
+          redirectTo: `/portal/finish-standards/${proposalId}`,
+          alreadyProcessed: true
+        }
+      });
+    }
+
+    // EDGE CASE: Deposit verified but different transaction ID (possible fraud/error)
+    if (proposal.depositVerified && proposal.depositTransactionId !== paymentIntentId) {
+      console.error(`Payment verification conflict: Proposal ${proposalId} already has transaction ${proposal.depositTransactionId}, attempted ${paymentIntentId}`);
+      return res.status(409).json({
+        success: false,
+        message: 'Deposit has already been verified with a different payment. Please contact support.',
+        code: 'PAYMENT_CONFLICT'
       });
     }
 
@@ -820,18 +953,83 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
     try {
       paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
       
-      if (paymentIntent.status !== 'succeeded') {
+      // COMPREHENSIVE STATUS CHECKS
+      if (paymentIntent.status === 'succeeded') {
+        // Payment successful - continue processing
+        console.log(`Payment ${paymentIntentId} verified as succeeded`);
+      } else if (paymentIntent.status === 'processing') {
+        // Payment still processing - ask customer to wait
+        return res.status(202).json({
+          success: false,
+          message: 'Payment is still processing. Please wait a moment and try again.',
+          code: 'PAYMENT_PROCESSING',
+          status: 'processing'
+        });
+      } else if (paymentIntent.status === 'requires_payment_method') {
+        // Payment failed - needs new payment method
         return res.status(400).json({
           success: false,
-          message: 'Payment not completed'
+          message: 'Payment failed. Please try again with a different payment method.',
+          code: 'PAYMENT_FAILED',
+          status: 'requires_payment_method'
+        });
+      } else if (paymentIntent.status === 'canceled') {
+        // Payment canceled
+        return res.status(400).json({
+          success: false,
+          message: 'Payment was canceled. Please try again.',
+          code: 'PAYMENT_CANCELED',
+          status: 'canceled'
+        });
+      } else {
+        // Unknown status
+        console.error(`Unexpected payment status: ${paymentIntent.status}`);
+        return res.status(400).json({
+          success: false,
+          message: `Payment status is ${paymentIntent.status}. Please contact support.`,
+          code: 'PAYMENT_UNEXPECTED_STATUS',
+          status: paymentIntent.status
         });
       }
+
+      // SECURITY: Verify payment amount matches expected deposit
+      const expectedAmountCents = Math.round(proposal.depositAmount * 100);
+      if (paymentIntent.amount !== expectedAmountCents) {
+        console.error(`Payment amount mismatch: Expected ${expectedAmountCents}, got ${paymentIntent.amount}`);
+        return res.status(400).json({
+          success: false,
+          message: 'Payment amount does not match expected deposit. Please contact support.',
+          code: 'AMOUNT_MISMATCH'
+        });
+      }
+
+      // SECURITY: Verify payment metadata matches proposal
+      if (paymentIntent.metadata.proposalId !== proposalId.toString()) {
+        console.error(`Payment metadata mismatch: Expected proposal ${proposalId}, got ${paymentIntent.metadata.proposalId}`);
+        return res.status(400).json({
+          success: false,
+          message: 'Payment does not match this proposal. Please contact support.',
+          code: 'PROPOSAL_MISMATCH'
+        });
+      }
+
     } catch (stripeError) {
       console.error('Stripe verification error:', stripeError);
+      
+      // Handle specific Stripe errors
+      if (stripeError.type === 'StripeInvalidRequestError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payment information. Please try again.',
+          code: 'INVALID_PAYMENT_INTENT'
+        });
+      }
+      
       return res.status(500).json({
         success: false,
-        message: 'Failed to verify payment',
-        error: stripeError.message
+        message: 'Failed to verify payment with Stripe. Please try again.',
+        error: stripeError.message,
+        code: 'STRIPE_VERIFICATION_ERROR'
       });
     }
 
@@ -845,18 +1043,41 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
     const portalExpiresAt = new Date();
     portalExpiresAt.setDate(portalExpiresAt.getDate() + portalDurationDays);
 
-    // Update proposal - mark deposit as verified and open portal
-    await proposal.update({
-      depositVerified: true,
-      depositVerifiedAt: new Date(),
-      depositVerifiedBy: customerId,
-      depositPaymentMethod: 'stripe',
-      depositTransactionId: paymentIntentId,
-      portalOpen: true,
-      portalOpenedAt: new Date(),
-      portalClosedAt: portalExpiresAt, // Set when portal should auto-close
-      status: 'deposit_paid'
-    });
+    // CRITICAL: Use transaction for atomic update with rollback capability
+    const sequelize = proposal.sequelize;
+    const transaction = await sequelize.transaction();
+
+    try {
+      // Update proposal - mark deposit as verified and open portal
+      await proposal.update({
+        depositVerified: true,
+        depositVerifiedAt: new Date(),
+        // depositVerifiedBy is for contractor verification, not customer self-service payment
+        depositPaymentMethod: 'stripe',
+        depositTransactionId: paymentIntentId,
+        portalOpen: true,
+        portalOpenedAt: new Date(),
+        portalClosedAt: portalExpiresAt, // Set when portal should auto-close
+        status: 'deposit_paid'
+      }, { transaction });
+
+      // Commit transaction - all changes saved atomically
+      await transaction.commit();
+      console.log(`Proposal ${proposalId} deposit verified and portal opened successfully`);
+      
+    } catch (dbError) {
+      // ROLLBACK: Database update failed, rollback transaction
+      await transaction.rollback();
+      console.error('Database update failed, transaction rolled back:', dbError);
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to process payment verification. Your payment was successful but portal could not be opened. Please contact support.',
+        code: 'DATABASE_UPDATE_FAILED',
+        error: dbError.message,
+        paymentIntentId // Include for support reference
+      });
+    }
 
     // Fetch client info for audit log
     const client = await Client.findByPk(customerId);
@@ -912,6 +1133,67 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to verify deposit',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Check payment status for recovery/debugging
+ * Allows customer to check if their payment succeeded without triggering new processing
+ */
+exports.checkPaymentStatus = async (req, res) => {
+  try {
+    const { proposalId } = req.params;
+    const { paymentIntentId } = req.query;
+    const customerId = req.user?.id || 212;
+
+    const proposal = await Quote.findOne({
+      where: { 
+        id: proposalId,
+        clientId: customerId
+      }
+    });
+
+    if (!proposal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Proposal not found'
+      });
+    }
+
+    const status = {
+      proposalId: proposal.id,
+      proposalStatus: proposal.status,
+      depositVerified: proposal.depositVerified,
+      portalOpen: proposal.portalOpen,
+      transactionId: proposal.depositTransactionId
+    };
+
+    // If payment intent ID provided, check with Stripe
+    if (paymentIntentId) {
+      try {
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        status.stripeStatus = paymentIntent.status;
+        status.stripeAmount = paymentIntent.amount / 100;
+        status.stripeCreated = new Date(paymentIntent.created * 1000);
+        
+        // Check if matches our records
+        status.transactionMatches = proposal.depositTransactionId === paymentIntentId;
+      } catch (stripeError) {
+        status.stripeError = stripeError.message;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: status
+    });
+  } catch (error) {
+    console.error('Check payment status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check payment status',
       error: error.message
     });
   }
@@ -987,6 +1269,152 @@ exports.checkPortalStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to check portal status',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get all sheens for product selection
+ */
+exports.getSheens = async (req, res) => {
+  try {
+    // Return standard paint sheens
+    const sheens = [
+      { id: 1, name: 'Flat', description: 'No sheen, hides imperfections' },
+      { id: 2, name: 'Matte', description: 'Low sheen, minimal light reflection' },
+      { id: 3, name: 'Eggshell', description: 'Slight sheen, easy to clean' },
+      { id: 4, name: 'Satin', description: 'Soft sheen, durable' },
+      { id: 5, name: 'Semi-Gloss', description: 'Noticeable sheen, moisture resistant' },
+      { id: 6, name: 'Gloss', description: 'High shine, very durable' }
+    ];
+
+    res.json({
+      success: true,
+      data: sheens
+    });
+  } catch (error) {
+    console.error('Get sheens error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get sheens',
+      error: error.message
+    });
+  }
+};
+
+// Tier upgrade - create additional payment intent
+exports.upgradeTier = async (req, res) => {
+  try {
+    const { proposalId } = req.params;
+    const { newTier, additionalAmount } = req.body;
+    const clientId = req.client.id;
+
+    if (!['good', 'better', 'best'].includes(newTier)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tier selection'
+      });
+    }
+
+    const quote = await Quote.findOne({
+      where: { id: proposalId, clientId }
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Proposal not found'
+      });
+    }
+
+    if (!quote.depositVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Initial deposit must be paid before upgrading tier'
+      });
+    }
+
+    // Store upgrade request in quote
+    await quote.update({
+      pendingTierUpgrade: newTier,
+      tierUpgradeAmount: additionalAmount
+    });
+
+    res.json({
+      success: true,
+      message: 'Tier upgrade request created',
+      data: {
+        proposalId,
+        newTier,
+        additionalAmount
+      }
+    });
+  } catch (error) {
+    console.error('Upgrade tier error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process tier upgrade',
+      error: error.message
+    });
+  }
+};
+
+// Request tier change (downgrade or upgrade approval)
+exports.requestTierChange = async (req, res) => {
+  try {
+    const { proposalId } = req.params;
+    const { newTier, reason } = req.body;
+    const clientId = req.client.id;
+
+    if (!['good', 'better', 'best'].includes(newTier)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tier selection'
+      });
+    }
+
+    const quote = await Quote.findOne({
+      where: { id: proposalId, clientId }
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Proposal not found'
+      });
+    }
+
+    if (!quote.depositVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tier is not locked yet. You can change it freely before deposit payment.'
+      });
+    }
+
+    // Create a tier change request (can be stored in quote or separate table)
+    await quote.update({
+      tierChangeRequest: newTier,
+      tierChangeReason: reason,
+      tierChangeRequestedAt: new Date()
+    });
+
+    // TODO: Send notification to contractor about tier change request
+
+    res.json({
+      success: true,
+      message: 'Tier change request submitted successfully. Your contractor will review it.',
+      data: {
+        proposalId,
+        requestedTier: newTier,
+        currentTier: quote.selectedTier
+      }
+    });
+  } catch (error) {
+    console.error('Request tier change error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to submit tier change request',
       error: error.message
     });
   }
