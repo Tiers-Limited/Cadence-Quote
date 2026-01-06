@@ -26,7 +26,7 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.INTEGER,
     allowNull: false,
     field: 'user_id',
-    comment: 'Contractor/user who created the quote',
+    
     references: {
       model: 'Users',
       key: 'id'
@@ -58,7 +58,7 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.STRING(50),
     allowNull: false,
     field: 'quote_number',
-    comment: 'Auto-generated quote number (e.g., Q-2024-001)'
+    
   },
   
   // Customer Information (duplicated for historical accuracy)
@@ -124,28 +124,60 @@ const Quote = sequelize.define('Quote', {
     field: 'job_category'
   },
 
+  // Turnkey Pricing Fields
+  homeSqft: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    field: 'home_sqft',
+    
+  },
+
+  jobScope: {
+    type: DataTypes.ENUM('interior', 'exterior', 'both'),
+    allowNull: true,
+    defaultValue: 'both',
+    field: 'job_scope',
+    
+  },
+
+  numberOfStories: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: 1,
+    field: 'number_of_stories',
+    
+  },
+
+  conditionModifier: {
+    type: DataTypes.ENUM('excellent', 'good', 'average', 'fair', 'poor'),
+    allowNull: true,
+    defaultValue: 'average',
+    field: 'condition_modifier',
+    
+  },
+
   // Product Strategy
   productStrategy: {
     type: DataTypes.STRING(20),
     allowNull: true,
     defaultValue: 'GBB',
     field: 'product_strategy',
-    comment: 'Good-Better-Best or Single Product strategy'
+    
   },
 
   allowCustomerProductChoice: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     field: 'allow_customer_product_choice',
-    comment: 'Allow customer to choose products in portal'
+    
   },
   
   // Areas and Surfaces (stored as JSON)
   areas: {
     type: DataTypes.JSONB,
-    allowNull: false,
+    allowNull: true,
     defaultValue: [],
-    comment: 'Array of areas with surfaces, measurements, substrates, and products'
+    
   },
 
   // Product selections per surface type
@@ -154,7 +186,7 @@ const Quote = sequelize.define('Quote', {
     allowNull: true,
     defaultValue: {},
     field: 'product_sets',
-    comment: 'Product configurations per surface type (walls, trim, ceilings, etc.)'
+    
   },
   
   // Mobile Quote Fields (Phase 2)
@@ -162,80 +194,81 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     field: 'use_contractor_discount',
-    comment: 'Whether customer is using contractor discount (pay fee) vs full job'
+    allowNull: true
+    
   },
   
   bookingRequest: {
     type: DataTypes.JSONB,
     allowNull: true,
     field: 'booking_request',
-    comment: 'Booking request details: preferredDate, alternates, timePreference, notes'
+    
   },
   
   // Pricing Details
   subtotal: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00
   },
   
   laborTotal: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00,
     field: 'labor_total'
   },
   
   materialTotal: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00,
     field: 'material_total'
   },
   
   markup: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00
   },
   
   markupPercent: {
     type: DataTypes.DECIMAL(5, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00,
     field: 'markup_percent'
   },
   
   zipMarkup: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00,
     field: 'zip_markup'
   },
   
   zipMarkupPercent: {
     type: DataTypes.DECIMAL(5, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00,
     field: 'zip_markup_percent'
   },
   
   tax: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00
   },
   
   taxPercent: {
     type: DataTypes.DECIMAL(5, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00,
     field: 'tax_percent'
   },
   
   total: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 0.00
   },
   
@@ -243,7 +276,7 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: true,
     field: 'total_sqft',
-    comment: 'Total square footage of all surfaces'
+    
   },
   
   // Quote Status
@@ -257,21 +290,21 @@ const Quote = sequelize.define('Quote', {
   notes: {
     type: DataTypes.TEXT,
     allowNull: true,
-    comment: 'Internal notes about the quote'
+    
   },
   
   clientNotes: {
     type: DataTypes.TEXT,
     allowNull: true,
     field: 'client_notes',
-    comment: 'Notes visible to client in proposal'
+    
   },
   
   // Detailed Breakdown (stored as JSON from calculation API)
   breakdown: {
     type: DataTypes.JSONB,
     allowNull: true,
-    comment: 'Detailed cost breakdown by area and surface'
+    
   },
   
   // Customer Portal Fields
@@ -279,35 +312,36 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.STRING(20),
     allowNull: true,
     field: 'selected_tier',
-    comment: 'Customer selected tier: Good, Better, or Best'
+    
   },
   
   depositAmount: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: true,
     field: 'deposit_amount',
-    comment: 'Required deposit amount for this quote'
+    
   },
   
   depositVerified: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
+    allowNull: true,
     field: 'deposit_verified',
-    comment: 'Whether deposit payment has been verified by contractor'
+    
   },
   
   depositVerifiedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'deposit_verified_at',
-    comment: 'When deposit was verified'
+    
   },
   
   depositVerifiedBy: {
     type: DataTypes.INTEGER,
     allowNull: true,
     field: 'deposit_verified_by',
-    comment: 'User ID of contractor who verified deposit',
+    
     references: {
       model: 'Users',
       key: 'id'
@@ -318,91 +352,95 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.STRING(50),
     allowNull: true,
     field: 'deposit_payment_method',
-    comment: 'Payment method: stripe, cash, check, wire_transfer'
+    
   },
   
   depositTransactionId: {
     type: DataTypes.STRING(255),
     allowNull: true,
     field: 'deposit_transaction_id',
-    comment: 'Stripe payment intent ID or check number'
+    
   },
   
   finishStandardsAcknowledged: {
     type: DataTypes.BOOLEAN,
+  allowNull: true,
     defaultValue: false,
     field: 'finish_standards_acknowledged',
-    comment: 'Whether customer acknowledged finish standards'
+    
   },
   
   finishStandardsAcknowledgedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'finish_standards_acknowledged_at',
-    comment: 'When customer acknowledged finish standards'
+    
   },
   
   portalOpen: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
+    allowNull: true,
     field: 'portal_open',
-    comment: 'Whether customer portal is currently open for selections'
+    
   },
   
   portalOpenedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'portal_opened_at',
-    comment: 'When portal was opened for customer'
+    
   },
   
   portalClosedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'portal_closed_at',
-    comment: 'When portal was closed'
+    
   },
   
   selectionsComplete: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
+    allowNull: true,
     field: 'selections_complete',
-    comment: 'Whether customer has completed all product selections'
+    
   },
   
   selectionsCompletedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'selections_completed_at',
-    comment: 'When customer submitted all selections'
+    
   },
   
   tierChangeRequested: {
     type: DataTypes.STRING(20),
     allowNull: true,
     field: 'tier_change_requested',
-    comment: 'Requested tier change (upgrade/downgrade)'
+    
   },
   
   tierChangeRequestedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'tier_change_requested_at',
-    comment: 'When tier change was requested'
+    
   },
   
   tierChangeApproved: {
     type: DataTypes.BOOLEAN,
+    allowNull: true,
     defaultValue: null,
     field: 'tier_change_approved',
-    comment: 'Whether tier change was approved by contractor'
+    
   },
   
   tierChangeApprovedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'tier_change_approved_at',
-    comment: 'When tier change was approved/denied'
+    
   },
   
   // Dates
@@ -410,28 +448,28 @@ const Quote = sequelize.define('Quote', {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'valid_until',
-    comment: 'Quote expiration date'
+    
   },
   
   sentAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'sent_at',
-    comment: 'When quote was sent to client'
+    
   },
   
   viewedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'viewed_at',
-    comment: 'When client first viewed the quote'
+    
   },
   
   acceptedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'accepted_at',
-    comment: 'When customer accepted the proposal'
+    
   },
   
   approvedAt: {
@@ -456,13 +494,15 @@ const Quote = sequelize.define('Quote', {
   createdAt: {
     type: DataTypes.DATE,
     allowNull: false,
-    defaultValue: DataTypes.NOW
+    defaultValue: DataTypes.NOW,
+    field: 'created_at'
   },
   
   updatedAt: {
     type: DataTypes.DATE,
     allowNull: false,
-    defaultValue: DataTypes.NOW
+    defaultValue: DataTypes.NOW,
+    field: 'updated_at'
   }
 }, {
   tableName: 'quotes',
@@ -492,15 +532,52 @@ Quote.associate = (models) => {
 };
 
 // Class methods
-Quote.generateQuoteNumber = async function(tenantId, transaction = null) {
+Quote.generateQuoteNumber = async function(tenantId, clientId = null, transaction = null) {
   const year = new Date().getFullYear();
+  const timestamp = Date.now().toString().slice(-4); // Last 4 digits of timestamp for uniqueness
   
-  // Find the highest quote number for this year and tenant
+  // If client ID is provided, include it in the quote number format
+  // Format: Q-{YEAR}-{TENANT_ID}-{CLIENT_ID}-{COUNT}
+  // Example: Q-2026-3-615-001 (tenant 3, client 615, first quote)
+  
+  if (clientId) {
+    // Find the highest quote number for this year, tenant, and client
+    const queryOptions = {
+      where: {
+        tenantId,
+        clientId,
+        quoteNumber: {
+          [sequelize.Sequelize.Op.like]: `Q-${year}-${tenantId}-${clientId}-%`
+        }
+      },
+      order: [['quoteNumber', 'DESC']]
+    };
+    
+    if (transaction) {
+      queryOptions.transaction = transaction;
+    }
+    
+    const lastQuote = await Quote.findOne(queryOptions);
+    
+    let nextNumber = 1;
+    if (lastQuote) {
+      // Extract the last number from format Q-YYYY-TID-CID-NNN
+      const parts = lastQuote.quoteNumber.split('-');
+      if (parts.length === 5) {
+        nextNumber = parseInt(parts[4]) + 1;
+      }
+    }
+    
+    return `Q-${year}-${tenantId}-${clientId}-${String(nextNumber).padStart(3, '0')}`;
+  }
+  
+  // Fallback: If no client ID, use tenant-level unique number with timestamp
+  // Format: Q-{YEAR}-{TENANT_ID}-{TIMESTAMP}-{COUNT}
   const queryOptions = {
     where: {
       tenantId,
       quoteNumber: {
-        [sequelize.Sequelize.Op.like]: `Q-${year}-%`
+        [sequelize.Sequelize.Op.like]: `Q-${year}-${tenantId}-%`
       }
     },
     order: [['quoteNumber', 'DESC']]
@@ -514,11 +591,18 @@ Quote.generateQuoteNumber = async function(tenantId, transaction = null) {
   
   let nextNumber = 1;
   if (lastQuote) {
-    const lastNumber = parseInt(lastQuote.quoteNumber.split('-')[2]);
-    nextNumber = lastNumber + 1;
+    // Try to extract number from various formats
+    const parts = lastQuote.quoteNumber.split('-');
+    if (parts.length >= 4) {
+      const lastPart = parts[parts.length - 1];
+      const parsed = parseInt(lastPart);
+      if (!isNaN(parsed)) {
+        nextNumber = parsed + 1;
+      }
+    }
   }
   
-  return `Q-${year}-${String(nextNumber).padStart(3, '0')}`;
+  return `Q-${year}-${tenantId}-${timestamp}-${String(nextNumber).padStart(3, '0')}`;
 };
 
 // Instance methods

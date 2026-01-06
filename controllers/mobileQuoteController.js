@@ -45,11 +45,11 @@ const getBobbyTenantId = async () => {
  */
 exports.getPricingSchemes = async (req, res) => {
   try {
-    
+    const tenantId = req.user.tenantId;
 
     const pricingSchemes = await PricingScheme.findAll({
       where: {
-       
+        tenantId,
         isActive: true
       },
       attributes: ['id', 'name', 'description', 'isDefault'],

@@ -10,10 +10,13 @@ const Tenant = sequelize.define('Tenant', {
   },
   companyName: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,  // Changed to allow null for existing records
     validate: {
-      notEmpty: true
-    }
+      notEmpty: {
+        msg: 'Company name cannot be empty'
+      }
+    },
+    field: 'company_name'
   },
   email: {
     type: DataTypes.STRING,
@@ -25,23 +28,25 @@ const Tenant = sequelize.define('Tenant', {
   },
   phoneNumber: {
     type: DataTypes.STRING,
-    allowNull: false,
-    validate: {
-      notEmpty: true
-    }
+    allowNull: true,
+    
+    field: 'phone_number'
   },
   businessAddress: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    field: 'business_address'
   },
   tradeType: {
     type: DataTypes.ENUM('painter', 'drywall', 'pressure_washing', 'plumbing', 'electrical', 'hvac', 'roofing', 'landscaping', 'other'),
-    allowNull: false
+    allowNull: true,
+    field: 'trade_type'
   },
   subscriptionPlan: {
     type: DataTypes.ENUM('basic', 'pro', 'enterprise'),
     defaultValue: 'basic',
-    allowNull: false
+    allowNull: true,
+    field: 'subscription_plan'
   },
   mrr: {
     type: DataTypes.DECIMAL(10, 2),
@@ -50,19 +55,24 @@ const Tenant = sequelize.define('Tenant', {
   },
   isActive: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_active'
   },
   stripeCustomerId: {
     type: DataTypes.STRING,
-    allowNull: true
+    allowNull: true,
+    field: 'stripe_customer_id'
   },
   paymentStatus: {
     type: DataTypes.ENUM('trial', 'pending', 'active', 'past_due', 'cancelled'),
-    defaultValue: 'trial'
+    defaultValue: 'trial',
+   
+    field: 'payment_status'
   },
   subscriptionExpiresAt: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: true,
+    field: 'subscription_expires_at'
   },
   seatLimit: {
     type: DataTypes.INTEGER,
@@ -94,7 +104,7 @@ const Tenant = sequelize.define('Tenant', {
     },
     {
       
-      fields: ['stripeCustomerId']
+      fields: ['stripe_customer_id']
     },
     {
       fields: ['status']

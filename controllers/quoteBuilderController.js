@@ -20,9 +20,10 @@ const ProposalDefaults = require('../models/ProposalDefaults');
 const Tenant = require('../models/Tenant');
 const { renderProposalHtml } = require('../services/proposalTemplate');
 const { htmlToPdfBuffer } = require('../services/pdfService');
+const { calculatePricing, applyMarkupsAndTax } = require('../utils/pricingCalculator');
 
 /**
- * Helper function to calculate quote pricing
+ * Helper function to calculate quote pricing with new unified calculator
  * @param {Object} quote - The quote object
  * @param {Number} tenantId - The tenant ID
  * @returns {Object} - Pricing calculation results
@@ -34,12 +35,94 @@ async function calculateQuotePricing(quote, tenantId) {
       where: { tenantId },
     });
 
+    // Get pricing scheme
+    const pricingScheme = await PricingScheme.findByPk(quote.pricingSchemeId);
+    
+    if (!pricingScheme) {
+      console.warn('No pricing scheme found, using legacy calculation');
+      return calculateQuotePricingLegacy(quote, tenantId);
+    }
+
+    const schemeType = pricingScheme.type;
+    const rules = pricingScheme.pricingRules || {};
+    
+    // Map legacy types to new types
+    const modelMap = {
+      'sqft_turnkey': 'turnkey',
+      'sqft_labor_paint': 'rate_based_sqft',
+      'hourly_time_materials': 'production_based',
+      'unit_pricing': 'flat_rate_unit',
+      'room_flat_rate': 'flat_rate_unit',
+    };
+    
+    const model = modelMap[schemeType] || schemeType;
+    
+    // Merge material calculation overrides from quote data
+    const mergedRules = {
+      ...rules,
+      includeMaterials: quote.includeMaterials ?? rules.includeMaterials ?? true,
+      coverage: quote.coverage || rules.coverage || 350,
+      applicationMethod: quote.applicationMethod || rules.applicationMethod || 'roll',
+      coats: quote.coats || rules.coats || 2,
+      costPerGallon: rules.costPerGallon || 40,
+    };
+    
+    // Prepare calculation parameters
+    const params = {
+      model,
+      rules: mergedRules,
+      areas: quote.areas || [],
+      homeSqft: quote.homeSqft || 0,
+      jobScope: quote.jobType || 'interior',
+    };
+    
+    // Calculate base pricing using unified calculator
+    const basePricing = calculatePricing(params);
+    
+    // Apply markups, overhead, profit, and tax
+    const finalPricing = applyMarkupsAndTax(basePricing, {
+      laborMarkupPercent: parseFloat(settings?.laborMarkupPercent) || 0,
+      materialMarkupPercent: parseFloat(settings?.materialMarkupPercent) || 25,
+      overheadPercent: parseFloat(settings?.overheadPercent) || 0,
+      profitMarginPercent: parseFloat(settings?.netProfitPercent) || 0,
+      taxRatePercentage: parseFloat(settings?.taxRatePercentage) || 8.25,
+      depositPercent: parseFloat(settings?.depositPercent) || 50,
+    });
+    
+    // Add quote validity and material calculation settings
+    finalPricing.quoteValidityDays = parseInt(settings?.quoteValidityDays) || 30;
+    finalPricing.includeMaterials = mergedRules.includeMaterials;
+    finalPricing.coverage = mergedRules.coverage;
+    finalPricing.applicationMethod = mergedRules.applicationMethod;
+    finalPricing.coats = mergedRules.coats;
+    
+    return finalPricing;
+  } catch (error) {
+    console.error('Calculate quote pricing error:', error);
+    // Fallback to legacy calculation
+    return calculateQuotePricingLegacy(quote, tenantId);
+  }
+}
+
+/**
+ * Legacy pricing calculation for backward compatibility
+ * @param {Object} quote - The quote object
+ * @param {Number} tenantId - The tenant ID
+ * @returns {Object} - Pricing calculation results
+ */
+async function calculateQuotePricingLegacy(quote, tenantId) {
+  try {
+    // Get contractor settings for comprehensive pricing configuration
+    const settings = await ContractorSettings.findOne({
+      where: { tenantId },
+    });
+
     // Get Pricing Engine metrics - Ensure all values are numbers
     const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 0;
     const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || 25;
     const overheadPercent = parseFloat(settings?.overheadPercent) || 0;
     const netProfitPercent = parseFloat(settings?.netProfitPercent) || 0;
-    const taxRate = parseFloat(settings?.taxRate) || 8.25;
+    const taxRate = parseFloat(settings?.taxRatePercentage) || 8.25;
     const quoteValidityDays = parseInt(settings?.quoteValidityDays) || 30;
     const depositPercent = parseFloat(settings?.depositPercent) || 50;
 
@@ -48,10 +131,6 @@ async function calculateQuotePricing(quote, tenantId) {
     let materialTotal = 0;
     let totalSqft = 0;
     const breakdown = [];
-
-    // Get pricing scheme
-    const pricingScheme = await PricingScheme.findByPk(quote.pricingSchemeId);
-    const schemeType = pricingScheme?.type || 'sqft_turnkey';
 
     const areas = quote.areas || [];
     const productSets = quote.productSets || [];
@@ -279,6 +358,17 @@ exports.detectExistingClient = async (req, res) => {
  */
 exports.saveDraft = async (req, res) => {
   const transaction = await sequelize.transaction();
+  
+  // Capture any transaction errors
+  let transactionError = null;
+  transaction.afterCommit(() => console.log('✅ Transaction committed successfully'));
+  
+  // Hook to catch transaction errors
+  const originalRollback = transaction.rollback.bind(transaction);
+  transaction.rollback = async function() {
+    console.log('🚨 Transaction rollback called');
+    return originalRollback();
+  };
 
   try {
     const userId = req.user.id;
@@ -307,34 +397,109 @@ exports.saveDraft = async (req, res) => {
 
     // Find or create client if we have email
     if (customerEmail) {
-      [client] = await Client.findOrCreate({
-        where: {
+      try {
+        console.log('🔍 Attempting client findOrCreate with:', {
           email: customerEmail.toLowerCase(),
-          tenantId,
-        },
-        defaults: {
           tenantId,
           name: customerName,
-          email: customerEmail.toLowerCase(),
-          phone: customerPhone || '',
-          street: street || '',
-          city: city || '',
-          state: state || '',
-          zip: zipCode || '',
-        },
-        transaction,
-      });
+          phone: customerPhone,
+          state: state,
+          zip: zipCode
+        });
+        
+        [client] = await Client.findOrCreate({
+          where: {
+            email: customerEmail.toLowerCase(),
+            tenantId,
+          },
+          defaults: {
+            tenantId,
+            name: customerName,
+            email: customerEmail.toLowerCase(),
+            phone: customerPhone || '',
+            street: street || '',
+            city: city || '',
+            state: state || '',
+            zip: zipCode || '',
+          },
+          transaction,
+        });
+        console.log('✅ Client findOrCreate successful:', client.id);
+      } catch (clientError) {
+        console.error('❌ CLIENT FIND/CREATE FAILED — ROOT CAUSE:', {
+          name: clientError.name,
+          message: clientError.message,
+          errors: clientError.errors,
+          validationErrors: clientError.errors?.map(e => ({
+            field: e.path,
+            message: e.message,
+            type: e.type,
+            value: e.value
+          })),
+          sql: clientError.sql,
+          parent: clientError.parent?.message,
+          parentCode: clientError.parent?.code,
+          fields: clientError.fields
+        });
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          message: `Failed to find/create client: ${clientError.message}`,
+        });
+      }
 
-      // Update client if data changed
+      // Update client if data changed - only update fields with valid values
       if (client && (customerName || customerPhone || street || city || state || zipCode)) {
-        await client.update({
-          name: customerName || client.name,
-          phone: customerPhone || client.phone,
-          street: street || client.street,
-          city: city || client.city,
-          state: state || client.state,
-          zip: zipCode || client.zip,
-        }, { transaction });
+        try {
+          const clientUpdateData = {};
+          
+          // Only include fields that have non-empty values
+          if (customerName && customerName.trim()) clientUpdateData.name = customerName.trim();
+          if (customerPhone && customerPhone.trim()) clientUpdateData.phone = customerPhone.trim();
+          if (street && street.trim()) clientUpdateData.street = street.trim();
+          if (city && city.trim()) clientUpdateData.city = city.trim();
+          if (state && state.trim()) clientUpdateData.state = state.trim();
+          if (zipCode && zipCode.trim()) clientUpdateData.zip = zipCode.trim();
+          
+          console.log('🔍 Attempting client update with:', {
+            currentClient: {
+              id: client.id,
+              name: client.name,
+              phone: client.phone,
+              state: client.state,
+              zip: client.zip
+            },
+            updateData: clientUpdateData
+          });
+          
+          // Only update if there are fields to update
+          if (Object.keys(clientUpdateData).length > 0) {
+            await client.update(clientUpdateData, { transaction });
+            console.log('✅ Client update successful');
+          } else {
+            console.log('ℹ️ No client fields to update');
+          }
+        } catch (updateError) {
+          console.error('❌ CLIENT UPDATE FAILED — THIS IS PROBABLY THE ROOT CAUSE:', {
+            name: updateError.name,
+            message: updateError.message,
+            validationErrors: updateError.errors?.map(e => ({
+              field: e.path,
+              message: e.message,
+              type: e.type,
+              value: e.value
+            })),
+            sql: updateError.sql,
+            fields: updateError.fields,
+            parentCode: updateError.parent?.code,
+            parentMessage: updateError.parent?.message,
+          });
+          await transaction.rollback();
+          return res.status(500).json({
+            success: false,
+            message: `Failed to update client: ${updateError.message}`,
+          });
+        }
       }
     }
 
@@ -354,28 +519,265 @@ exports.saveDraft = async (req, res) => {
       }
     } else {
       isNewQuote = true;
-      const quoteNumber = await Quote.generateQuoteNumber(tenantId, transaction);
+      
+      // Generate quote number with error handling (without transaction to avoid aborts)
+      // Pass clientId if available for client-specific quote numbering
+      let quoteNumber;
+      try {
+        quoteNumber = await Quote.generateQuoteNumber(tenantId, client?.id || null);
+        console.log('✅ Generated quote number:', quoteNumber);
+        
+        // CRITICAL: Check if this quote number already exists
+        const existingQuote = await Quote.findOne({
+          where: { quoteNumber, tenantId }
+        });
+        if (existingQuote) {
+          console.error('❌ DUPLICATE QUOTE NUMBER DETECTED:', quoteNumber);
+          await transaction.rollback();
+          return res.status(409).json({
+            success: false,
+            message: `Quote number ${quoteNumber} already exists. Please try again.`,
+          });
+        }
+      } catch (genError) {
+        console.error('❌ Error generating quote number:', genError);
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          message: `Failed to generate quote number: ${genError.message}`,
+        });
+      }
 
-      quote = await Quote.create({
+      console.log('Creating quote with data:', {
         tenantId,
         userId,
         clientId: client?.id || null,
         quoteNumber,
-        customerName: customerName || '',
-        customerEmail: customerEmail || null,
-        customerPhone: customerPhone || null,
-        street: street || null,
-        city: city || null,
-        state: state || null,
-        zipCode: zipCode || null,
-        pricingSchemeId: pricingSchemeId || null,
-        jobType: jobType || null,
-        productStrategy: productStrategy || 'GBB',
-        allowCustomerProductChoice: allowCustomerProductChoice !== undefined ? allowCustomerProductChoice : false,
-        areas: areas || [],
-        productSets: productSets || {},
-      status: 'draft',
-      }, { transaction });
+        pricingSchemeId,
+        productSetsType: Array.isArray(productSets) ? 'array' : typeof productSets
+      });
+
+      // Validate pricingSchemeId if provided (without transaction to avoid aborts)
+      let validatedPricingSchemeId = null;
+      if (pricingSchemeId) {
+        try {
+          const scheme = await PricingScheme.findOne({
+            where: { id: pricingSchemeId, tenantId }
+            // Removed transaction to prevent silent aborts on FK validation
+          });
+          if (scheme) {
+            validatedPricingSchemeId = pricingSchemeId;
+            console.log('✅ Pricing scheme validated:', pricingSchemeId);
+          } else {
+            console.log('⚠️ Pricing scheme not found, skipping:', pricingSchemeId);
+          }
+        } catch (schemeError) {
+          console.error('❌ Error validating pricing scheme:', schemeError);
+          console.error('Scheme error stack:', schemeError.stack);
+          await transaction.rollback();
+          return res.status(500).json({
+            success: false,
+            message: `Failed to validate pricing scheme: ${schemeError.message}`,
+          });
+        }
+      }
+      
+      console.log('✅ Pricing scheme validation complete');
+      console.log('🔍 Transaction state after pricing validation:', {
+        finished: transaction.finished
+      });
+      
+      // Test if transaction is healthy with a simple query
+      try {
+        console.log('🧪 Testing transaction health with simple query...');
+        await sequelize.query('SELECT 1 as test', { transaction, type: sequelize.QueryTypes.SELECT });
+        console.log('✅ Transaction health check passed');
+      } catch (healthError) {
+        console.error('❌ TRANSACTION HEALTH CHECK FAILED:', {
+          name: healthError.name,
+          message: healthError.message,
+          code: healthError.parent?.code,
+          sql: healthError.sql
+        });
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          message: `Transaction is in failed state: ${healthError.message}`,
+        });
+      }
+      
+      // Final transaction health check right before create
+      try {
+        console.log('🧪 Final health check right before Quote.create()...');
+        await sequelize.query('SELECT 1 as final_test', { transaction, type: sequelize.QueryTypes.SELECT });
+        console.log('✅ Final health check passed');
+      } catch (finalHealthError) {
+        console.error('❌ FINAL HEALTH CHECK FAILED:', {
+          name: finalHealthError.name,
+          message: finalHealthError.message,
+          code: finalHealthError.parent?.code
+        });
+        // CRITICAL: If health check fails, transaction is aborted - must rollback and return
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          message: `Transaction health check failed: ${finalHealthError.message}`,
+        });
+      }
+      
+      try {
+        console.log('📝 Attempting to create quote...');
+        
+       
+        
+        // Parse stringified JSON fields if needed
+        let parsedAreas = areas || [];
+        let parsedProductSets = productSets || [];
+        
+        if (typeof parsedAreas === 'string') {
+          console.log('⚠️ areas is a STRING, parsing...');
+          try {
+            parsedAreas = JSON.parse(parsedAreas);
+            console.log('✅ areas parsed successfully:', parsedAreas);
+          } catch (e) {
+            console.error('❌ Failed to parse areas:', e.message);
+            parsedAreas = [];
+          }
+        }
+        
+        if (typeof parsedProductSets === 'string') {
+          console.log('⚠️ productSets is a STRING, parsing...');
+          try {
+            parsedProductSets = JSON.parse(parsedProductSets);
+            console.log('✅ productSets parsed successfully:', parsedProductSets);
+          } catch (e) {
+            console.error('❌ Failed to parse productSets:', e.message);
+            parsedProductSets = [];
+          }
+        }
+        
+     
+        
+        // CRITICAL: Final validation to ensure JSONB fields are NEVER strings
+        if (typeof parsedAreas === 'string') {
+          console.error('🚨 BUG DETECTED: areas is still a STRING right before save!');
+          throw new Error('JSONB validation failed: areas field is a string instead of array/object');
+        }
+        if (typeof parsedProductSets === 'string') {
+          console.error('🚨 BUG DETECTED: productSets is still a STRING right before save!');
+          throw new Error('JSONB validation failed: productSets field is a string instead of array/object');
+        }
+        
+        // Ensure they are proper arrays/objects, not undefined or null
+        const safeAreas = Array.isArray(parsedAreas) ? parsedAreas : [];
+        const safeProductSets = Array.isArray(parsedProductSets) ? parsedProductSets : [];
+        
+      
+        // Try to build the quote instance first without saving
+        console.log('🏗️ Building quote instance...');
+        const quoteData = {
+          tenantId,
+          userId,
+          clientId: client?.id || null,
+          quoteNumber,
+          customerName: customerName || '',
+          customerEmail: customerEmail || null,
+          customerPhone: customerPhone || null,
+          street: street || null,
+          city: city || null,
+          state: state || null,
+          zipCode: zipCode || null,
+          pricingSchemeId: validatedPricingSchemeId,
+          jobType: jobType || null,
+          jobCategory: 'residential',
+          productStrategy: productStrategy || 'GBB',
+          allowCustomerProductChoice: allowCustomerProductChoice !== undefined ? allowCustomerProductChoice : false,
+          areas: safeAreas,
+          productSets:  safeProductSets,
+          homeSqft: req.body.homeSqft || null,
+          jobScope: req.body.jobScope || null,
+          numberOfStories: req.body.numberOfStories || null,
+          conditionModifier: req.body.conditionModifier || null,
+          bookingRequest: null,
+          // Financial fields
+          subtotal: 0,
+          laborTotal: 0,
+          materialTotal: 0,
+          markup: 0,
+          markupPercent: 0,
+          zipMarkup: 0,
+          zipMarkupPercent: 0,
+          tax: 0,
+          taxPercent: 0,
+          total: 0,
+          totalSqft: null,
+          // Additional fields
+          notes: notes || null,
+          clientNotes: null,
+          breakdown: null,
+          selectedTier: null,
+          depositAmount: null,
+          depositVerified: false,
+          depositVerifiedAt: null,
+          depositVerifiedBy: null,
+          depositPaymentMethod: null,
+          depositTransactionId: null,
+          finishStandardsAcknowledged: false,
+          finishStandardsAcknowledgedAt: null,
+          portalOpen: false,
+          portalOpenedAt: null,
+          portalClosedAt: null,
+          selectionsComplete: false,
+          selectionsCompletedAt: null,
+          tierChangeRequested: null,
+          tierChangeRequestedAt: null,
+          tierChangeApproved: null,
+          tierChangeApprovedAt: null,
+          validUntil: null,
+          sentAt: null,
+          viewedAt: null,
+          acceptedAt: null,
+          approvedAt: null,
+          declinedAt: null,
+          useContractorDiscount: false,
+          status: 'draft',
+        };
+        console.log('✅ Quote instance built:', quoteData);
+        
+        console.log('✅ Quote instance built successfully');
+        console.log('💾 Saving to database...');
+        
+       quote = await Quote.create(quoteData,  { transaction });
+        
+        console.log('✅ Quote created successfully:', quote.id);
+      } catch (createError) {
+        console.error('❌ Error creating quote:', createError);
+      // console.error('Create error details:', {
+        //   name: createError.name,
+        //   message: createError.message,
+        //   errors: createError.errors, // Sequelize validation errors
+        //   fields: createError.fields,
+        //   code: createError.code,
+        //   parent: createError.parent?.code,
+        //   sql: createError.sql
+        // });
+        
+        // await transaction.rollback();
+        
+        // Check if it's a unique constraint violation on quote_number
+        if (createError.name === 'SequelizeUniqueConstraintError' || 
+            (createError.parent && createError.parent.code === '23505')) {
+          return res.status(409).json({
+            success: false,
+            message: `Duplicate quote number detected. This usually means the request was sent multiple times. Please try again.`,
+          });
+        }
+        
+        return res.status(500).json({
+          success: false,
+          message: `Failed to create quote: ${createError.message}`,
+        });
+      }
     }
 
     // Update quote with new data
@@ -395,6 +797,12 @@ exports.saveDraft = async (req, res) => {
     if (allowCustomerProductChoice !== undefined) updateData.allowCustomerProductChoice = allowCustomerProductChoice;
     if (notes !== undefined) updateData.notes = notes;
     if (client) updateData.clientId = client.id;
+    
+    // Add turnkey-specific fields
+    if (req.body.homeSqft !== undefined) updateData.homeSqft = req.body.homeSqft;
+    if (req.body.jobScope !== undefined) updateData.jobScope = req.body.jobScope;
+    if (req.body.numberOfStories !== undefined) updateData.numberOfStories = req.body.numberOfStories;
+    if (req.body.conditionModifier !== undefined) updateData.conditionModifier = req.body.conditionModifier;
 
     if (Object.keys(updateData).length > 0) {
       await quote.update(updateData, { transaction });
@@ -403,9 +811,71 @@ exports.saveDraft = async (req, res) => {
     // Reload quote to get updated areas and productSets
     await quote.reload({ transaction });
 
-    // Calculate pricing totals if quote has areas and productSets
-    // Always recalculate to ensure pricing is up-to-date
-    if (quote.areas && quote.areas.length > 0 && quote.productSets && quote.productSets.length > 0) {
+    // Determine pricing scheme type to decide calculation requirements
+    let pricingScheme = null;
+    if (quote.pricingSchemeId) {
+      pricingScheme = await PricingScheme.findByPk(quote.pricingSchemeId);
+    }
+    
+    // Determine if calculation should run based on pricing scheme type
+    let shouldCalculate = false;
+    let calculationReason = '';
+    
+    if (pricingScheme) {
+      const schemeType = pricingScheme.type;
+      
+      switch (schemeType) {
+        case 'turnkey':
+        case 'sqft_turnkey':
+          // Turnkey: needs homeSqft
+          if (quote.homeSqft && quote.homeSqft > 0) {
+            shouldCalculate = true;
+            calculationReason = `Turnkey pricing with ${quote.homeSqft} sqft`;
+          }
+          break;
+          
+        case 'rate_based_sqft':
+          // Rate-based sqft: needs areas with square footage
+          if (quote.areas && quote.areas.length > 0) {
+            shouldCalculate = true;
+            calculationReason = `Rate-based sqft with ${quote.areas.length} areas`;
+          }
+          break;
+          
+        case 'production_based':
+        case 'flat_rate_unit':
+          // Production/flat rate: needs areas and product selections
+          if (quote.areas && quote.areas.length > 0 && quote.productSets && 
+              (Array.isArray(quote.productSets) ? quote.productSets.length > 0 : Object.keys(quote.productSets).length > 0)) {
+            shouldCalculate = true;
+            calculationReason = `${schemeType} with ${quote.areas.length} areas and product selections`;
+          }
+          break;
+          
+        default:
+          // Unknown scheme type - try if we have areas and products
+          if (quote.areas && quote.areas.length > 0 && quote.productSets && 
+              (Array.isArray(quote.productSets) ? quote.productSets.length > 0 : Object.keys(quote.productSets).length > 0)) {
+            shouldCalculate = true;
+            calculationReason = `${schemeType} with areas and products`;
+          }
+      }
+    } else if (quote.areas && quote.areas.length > 0 && quote.productSets && 
+               (Array.isArray(quote.productSets) ? quote.productSets.length > 0 : Object.keys(quote.productSets).length > 0)) {
+      // No pricing scheme but has data - try to calculate anyway
+      shouldCalculate = true;
+      calculationReason = 'No scheme but has areas and products';
+    }
+    
+    if (shouldCalculate) {
+      console.log('💰 Running pricing calculation...', {
+        schemeType: pricingScheme?.type,
+        reason: calculationReason,
+        homeSqft: quote.homeSqft,
+        areasLength: quote.areas?.length,
+        productSetsLength: Array.isArray(quote.productSets) ? quote.productSets.length : Object.keys(quote.productSets || {}).length
+      });
+      
       const pricingCalculation = await calculateQuotePricing(quote, tenantId);
       
       // Get contractor settings for validity days and deposit percent
@@ -423,17 +893,25 @@ exports.saveDraft = async (req, res) => {
       // Calculate deposit amount based on total
       const depositAmount = pricingCalculation.total * (depositPercent / 100);
       
-      // Update quote with calculated pricing
+      // Update quote with calculated pricing (all pricing engine fields)
       await quote.update({
         subtotal: pricingCalculation.subtotal,
         laborTotal: pricingCalculation.laborTotal,
         materialTotal: pricingCalculation.materialTotal,
+        laborMarkupPercent: pricingCalculation.laborMarkupPercent || 0,
+        laborMarkupAmount: pricingCalculation.laborMarkupAmount || 0,
+        materialMarkupPercent: pricingCalculation.materialMarkupPercent || 0,
+        materialMarkupAmount: pricingCalculation.materialMarkupAmount || 0,
+        overheadPercent: pricingCalculation.overheadPercent || 0,
+        overheadAmount: pricingCalculation.overhead || 0,
+        profitMarginPercent: pricingCalculation.profitMarginPercent || 0,
+        profitAmount: pricingCalculation.profitAmount || 0,
         markup: pricingCalculation.markupAmount,
         markupPercent: pricingCalculation.markupPercent,
         zipMarkup: pricingCalculation.zipMarkupAmount || 0,
         zipMarkupPercent: pricingCalculation.zipMarkupPercent || 0,
-        tax: pricingCalculation.taxAmount,
-        taxPercent: pricingCalculation.taxRate,
+        tax: pricingCalculation.tax || pricingCalculation.taxAmount,
+        taxPercent: pricingCalculation.taxPercent || pricingCalculation.taxRate,
         total: pricingCalculation.total,
         totalSqft: pricingCalculation.totalSqft,
         breakdown: pricingCalculation.breakdown,
@@ -472,8 +950,16 @@ exports.saveDraft = async (req, res) => {
       quote: savedQuote,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
     console.error('Save draft error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
       message: 'Failed to save quote draft',
@@ -527,7 +1013,22 @@ exports.getQuoteById = async (req, res) => {
  */
 exports.calculateQuote = async (req, res) => {
   try {
-    const { areas, productSets, pricingSchemeId, jobType, serviceArea } = req.body;
+    const { 
+      areas, 
+      productSets, 
+      pricingSchemeId, 
+      jobType, 
+      serviceArea, 
+      homeSqft, 
+      jobScope, 
+      numberOfStories, 
+      conditionModifier,
+      // NEW: Material calculation options
+      includeMaterials = true,
+      coverage = 350,
+      applicationMethod = 'roll',
+      coats = 2
+    } = req.body;
     const tenantId = req.user.tenantId;
 
     // Get pricing scheme (optional - use default if not provided)
@@ -551,8 +1052,155 @@ exports.calculateQuote = async (req, res) => {
       where: { tenantId }
     });
 
-    const markup = settings?.defaultMarkupPercentage || 30;
-    const taxRate = settings?.taxRatePercentage || 0;
+    // Get pricing rules with material options
+    const pricingRules = pricingScheme?.pricingRules || {};
+    
+    // Material calculation settings (can be overridden by request or scheme rules)
+    const finalIncludeMaterials = includeMaterials ?? pricingRules.includeMaterials ?? true;
+    let finalCoverage = coverage ?? pricingRules.coverage ?? 350;
+    const finalApplicationMethod = applicationMethod ?? pricingRules.applicationMethod ?? 'roll';
+    const finalCoats = coats ?? pricingRules.coats ?? 2;
+    
+    // Adjust coverage for spray method (300 sq ft vs 350 sq ft for roll)
+    if (finalApplicationMethod === 'spray' && finalCoverage > 300) {
+      finalCoverage = 300; // Reduce coverage for spray to account for overspray
+    }
+    
+    // Validate coverage range (250-450 sq ft per gallon)
+    if (finalCoverage < 250) finalCoverage = 250;
+    if (finalCoverage > 450) finalCoverage = 450;
+
+    // Check if this is turnkey pricing
+    const isTurnkey = pricingScheme && (pricingScheme.type === 'turnkey' || pricingScheme.type === 'sqft_turnkey');
+
+    // If turnkey and homeSqft is provided, use turnkey calculation
+    if (isTurnkey && homeSqft && homeSqft > 0) {
+      
+      // Determine turnkey rate based on job scope
+      let turnkeyRate = parseFloat(pricingRules.turnkeyRate) || 3.50;
+      if (jobScope === 'interior' && pricingRules.interiorRate) {
+        turnkeyRate = parseFloat(pricingRules.interiorRate);
+      } else if (jobScope === 'exterior' && pricingRules.exteriorRate) {
+        turnkeyRate = parseFloat(pricingRules.exteriorRate);
+      }
+
+      // Apply condition modifier
+      const conditionMultipliers = {
+        excellent: 0.9,
+        good: 0.95,
+        average: 1.0,
+        fair: 1.1,
+        poor: 1.25,
+      };
+      const conditionMultiplier = conditionMultipliers[conditionModifier] || 1.0;
+      const adjustedRate = turnkeyRate * conditionMultiplier;
+
+      // Calculate base labor and material (60/40 split for turnkey when materials included)
+      const baseTotal = homeSqft * adjustedRate;
+      let baseLaborCost, baseMaterialCost;
+      
+      if (finalIncludeMaterials) {
+        // Materials included: 60% labor / 40% materials
+        baseLaborCost = baseTotal * 0.60;
+        baseMaterialCost = baseTotal * 0.40;
+      } else {
+        // Labor-only: 100% labor
+        baseLaborCost = baseTotal;
+        baseMaterialCost = 0;
+      }
+
+      // Apply markups and calculate final totals
+      const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 35;
+      const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || 20;
+      const overheadPercent = parseFloat(settings?.overheadPercent) || 10;
+      const profitMarginPercent = parseFloat(settings?.netProfitPercent) || 5;
+      const taxRate = parseFloat(settings?.taxRatePercentage) || 8.25;
+
+      // Step 1: Apply markups
+      const laborMarkupAmount = baseLaborCost * (laborMarkupPercent / 100);
+      const laborCostWithMarkup = baseLaborCost + laborMarkupAmount;
+      
+      const materialMarkupAmount = finalIncludeMaterials ? (baseMaterialCost * (materialMarkupPercent / 100)) : 0;
+      const materialCostWithMarkup = finalIncludeMaterials ? (baseMaterialCost + materialMarkupAmount) : 0;
+
+      // Step 2: Calculate overhead on subtotal
+      const subtotalBeforeOverhead = laborCostWithMarkup + materialCostWithMarkup;
+      const overheadAmount = subtotalBeforeOverhead * (overheadPercent / 100);
+      const subtotalBeforeProfit = subtotalBeforeOverhead + overheadAmount;
+
+      // Step 3: Calculate profit
+      const profitAmount = subtotalBeforeProfit * (profitMarginPercent / 100);
+      const subtotal = subtotalBeforeProfit + profitAmount;
+
+      // Step 4: Calculate tax
+      const taxAmount = subtotal * (taxRate / 100);
+      const total = subtotal + taxAmount;
+
+      return res.json({
+        success: true,
+        calculation: {
+          // Base costs
+          laborTotal: parseFloat(baseLaborCost.toFixed(2)),
+          materialTotal: parseFloat(baseMaterialCost.toFixed(2)),
+          
+          // Markup details
+          laborMarkupPercent,
+          laborMarkupAmount: parseFloat(laborMarkupAmount.toFixed(2)),
+          laborCostWithMarkup: parseFloat(laborCostWithMarkup.toFixed(2)),
+          
+          materialMarkupPercent,
+          materialMarkupAmount: parseFloat(materialMarkupAmount.toFixed(2)),
+          materialCostWithMarkup: parseFloat(materialCostWithMarkup.toFixed(2)),
+          
+          // Overhead and profit
+          overheadPercent,
+          overhead: parseFloat(overheadAmount.toFixed(2)),
+          subtotalBeforeProfit: parseFloat(subtotalBeforeProfit.toFixed(2)),
+          
+          profitMarginPercent,
+          profitAmount: parseFloat(profitAmount.toFixed(2)),
+          
+          // Final totals
+          subtotal: parseFloat(subtotal.toFixed(2)),
+          taxPercent: taxRate,
+          tax: parseFloat(taxAmount.toFixed(2)),
+          total: parseFloat(total.toFixed(2)),
+          
+          // Material calculation settings
+          includeMaterials: finalIncludeMaterials,
+          coverage: finalCoverage,
+          applicationMethod: finalApplicationMethod,
+          coats: finalCoats,
+          
+          // Turnkey-specific details
+          homeSqft,
+          turnkeyRate: adjustedRate,
+          baseRate: turnkeyRate,
+          conditionModifier,
+          conditionMultiplier,
+          jobScope,
+          
+          // Quote validity
+          quoteValidityDays: parseInt(settings?.quoteValidityDays) || 30,
+          
+          breakdown: [{
+            areaName: `${jobScope === 'interior' ? 'Interior' : jobScope === 'exterior' ? 'Exterior' : 'Full Home'} - Turnkey`,
+            items: [{
+              categoryName: 'Turnkey Pricing',
+              quantity: homeSqft,
+              measurementUnit: 'sqft',
+              rate: adjustedRate,
+              laborCost: baseLaborCost,
+              materialCost: baseMaterialCost,
+            }]
+          }]
+        },
+      });
+    }
+
+    // Non-turnkey calculation (existing logic)
+    const markup = parseFloat(settings?.defaultMarkupPercentage) || 30;
+    const taxRate = parseFloat(settings?.taxRatePercentage) || 0;
 
     let laborTotal = 0;
     let materialTotal = 0;
@@ -687,8 +1335,8 @@ exports.calculateQuote = async (req, res) => {
             itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
           }
 
-          // Calculate material cost if gallons are provided
-          if (item.gallons && item.gallons > 0) {
+          // Calculate material cost if gallons are provided AND materials are included
+          if (finalIncludeMaterials && item.gallons && item.gallons > 0) {
             // Get product for this surface type
             const productSet = (productSets || []).find(ps => 
               ps.surfaceType === item.categoryName || 
@@ -732,11 +1380,16 @@ exports.calculateQuote = async (req, res) => {
             } else {
               itemBreakdown.materialCost = item.gallons * pricePerGallon;
             }
+          } else {
+            // Materials not included - set to 0
+            itemBreakdown.materialCost = 0;
           }
 
           // Accumulate totals
           laborTotal += itemBreakdown.laborCost;
-          materialTotal += itemBreakdown.materialCost;
+          if (finalIncludeMaterials) {
+            materialTotal += itemBreakdown.materialCost;
+          }
 
           areaBreakdown.items.push(itemBreakdown);
         }
@@ -760,8 +1413,8 @@ exports.calculateQuote = async (req, res) => {
           const productSet = productSets?.[surface.type];
           let product = null;
           let pricePerGallon = 0;
-          let coats = 2;
-          let coverage = 350;
+          let surfaceCoats = finalCoats; // Use final coats from settings
+          let surfaceCoverage = finalCoverage; // Use final coverage from settings
 
           if (productSet) {
             // Determine which tier product to use
@@ -770,16 +1423,21 @@ exports.calculateQuote = async (req, res) => {
             if (tierProduct) {
               product = tierProduct;
               pricePerGallon = parseFloat(tierProduct.price_per_gallon || tierProduct.cost_per_gallon || 35);
-              coats = parseInt(tierProduct.default_coats || 2);
-              coverage = parseInt(tierProduct.coverage_sqft_per_gal || 350);
+              surfaceCoats = parseInt(tierProduct.default_coats || finalCoats);
+              surfaceCoverage = parseInt(tierProduct.coverage_sqft_per_gal || finalCoverage);
             }
           }
 
-        // Calculate material cost
-        const wasteFactor = 1.10; // 10% waste
-        const gallons = Math.ceil((sqft * coats / coverage * wasteFactor) * 4) / 4; // Round to nearest 0.25
-        surfaceBreakdown.gallons = gallons;
-        surfaceBreakdown.materialCost = gallons * pricePerGallon;
+        // Calculate material cost only if materials are included
+        if (finalIncludeMaterials) {
+          const wasteFactor = 1.10; // 10% waste
+          const gallons = Math.ceil((sqft * surfaceCoats / surfaceCoverage * wasteFactor) * 4) / 4; // Round to nearest 0.25
+          surfaceBreakdown.gallons = gallons;
+          surfaceBreakdown.materialCost = gallons * pricePerGallon;
+        } else {
+          surfaceBreakdown.gallons = 0;
+          surfaceBreakdown.materialCost = 0;
+        }
 
         // Calculate labor cost based on pricing scheme type
         const pricingRules = pricingScheme.pricingRules || {};
@@ -860,42 +1518,108 @@ exports.calculateQuote = async (req, res) => {
     const travelCost = serviceArea?.distance ? serviceArea.distance * 0.50 : 0;
     const cleanupCost = 100; // Flat cleanup fee
 
-    const overhead = travelCost + cleanupCost;
+    // Get pricing engine settings from contractor settings
+    const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 0;
+    const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || markup;
+    const overheadPercent = parseFloat(settings?.overheadPercent) || 0;
+    const netProfitPercent = parseFloat(settings?.netProfitPercent) || 0;
+    const quoteValidityDays = parseInt(settings?.quoteValidityDays) || 30;
+    const depositPercent = parseFloat(settings?.depositPercentage) || 50;
 
-    // Subtotal before markup
-    const subtotalBeforeMarkup = laborTotal + materialTotal + prepTotal + addOnsTotal + overhead;
+    // Step 1: Base costs
+    const baseLaborCost = laborTotal;
+    const baseMaterialCost = materialTotal;
 
-    // Apply markup
-    const markupAmount = (materialTotal + prepTotal) * (markup / 100);
+    // Step 2: Apply markup to labor and materials separately (only if materials included)
+    const laborMarkupAmount = baseLaborCost * (laborMarkupPercent / 100);
+    const laborCostWithMarkup = baseLaborCost + laborMarkupAmount;
+    
+    const materialMarkupAmount = finalIncludeMaterials ? (baseMaterialCost * (materialMarkupPercent / 100)) : 0;
+    const materialCostWithMarkup = finalIncludeMaterials ? (baseMaterialCost + materialMarkupAmount) : 0;
 
-    // Subtotal after markup
-    const subtotal = subtotalBeforeMarkup + markupAmount;
+    // Step 3: Subtotal before overhead
+    const subtotalBeforeOverhead = laborCostWithMarkup + materialCostWithMarkup + prepTotal + addOnsTotal;
 
-    // Calculate tax (typically only on materials)
-    const taxableAmount = materialTotal + markupAmount;
-    const taxAmount = taxableAmount * (taxRate / 100);
+    // Step 4: Apply overhead (fixed amount or percentage of subtotal)
+    let overheadAmount = 0;
+    if (overheadPercent > 0) {
+      overheadAmount = subtotalBeforeOverhead * (overheadPercent / 100);
+    } else {
+      overheadAmount = travelCost + cleanupCost; // Use fixed costs if no overhead percent
+    }
+    const subtotalBeforeProfit = subtotalBeforeOverhead + overheadAmount;
+
+    // Step 5: Apply net profit
+    const profitAmount = subtotalBeforeProfit * (netProfitPercent / 100);
+    const subtotal = subtotalBeforeProfit + profitAmount;
+
+    // Step 6: Calculate tax
+    const taxAmount = subtotal * (taxRate / 100);
 
     // Final total
     const total = subtotal + taxAmount;
+    
+    // Calculate deposit and balance
+    const deposit = total * (depositPercent / 100);
+    const balance = total - deposit;
 
     res.json({
       success: true,
       calculation: {
+        // Base costs
         laborTotal: parseFloat(laborTotal?.toFixed(2)),
         materialTotal: parseFloat(materialTotal?.toFixed(2)),
         prepTotal: parseFloat(prepTotal?.toFixed(2)),
         addOnsTotal: parseFloat(addOnsTotal?.toFixed(2)),
-        overhead: parseFloat(overhead?.toFixed(2)),
-        subtotalBeforeMarkup: parseFloat(subtotalBeforeMarkup?.toFixed(2)),
-        markupAmount: parseFloat(markupAmount?.toFixed(2)),
-        markupPercent: parseFloat(markup),
+        
+        // Labor markup
+        laborMarkupPercent: parseFloat(laborMarkupPercent?.toFixed(2)),
+        laborMarkupAmount: parseFloat(laborMarkupAmount?.toFixed(2)),
+        laborCostWithMarkup: parseFloat(laborCostWithMarkup?.toFixed(2)),
+        
+        // Material markup (0 if materials not included)
+        materialMarkupPercent: parseFloat(materialMarkupPercent?.toFixed(2)),
+        materialMarkupAmount: parseFloat(materialMarkupAmount?.toFixed(2)),
+        materialCostWithMarkup: parseFloat(materialCostWithMarkup?.toFixed(2)),
+        
+        // Overhead
+        overheadPercent: parseFloat(overheadPercent?.toFixed(2)),
+        overhead: parseFloat(overheadAmount?.toFixed(2)),
+        subtotalBeforeProfit: parseFloat(subtotalBeforeProfit?.toFixed(2)),
+        
+        // Net profit
+        profitMarginPercent: parseFloat(netProfitPercent?.toFixed(2)),
+        profitAmount: parseFloat(profitAmount?.toFixed(2)),
+        
+        // Final totals
         subtotal: parseFloat(subtotal?.toFixed(2)),
-        taxAmount: parseFloat(taxAmount?.toFixed(2)),
-        taxRate: parseFloat(taxRate),
+        taxPercent: parseFloat(taxRate?.toFixed(2)),
+        tax: parseFloat(taxAmount?.toFixed(2)),
         total: parseFloat(total?.toFixed(2)),
+        
+        // Payment terms
+        depositPercent: parseFloat(depositPercent?.toFixed(2)),
+        deposit: parseFloat(deposit?.toFixed(2)),
+        balance: parseFloat(balance?.toFixed(2)),
+        
+        // Material calculation settings
+        includeMaterials: finalIncludeMaterials,
+        coverage: finalCoverage,
+        applicationMethod: finalApplicationMethod,
+        coats: finalCoats,
+        
+        // Additional info
+        quoteValidityDays: parseInt(quoteValidityDays),
         breakdown,
         travelCost: parseFloat(travelCost?.toFixed(2)),
-        cleanupCost: parseFloat(cleanupCost?.toFixed(2))
+        cleanupCost: parseFloat(cleanupCost?.toFixed(2)),
+        
+        // Legacy fields for backward compatibility
+        materialCost: parseFloat(materialTotal?.toFixed(2)),
+        taxAmount: parseFloat(taxAmount?.toFixed(2)),
+        taxRate: parseFloat(taxRate?.toFixed(2)),
+        markupAmount: parseFloat(materialMarkupAmount?.toFixed(2)),
+        markupPercent: parseFloat(materialMarkupPercent?.toFixed(2))
       },
     });
   } catch (error) {

@@ -25,11 +25,16 @@ const PricingScheme = sequelize.define('PricingScheme', {
   },
   type: {
     type: DataTypes.ENUM(
-      'sqft_turnkey',           // Square Foot (Turnkey, All-In)
-      'sqft_labor_paint',       // Square Foot (Labor + Paint Separated)
-      'hourly_time_materials',  // Hourly Rate (Time & Materials)
-      'unit_pricing',           // Unit Pricing (Doors, Windows, Trim, etc.)
-      'room_flat_rate'          // Room-Based / Flat Rate
+      'turnkey',                // Turnkey Pricing (Whole-Home) - formerly sqft_turnkey
+      'rate_based_sqft',        // Rate-Based Square Foot Pricing - formerly sqft_labor_paint
+      'production_based',       // Production-Based Pricing - formerly hourly_time_materials
+      'flat_rate_unit',         // Flat Rate Pricing (Unit-Based) - formerly unit_pricing/room_flat_rate
+      // Legacy support (will be migrated)
+      'sqft_turnkey',
+      'sqft_labor_paint',
+      'hourly_time_materials',
+      'unit_pricing',
+      'room_flat_rate'
     ),
     allowNull: false,
   },
@@ -53,6 +58,48 @@ const PricingScheme = sequelize.define('PricingScheme', {
     type: DataTypes.JSON,
     allowNull: true,
     field: 'pricing_rules',
+    // New unified structure for all pricing models:
+    // {
+    //   // Common fields (all models)
+    //   "includeMaterials": true,                    // Toggle for material inclusion (default: true)
+    //   "coverage": 350,                             // Sq ft per gallon (default: 350)
+    //   "applicationMethod": "roll",                 // "roll" or "spray" (default: "roll")
+    //   "coats": 2,                                  // Number of coats (default: 2)
+    //   "costPerGallon": 40,                        // Material cost per gallon
+    //   
+    //   // Model-specific fields:
+    //   
+    //   // For "turnkey" (Whole-Home):
+    //   "turnkeyRate": 3.50,                        // Price per home sq ft
+    //   "interiorRate": 3.25,                       // Optional interior-only rate
+    //   "exteriorRate": 3.75,                       // Optional exterior-only rate
+    //   
+    //   // For "rate_based_sqft" (Rate-Based):
+    //   "laborRates": {
+    //     "walls": 0.55,                            // Labor rate per sq ft
+    //     "ceilings": 0.65,
+    //     "trim": 2.50,                             // Per linear ft
+    //     "doors": 45,                              // Per unit
+    //     "cabinets": 65                            // Per unit
+    //   },
+    //   
+    //   // For "production_based" (Production-Based):
+    //   "hourlyLaborRate": 50,                      // Per painter per hour
+    //   "productionRates": {
+    //     "walls": 300,                             // Sq ft per hour
+    //     "ceilings": 250,
+    //     "trim": 75                                // Linear ft per hour
+    //   },
+    //   
+    //   // For "flat_rate_unit" (Unit-Based):
+    //   "unitPrices": {
+    //     "door": 85,                               // Fixed price per unit
+    //     "window": 75,
+    //     "room_small": 350,
+    //     "room_medium": 500,
+    //     "room_large": 750
+    //   }
+    // }
   },
 
   // PIN Protection
@@ -70,45 +117,7 @@ const PricingScheme = sequelize.define('PricingScheme', {
     type: DataTypes.ENUM('pin', '2fa'),
     allowNull: true,
     field: 'protection_method'
-  },
-  
-  // Example structure for pricingRules by type:
-  // 
-  // sqft_turnkey: {
-  //   "walls": { "price": 1.15, "unit": "sqft" },
-  //   "ceilings": { "price": 0.95, "unit": "sqft" }
-  // }
-  //
-  // sqft_labor_paint: {
-  //   "labor_rate": { "price": 0.55, "unit": "sqft" },
-  //   "paint": { "price": 40, "unit": "gallon" },
-  //   "coverage": { "value": 350, "unit": "sqft_per_gallon" }
-  // }
-  //
-  // hourly_time_materials: {
-  //   "hourly_rate": { "price": 50, "unit": "hour_per_painter" },
-  //   "crew_size": { "value": 3, "unit": "painters" },
-  //   "paint": { "price": 40, "unit": "gallon" }
-  // }
-  //
-  // unit_pricing: {
-  //   "door": { "price": 85, "unit": "each" },
-  //   "window": { "price": 75, "unit": "each" },
-  //   "trim": { "price": 2.50, "unit": "linear_ft" },
-  //   "shutter": { "price": 35, "unit": "each" },
-  //   "cabinet_door": { "price": 45, "unit": "each" }
-  // }
-  //
-  // room_flat_rate: {
-  //   "small_bedroom": { "price": 350, "unit": "room", "size": "10x12x8" },
-  //   "medium_bedroom": { "price": 450, "unit": "room", "size": "12x14x8" },
-  //   "large_bedroom": { "price": 550, "unit": "room", "size": "14x16x8" },
-  //   "small_living": { "price": 500, "unit": "room", "size": "12x15x8" },
-  //   "medium_living": { "price": 650, "unit": "room", "size": "15x20x8" },
-  //   "large_living": { "price": 850, "unit": "room", "size": "20x25x9" },
-  //   "bathroom": { "price": 250, "unit": "room", "size": "5x8x8" },
-  //   "kitchen": { "price": 600, "unit": "room", "size": "12x15x8" }
-  // }
+  }
 }, {
   timestamps: true,
   tableName: 'pricing_schemes',

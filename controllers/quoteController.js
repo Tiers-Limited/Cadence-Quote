@@ -289,6 +289,7 @@ exports.getPricingSchemes = async (req, res) => {
 
     const schemes = await PricingScheme.findAll({
       where: {
+        tenantId,
         isActive: true
       },
       attributes: ['id', 'name', 'type', 'description', 'isDefault', 'pricingRules'],

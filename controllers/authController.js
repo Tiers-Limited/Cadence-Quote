@@ -1616,6 +1616,7 @@ const completeGoogleSignup = async (req, res) => {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
+           emailVerified: user.emailVerified,
         },
       },
     });
@@ -2030,6 +2031,7 @@ const completeAppleSignup = async (req, res) => {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
+           emailVerified: user.emailVerified,
         },
       },
     });

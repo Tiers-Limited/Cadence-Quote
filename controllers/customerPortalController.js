@@ -319,8 +319,7 @@ exports.declineProposal = async (req, res) => {
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
-        clientId: customerId,
-        status: 'pending'
+        clientId: customerId
       }
     });
 

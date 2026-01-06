@@ -20,6 +20,7 @@ const getAllProductConfigs = async (req, res) => {
     const tenantId = req.user.tenantId;
     const {
       brandId,
+      jobType,
       search,
       page = 1,
       limit = 20,
@@ -32,11 +33,22 @@ const getAllProductConfigs = async (req, res) => {
       tenantId,
       isActive: true,
     };
-
-    // Include filter for global product's brand
+    console.log('🔍 Fetching product configs with filters:', { brandId, jobType, search, page, limit, sortBy, sortOrder });
+    // Include filter for global product's brand and category
     const includeWhere = {};
     if (brandId) {
       includeWhere.brandId = parseInt(brandId);
+    }
+
+    // Filter by jobType (interior/exterior) - map to product category
+    if (jobType) {
+      console.log('🔍 Filtering products by jobType:', jobType);
+      if (jobType.toLowerCase() === 'interior') {
+        includeWhere.category = 'Interior';
+      } else if (jobType.toLowerCase() === 'exterior') {
+        includeWhere.category = 'Exterior';
+      }
+      console.log('📋 Applied category filter:', includeWhere.category);
     }
 
     // Search in product name
@@ -51,36 +63,34 @@ const getAllProductConfigs = async (req, res) => {
     const limitNum = parseInt(limit);
     const offset = (pageNum - 1) * limitNum;
 
+    // Build include configuration
+    const globalProductInclude = {
+      model: GlobalProduct,
+      as: 'globalProduct',
+      required: true,
+      include: [
+        {
+          model: Brand,
+          as: 'brand',
+          attributes: ['id', 'name'],
+        },
+      ],
+    };
+
+    // Apply where clause only if we have filters
+    if (Object.keys(includeWhere).length > 0) {
+      globalProductInclude.where = includeWhere;
+    }
+
     // Execute queries in parallel for performance
     const [count, configs] = await Promise.all([
       ProductConfig.count({
         where,
-        include: [
-          {
-            model: GlobalProduct,
-            as: 'globalProduct',
-            where: Object.keys(includeWhere).length > 0 ? includeWhere : undefined,
-            required: true,
-          },
-        ],
+        include: [globalProductInclude],
       }),
       ProductConfig.findAll({
         where,
-        include: [
-          {
-            model: GlobalProduct,
-            as: 'globalProduct',
-            where: Object.keys(includeWhere).length > 0 ? includeWhere : undefined,
-            required: true,
-            include: [
-              {
-                model: Brand,
-                as: 'brand',
-                attributes: ['id', 'name'],
-              },
-            ],
-          },
-        ],
+        include: [globalProductInclude],
         limit: limitNum,
         offset,
         order: [[sortBy, sortOrder.toUpperCase()]],

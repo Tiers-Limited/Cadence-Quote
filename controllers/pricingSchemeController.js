@@ -9,16 +9,20 @@ const bcrypt = require('bcryptjs');
  */
 const getPricingSchemes = async (req, res) => {
   try {
-   
+    const tenantId = req.user.tenantId;
     const { isActive } = req.query;
 
-   
+    // Build where clause with tenant filtering
+    const where = {
+      tenantId
+    };
+
     if (isActive !== undefined) {
       where.isActive = isActive === 'true';
     }
 
     const schemes = await PricingScheme.findAll({
-    
+      where,
       order: [['isDefault', 'DESC'], ['name', 'ASC']]
     });
 
@@ -95,6 +99,20 @@ const createPricingScheme = async (req, res) => {
       });
     }
 
+    // Validate pricing model type
+    const validTypes = [
+      'turnkey', 'rate_based_sqft', 'production_based', 'flat_rate_unit',
+      // Legacy support
+      'sqft_turnkey', 'sqft_labor_paint', 'hourly_time_materials', 'unit_pricing', 'room_flat_rate'
+    ];
+    
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid pricing type. Must be one of: ${validTypes.filter(t => !t.includes('_')).join(', ')}`
+      });
+    }
+
     // If setting as default, unset other defaults
     if (isDefault) {
       await PricingScheme.update(
@@ -102,6 +120,16 @@ const createPricingScheme = async (req, res) => {
         { where: { tenantId, isDefault: true } }
       );
     }
+
+    // Set default rules if not provided
+    const defaultRules = {
+      includeMaterials: true,
+      coverage: 350,
+      applicationMethod: 'roll',
+      coats: 2,
+      costPerGallon: 40,
+      ...(pricingRules || {}),
+    };
 
     // Hash PIN if provided
     let hashedPin = null;
@@ -116,7 +144,7 @@ const createPricingScheme = async (req, res) => {
       description,
       isDefault: isDefault || false,
       isActive: true,
-      pricingRules: pricingRules || {},
+      pricingRules: defaultRules,
       isPinProtected: isPinProtected || false,
       protectionPin: hashedPin,
       protectionMethod: isPinProtected ? protectionMethod : null
