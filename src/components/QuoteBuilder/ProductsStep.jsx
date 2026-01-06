@@ -8,7 +8,7 @@ import { apiService } from '../../services/apiService';
 const { Title, Text } = Typography;
 const { Option } = Select;
 
-const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
+const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }) => {
   const [productStrategy, setProductStrategy] = useState(formData.productStrategy || 'GBB');
   const [allowCustomerChoice, setAllowCustomerChoice] = useState(formData.allowCustomerProductChoice || false);
   const [productSets, setProductSets] = useState(formData.productSets || []);
@@ -16,27 +16,41 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   const [gbbDefaults, setGbbDefaults] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Material calculation settings
+  const [includeMaterials, setIncludeMaterials] = useState(formData.includeMaterials ?? true);
+  const [coverage, setCoverage] = useState(formData.coverage || 350);
+  const [applicationMethod, setApplicationMethod] = useState(formData.applicationMethod || 'roll');
+  const [coats, setCoats] = useState(formData.coats || 2);
+
   const pricingSchemeId = formData.pricingSchemeId;
+  
+  // Check if current pricing scheme is turnkey
+  const currentScheme = pricingSchemes?.find(s => s.id === pricingSchemeId);
+  const isTurnkey = currentScheme && (currentScheme.type === 'turnkey' || currentScheme.type === 'sqft_turnkey');
 
   useEffect(() => {
     fetchProducts();
     fetchGBBDefaults();
-  }, []);
+  }, [formData.jobType]);
 
   useEffect(() => {
     onUpdate({ 
       productStrategy, 
       allowCustomerProductChoice: allowCustomerChoice,
-      productSets 
+      productSets,
+      // Material calculation settings
+      includeMaterials,
+      coverage,
+      applicationMethod,
+      coats
     });
-  }, [productStrategy, allowCustomerChoice, productSets]);
+  }, [productStrategy, allowCustomerChoice, productSets, includeMaterials, coverage, applicationMethod, coats]);
 
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const response = await apiService.get('/contractor/product-configs', {
-        params: { pricingSchemeId }
-      });
+      const jobType = formData.jobType; // 'interior' or 'exterior'
+      const response = await apiService.get('/contractor/product-configs'+`?&jobType=${jobType || ''}&pricingSchemeId=${pricingSchemeId || ''}`);
       if (response.success) {
         // Transform the response data to a flatter structure for easier use
         const transformedProducts = (response.data || []).map(config => ({
@@ -187,6 +201,81 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     }
   }, [surfaceTypes, gbbDefaults]);
 
+  // CRITICAL: Sync productSets when surfaceTypes from areas change
+  // This ensures productSets stay aligned with selected surface types
+  useEffect(() => {
+    if (surfaceTypes.length === 0 || gbbDefaults.length === 0) return;
+    
+    // Get current surface types in productSets
+    const currentSurfaceTypes = productSets.map(set => set.surfaceType);
+    
+    // Check if surfaceTypes have changed
+    const surfaceTypesAdded = surfaceTypes.filter(st => !currentSurfaceTypes.includes(st));
+    const surfaceTypesRemoved = currentSurfaceTypes.filter(st => !surfaceTypes.includes(st));
+    
+    // If there are changes, rebuild productSets
+    if (surfaceTypesAdded.length > 0 || surfaceTypesRemoved.length > 0) {
+      console.log('🔄 Surface types changed, rebuilding productSets:', {
+        added: surfaceTypesAdded,
+        removed: surfaceTypesRemoved,
+        current: surfaceTypes
+      });
+      
+      const updatedSets = surfaceTypes.map(surfaceType => {
+        // Try to find existing set to preserve selections
+        const existingSet = productSets.find(set => set.surfaceType === surfaceType);
+        if (existingSet) {
+          return existingSet;
+        }
+        
+        // Create new set for added surface type
+        const surfaceTypeMap = {
+          'Walls': 'interior_walls',
+          'Ceiling': 'interior_ceilings',
+          'Ceilings': 'interior_ceilings',
+          'Trim': 'interior_trim_doors',
+          'Doors': 'interior_trim_doors',
+          'Cabinets': 'cabinets',
+          'Siding': 'exterior_siding',
+          'Windows': 'exterior_trim',
+          'Soffit & Fascia': 'exterior_trim',
+          'Accent Walls': 'interior_walls',
+          'Drywall Repair': 'interior_walls',
+          'Exterior Walls': 'exterior_siding',
+          'Exterior Trim': 'exterior_trim',
+          'Exterior Doors': 'exterior_trim',
+          'Shutters': 'exterior_trim',
+          'Decks & Railings': 'exterior_siding',
+          'Prep Work': 'exterior_siding'
+        };
+        
+        const mappedType = surfaceTypeMap[surfaceType] || 'interior_walls';
+        const defaults = gbbDefaults.find(d => d.surfaceType === mappedType);
+        
+        return {
+          surfaceType,
+          products: productStrategy === 'GBB' 
+            ? { 
+                good: defaults?.goodProductId || null, 
+                better: defaults?.betterProductId || null, 
+                best: defaults?.bestProductId || null 
+              }
+            : { single: null },
+          prices: productStrategy === 'GBB' && defaults
+            ? {
+                good: defaults.goodPricePerGallon,
+                better: defaults.betterPricePerGallon,
+                best: defaults.bestPricePerGallon
+              }
+            : null,
+          gallons: null
+        };
+      });
+      
+      setProductSets(updatedSets);
+    }
+  }, [surfaceTypes, gbbDefaults, productStrategy]);
+
   const updateProductSet = (surfaceType, tier, productId) => {
     setProductSets(productSets.map(set => {
       if (set.surfaceType === surfaceType) {
@@ -212,17 +301,71 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     const product = getProductById(productId);
     if (!product) return;
 
-    // Get gallons from areas
+    // Get gallons from areas - supports both sqft-based and unit-based calculations
     let totalGallons = 0;
+    let hasGallons = false;
+    
     (formData.areas || []).forEach(area => {
       if (area.laborItems) {
         area.laborItems.forEach(item => {
-          if (item.selected && item.categoryName === surfaceType && item.gallons) {
-            totalGallons += Number.parseFloat(item.gallons) || 0;
+          if (item.selected && item.categoryName === surfaceType) {
+            // If gallons are explicitly provided, use them
+            if (item.gallons && item.gallons > 0) {
+              totalGallons += Number.parseFloat(item.gallons) || 0;
+              hasGallons = true;
+            }
+            // Otherwise calculate from quantity and coverage
+            else if (item.quantity && item.numberOfCoats) {
+              const quantity = Number.parseFloat(item.quantity) || 0;
+              const coats = Number.parseInt(item.numberOfCoats) || 1;
+              const coverage = product.coverage || 350; // sqft per gallon
+              
+              // For sqft measurements, calculate gallons
+              if (item.measurementUnit === 'sqft') {
+                const calculatedGallons = (quantity * coats) / coverage;
+                totalGallons += calculatedGallons;
+                hasGallons = true;
+              }
+              // For linear feet (trim, doors), estimate based on typical dimensions
+              else if (item.measurementUnit === 'linear_foot') {
+                // Assume 6 inches height for trim/doors = 0.5 ft width
+                const estimatedSqFt = quantity * 0.5;
+                const calculatedGallons = (estimatedSqFt * coats) / coverage;
+                totalGallons += calculatedGallons;
+                hasGallons = true;
+              }
+              // For units (doors, cabinets), estimate per unit
+              else if (item.measurementUnit === 'unit') {
+                // Estimate: door = ~20 sqft, cabinet = ~15 sqft
+                const estimatedSqFtPerUnit = surfaceType.toLowerCase().includes('cabinet') ? 15 : 20;
+                const estimatedSqFt = quantity * estimatedSqFtPerUnit;
+                const calculatedGallons = (estimatedSqFt * coats) / coverage;
+                totalGallons += calculatedGallons;
+                hasGallons = true;
+              }
+            }
           }
         });
       }
     });
+
+    // Only proceed if we have gallons to calculate
+    if (!hasGallons || totalGallons === 0) {
+      // Clear gallons if none calculated
+      setProductSets(prev => prev.map(set => {
+        if (set.surfaceType === surfaceType) {
+          return {
+            ...set,
+            gallons: 0,
+            materialCost: '0.00',
+            wasteFactor: 1.1,
+            rawGallons: '0.00'
+          };
+        }
+        return set;
+      }));
+      return;
+    }
 
     // Apply waste factor (default 10% = 1.1)
     const wasteFactor = 1.1;
@@ -291,6 +434,14 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   };
 
   const handleNext = () => {
+    // For turnkey pricing with no areas, products are optional
+    if (isTurnkey && (!formData.areas || formData.areas.length === 0)) {
+      // Products are optional for turnkey, can proceed
+      onNext();
+      return;
+    }
+    
+    // For non-turnkey, validate that products are selected
     const hasProducts = productSets.every(set => {
       if (productStrategy === 'GBB') {
         return set.products.good || set.products.better || set.products.best;
@@ -299,7 +450,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       }
     });
 
-    if (!hasProducts) {
+    if (!hasProducts && productSets.length > 0) {
       Modal.warning({
         title: 'Products Not Selected',
         content: 'Please select at least one product for each surface type before continuing.',
@@ -323,6 +474,34 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         showIcon
         style={{ marginBottom: 24 }}
       />
+
+      {/* Show special message for turnkey pricing with no areas */}
+      {isTurnkey && (!formData.areas || formData.areas.length === 0) && (
+        <Alert
+          message="Turnkey Pricing - Simplified Product Selection"
+          description="With turnkey pricing, you can select general products for the entire home without specifying individual room products. These will be used for material cost estimation based on your home's total square footage."
+          type="warning"
+          showIcon
+          style={{ marginBottom: 24 }}
+        />
+      )}
+    
+      
+      {/* Show message if no surface types are available */}
+      {!isTurnkey && (!surfaceTypes || surfaceTypes.length === 0) && (
+        <Alert
+          message="No Surface Types Found"
+          description="Please go back to the Areas step and add rooms/areas before selecting products."
+          type="warning"
+          showIcon
+          style={{ marginBottom: 24 }}
+          action={
+            <Button size="small" onClick={onPrevious}>
+              Go Back to Areas
+            </Button>
+          }
+        />
+      )}
 
       <Card title="Product Strategy" style={{ marginBottom: 24 }}>
         <Radio.Group 
@@ -350,7 +529,287 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         )}
       </Card>
 
-      {productSets.length > 0 && (
+      {/* Material Calculation Settings */}
+      <Card title="Material Calculation Settings" style={{ marginBottom: 24 }}>
+        <Row gutter={[16, 16]}>
+          <Col xs={24}>
+            <Checkbox
+              checked={includeMaterials}
+              onChange={(e) => setIncludeMaterials(e.target.checked)}
+            >
+              <strong>Include materials in quote</strong> (Uncheck if customer is providing materials)
+            </Checkbox>
+          </Col>
+          
+          {includeMaterials && (
+            <>
+              <Col xs={24} sm={12} md={6}>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>Application Method</Text>
+                <Radio.Group 
+                  value={applicationMethod} 
+                  onChange={(e) => {
+                    const method = e.target.value;
+                    setApplicationMethod(method);
+                    // Auto-adjust coverage for spray
+                    if (method === 'spray' && coverage > 300) {
+                      setCoverage(300);
+                    } else if (method === 'roll' && coverage < 350) {
+                      setCoverage(350);
+                    }
+                  }}
+                >
+                  <Radio value="roll">Roll (350 sq ft/gal)</Radio>
+                  <Radio value="spray">Spray (300 sq ft/gal)</Radio>
+                </Radio.Group>
+              </Col>
+
+              <Col xs={24} sm={12} md={6}>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>Coverage (sq ft per gallon)</Text>
+                <Select
+                  value={coverage}
+                  onChange={(value) => setCoverage(value)}
+                  style={{ width: '100%' }}
+                >
+                  <Option value={250}>250 sq ft/gal (Low)</Option>
+                  <Option value={300}>300 sq ft/gal (Spray)</Option>
+                  <Option value={350}>350 sq ft/gal (Standard)</Option>
+                  <Option value={400}>400 sq ft/gal (High)</Option>
+                  <Option value={450}>450 sq ft/gal (Premium)</Option>
+                </Select>
+              </Col>
+
+              <Col xs={24} sm={12} md={6}>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>Number of Coats</Text>
+                <Select
+                  value={coats}
+                  onChange={(value) => setCoats(value)}
+                  style={{ width: '100%' }}
+                >
+                  <Option value={1}>1 Coat</Option>
+                  <Option value={2}>2 Coats (Standard)</Option>
+                  <Option value={3}>3 Coats (Premium)</Option>
+                </Select>
+              </Col>
+
+              <Col xs={24} md={6}>
+                <Alert 
+                  type="info" 
+                  message={`Est. ${((1000 * coats) / coverage).toFixed(1)} gallons per 1,000 sq ft`} 
+                  showIcon
+                  style={{ height: '100%' }}
+                />
+              </Col>
+            </>
+          )}
+        </Row>
+      </Card>
+
+      {/* Turnkey Simplified Product Selection */}
+      {isTurnkey && (
+        <div style={{ marginTop: 24 }}>
+          <Card 
+            title={`General ${formData.jobType === 'interior' ? 'Interior' : 'Exterior'} Products`}
+            style={{ marginBottom: 16 }}
+          >
+            {productStrategy === 'GBB' ? (
+              <Row gutter={[16, 16]}>
+                {/* Good Tier */}
+                <Col xs={24} md={8}>
+                  <div style={{ padding: 12, background: '#f0f0f0', borderRadius: 4, height: '100%' }}>
+                    <Tag color="blue" style={{ marginBottom: 8 }}>GOOD</Tag>
+                    <Select
+                      placeholder="Select Good Option"
+                      style={{ width: '100%' }}
+                      value={productSets[0]?.products?.good}
+                      onChange={(value) => {
+                        const newProductSets = [{
+                          surfaceType: `${formData.jobType || 'general'} - General`,
+                          products: {
+                            good: value,
+                            better: productSets[0]?.products?.better,
+                            best: productSets[0]?.products?.best
+                          }
+                        }];
+                        setProductSets(newProductSets);
+                      }}
+                      loading={loading}
+                      showSearch
+                      filterOption={(input, option) =>
+                        option.children.toLowerCase().includes(input.toLowerCase())
+                      }
+                    >
+                      {availableProducts.map(product => (
+                        <Option key={product.id} value={product.id}>
+                          {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                        </Option>
+                      ))}
+                    </Select>
+                    {productSets[0]?.products?.good && (
+                      <div style={{ marginTop: 8 }}>
+                        {(() => {
+                          const product = getProductById(productSets[0].products.good);
+                          return product ? (
+                            <>
+                              <Text strong>${product.pricePerGallon}/gal</Text>
+                              <br />
+                              <Text type="secondary" style={{ fontSize: 12 }}>{product.description}</Text>
+                            </>
+                          ) : null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                </Col>
+
+                {/* Better Tier */}
+                <Col xs={24} md={8}>
+                  <div style={{ padding: 12, background: '#e6f7ff', borderRadius: 4, height: '100%' }}>
+                    <Tag color="cyan" style={{ marginBottom: 8 }}>BETTER</Tag>
+                    <Select
+                      placeholder="Select Better Option"
+                      style={{ width: '100%' }}
+                      value={productSets[0]?.products?.better}
+                      onChange={(value) => {
+                        const newProductSets = [{
+                          surfaceType: `${formData.jobType || 'general'} - General`,
+                          products: {
+                            good: productSets[0]?.products?.good,
+                            better: value,
+                            best: productSets[0]?.products?.best
+                          }
+                        }];
+                        setProductSets(newProductSets);
+                      }}
+                      loading={loading}
+                      showSearch
+                      filterOption={(input, option) =>
+                        option.children.toLowerCase().includes(input.toLowerCase())
+                      }
+                    >
+                      {availableProducts.map(product => (
+                        <Option key={product.id} value={product.id}>
+                          {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                        </Option>
+                      ))}
+                    </Select>
+                    {productSets[0]?.products?.better && (
+                      <div style={{ marginTop: 8 }}>
+                        {(() => {
+                          const product = getProductById(productSets[0].products.better);
+                          return product ? (
+                            <>
+                              <Text strong>${product.pricePerGallon}/gal</Text>
+                              <br />
+                              <Text type="secondary" style={{ fontSize: 12 }}>{product.description}</Text>
+                            </>
+                          ) : null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                </Col>
+
+                {/* Best Tier */}
+                <Col xs={24} md={8}>
+                  <div style={{ padding: 12, background: '#f6ffed', borderRadius: 4, height: '100%' }}>
+                    <Tag color="green" style={{ marginBottom: 8 }}>BEST</Tag>
+                    <Select
+                      placeholder="Select Best Option"
+                      style={{ width: '100%' }}
+                      value={productSets[0]?.products?.best}
+                      onChange={(value) => {
+                        const newProductSets = [{
+                          surfaceType: `${formData.jobType || 'general'} - General`,
+                          products: {
+                            good: productSets[0]?.products?.good,
+                            better: productSets[0]?.products?.better,
+                            best: value
+                          }
+                        }];
+                        setProductSets(newProductSets);
+                      }}
+                      loading={loading}
+                      showSearch
+                      filterOption={(input, option) =>
+                        option.children.toLowerCase().includes(input.toLowerCase())
+                      }
+                    >
+                      {availableProducts.map(product => (
+                        <Option key={product.id} value={product.id}>
+                          {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                        </Option>
+                      ))}
+                    </Select>
+                    {productSets[0]?.products?.best && (
+                      <div style={{ marginTop: 8 }}>
+                        {(() => {
+                          const product = getProductById(productSets[0].products.best);
+                          return product ? (
+                            <>
+                              <Text strong>${product.pricePerGallon}/gal</Text>
+                              <br />
+                              <Text type="secondary" style={{ fontSize: 12 }}>{product.description}</Text>
+                            </>
+                          ) : null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                </Col>
+              </Row>
+            ) : (
+              // Single Product Strategy
+              <Row gutter={16} align="middle">
+                <Col xs={24} md={16}>
+                  <Select
+                    placeholder="Select Product"
+                    style={{ width: '100%' }}
+                    value={productSets[0]?.products?.single}
+                    onChange={(value) => {
+                      const newProductSets = [{
+                        surfaceType: `${formData.jobType || 'general'} - General`,
+                        products: { single: value }
+                      }];
+                      setProductSets(newProductSets);
+                    }}
+                    loading={loading}
+                    size="large"
+                    showSearch
+                    filterOption={(input, option) =>
+                      option.children.toLowerCase().includes(input.toLowerCase())
+                    }
+                  >
+                    {availableProducts.map(product => (
+                      <Option key={product.id} value={product.id}>
+                        {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                      </Option>
+                    ))}
+                  </Select>
+                </Col>
+                <Col xs={24} md={8}>
+                  {productSets[0]?.products?.single && (
+                    <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+                      {(() => {
+                        const product = getProductById(productSets[0].products.single);
+                        return product ? (
+                          <>
+                            <Text strong>${product.pricePerGallon}/gal</Text>
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>{product.description}</Text>
+                          </>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+                </Col>
+              </Row>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* Regular Product Selection by Surface Type */}
+      {!isTurnkey && productSets.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <Title level={4}>Select Products by Surface Type</Title>
 
@@ -609,7 +1068,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         </div>
       )}
 
-      {surfaceTypes.length === 0 && (
+      {surfaceTypes.length === 0 && !isTurnkey && (
         <Alert
           message="No Surfaces Selected"
           description="Please go back and select surfaces in the Areas step."
@@ -642,10 +1101,12 @@ ProductsStep.propTypes = {
     productSets: PropTypes.array,
     pricingSchemeId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     areas: PropTypes.array,
+    jobType: PropTypes.string,
   }).isRequired,
   onUpdate: PropTypes.func.isRequired,
   onNext: PropTypes.func.isRequired,
   onPrevious: PropTypes.func.isRequired,
+  pricingSchemes: PropTypes.array,
 };
 
 export default ProductsStep;

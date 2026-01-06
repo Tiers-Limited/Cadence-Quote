@@ -65,8 +65,13 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   const fetchLaborRates = async () => {
     try {
       const response = await apiService.get('/labor-categories/rates');
-      if (response.success) {
-        setLaborRates(response.data || []);
+      if (response.success && Array.isArray(response.data)) {
+        // Create a map of laborCategoryId to rate for easier lookup
+        const ratesMap = {};
+        response.data.forEach((rateRecord) => {
+          ratesMap[rateRecord.laborCategoryId] = parseFloat(rateRecord.rate) || 0;
+        });
+        setLaborRates(ratesMap);
       }
     } catch (error) {
       console.error('Error fetching labor rates:', error);
@@ -98,8 +103,8 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     const category = laborCategories.find(c => c.categoryName === categoryName);
     if (!category) return 0;
 
-    const rate = laborRates.find(r => r.laborCategoryId === category.id);
-    return rate ? parseFloat(rate.rate) : 0;
+    // laborRates is now a map, so directly access by category.id
+    return laborRates[category.id] || 0;
   };
 
   const removeArea = (areaId) => {

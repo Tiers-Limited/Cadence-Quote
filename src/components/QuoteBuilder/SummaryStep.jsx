@@ -10,6 +10,19 @@ const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
 const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes }) => {
+  // Check if current pricing scheme is turnkey
+  const currentScheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
+  const isTurnkey = currentScheme && (currentScheme.type === 'turnkey' || currentScheme.type === 'sqft_turnkey');
+  
+  // DEBUG: Log what we have
+  console.log('=== SummaryStep Debug ===');
+  console.log('formData.pricingSchemeId:', formData.pricingSchemeId);
+  console.log('currentScheme:', currentScheme);
+  console.log('isTurnkey:', isTurnkey);
+  console.log('formData.homeSqft:', formData.homeSqft, 'type:', typeof formData.homeSqft);
+  console.log('Condition check:', isTurnkey && (formData.homeSqft && parseFloat(formData.homeSqft) > 0));
+  console.log('======================');
+  
   const [notes, setNotes] = useState(formData.notes || '');
   const [calculatedQuote, setCalculatedQuote] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -22,10 +35,19 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
     fetchProducts();
   }, []);
 
-  // Recalculate when key inputs change (areas, product sets)
+  // Recalculate when key inputs change (areas, product sets, turnkey fields)
   useEffect(() => {
     calculateQuote();
-  }, [JSON.stringify(formData.areas), JSON.stringify(formData.productSets), formData.pricingSchemeId, formData.jobType]);
+  }, [
+    JSON.stringify(formData.areas), 
+    JSON.stringify(formData.productSets), 
+    formData.pricingSchemeId, 
+    formData.jobType,
+    formData.homeSqft,
+    formData.jobScope,
+    formData.numberOfStories,
+    formData.conditionModifier
+  ]);
 
   useEffect(() => {
     onUpdate({ notes });
@@ -71,9 +93,23 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         formData.productSets,
         formData.pricingSchemeId,
         formData.jobType,
-        { distance: 0 } // TODO: Calculate from customer address
+        {
+          distance: 0, // TODO: Calculate from customer address
+          homeSqft: formData.homeSqft,
+          jobScope: formData.jobScope,
+          numberOfStories: formData.numberOfStories,
+          conditionModifier: formData.conditionModifier,
+          // Material calculation settings
+          includeMaterials: formData.includeMaterials,
+          coverage: formData.coverage,
+          applicationMethod: formData.applicationMethod,
+          coats: formData.coats
+        }
       );
+      console.log('Calculate Quote Response:', response);
+      console.log('Turnkey values - homeSqft:', formData.homeSqft, 'jobScope:', formData.jobScope, 'isTurnkey:', isTurnkey);
       if (response.success) {
+        console.log('Setting calculatedQuote:', response.calculation);
         setCalculatedQuote(response.calculation);
       }
     } catch (error) {
@@ -99,7 +135,8 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
       };
 
       const saveResponse = await quoteBuilderApi.saveDraft(quoteData);
-      const quoteId = formData.quoteId || saveResponse.quote?.id;
+      console.log('Draft saved before sending:', saveResponse);
+      const quoteId = formData?.quoteId || saveResponse?.quote?.id;
       
       if (!quoteId) {
         throw new Error('Failed to save quote');
@@ -309,86 +346,135 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         </Descriptions>
       </Card>
 
-      {/* Job Type */}
-      <Card 
-        title={
-          <Space>
-            <span>Job Type</span>
-            <Button 
-              type="link" 
-              icon={<EditOutlined />}
-              onClick={() => onEdit(1)}
-            >
-              Edit
-            </Button>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Tag color={formData.jobType === 'interior' ? 'blue' : 'green'} style={{ fontSize: 16, padding: '4px 12px' }}>
-          {formData.jobType === 'interior' ? 'Interior' : 'Exterior'} Paint Job
-        </Tag>
-      </Card>
-
-      {/* Areas & Surfaces */}
-      <Card 
-        title={
-          <Space>
-            <span>Areas & Surfaces</span>
-            <Button 
-              type="link" 
-              icon={<EditOutlined />}
-              onClick={() => onEdit(2)}
-            >
-              Edit
-            </Button>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        {areaDetails.map(area => (
-          <div key={area.areaName} style={{ marginBottom: 16 }}>
-            <Title level={5}>{area.areaName}</Title>
-            <Table
-              size="small"
-              pagination={false}
-              dataSource={area.items}
-              rowKey={(record, index) => index}
-              columns={[
-                { title: 'Category', dataIndex: 'type', key: 'type' },
-                { 
-                  title: 'Quantity', 
-                  key: 'quantity', 
-                  render: (_, record) => record.quantity ? `${record.quantity} ${record.unit === 'sqft' ? 'sq ft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'units' : 'hrs'}` : 'N/A'
-                },
-                { 
-                  title: 'Coats', 
-                  dataIndex: 'coats', 
-                  key: 'coats',
-                  render: (val) => val > 0 ? `${val} coat${val > 1 ? 's' : ''}` : '-'
-                },
-                { 
-                  title: 'Gallons', 
-                  dataIndex: 'gallons', 
-                  key: 'gallons',
-                  render: (val) => val ? `${val} gal` : '-'
-                },
-                { 
-                  title: 'Labor Rate', 
-                  dataIndex: 'laborRate', 
-                  key: 'laborRate',
-                  render: (val, record) => val ? `$${val}/${record.unit === 'sqft' ? 'sqft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'unit' : 'hr'}` : '-'
-                },
-                { title: 'Dimensions', dataIndex: 'dimensions', key: 'dimensions', render: (val) => val || '-' },
-              ]}
-            />
-            <Space style={{ marginTop: 8 }}>
-              {area.totalSqft > 0 && <Text type="secondary">Total Area: {area.totalSqft.toFixed(0)} sq ft</Text>}
-              {area.totalGallons > 0 && <Text type="secondary">• Total Gallons: {area.totalGallons} gal</Text>}
+      {/* Job Type - Hidden for Turnkey */}
+      {!isTurnkey && (
+        <Card 
+          title={
+            <Space>
+              <span>Job Type</span>
+              <Button 
+                type="link" 
+                icon={<EditOutlined />}
+                onClick={() => onEdit(1)}
+              >
+                Edit
+              </Button>
             </Space>
-          </div>
-        ))}
-      </Card>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Tag color={formData.jobType === 'interior' ? 'blue' : 'green'} style={{ fontSize: 16, padding: '4px 12px' }}>
+            {formData.jobType === 'interior' ? 'Interior' : 'Exterior'} Paint Job
+          </Tag>
+        </Card>
+      )}
+
+      {/* Home Size & Scope - Shown for Turnkey */}
+      {isTurnkey && (formData.homeSqft && parseFloat(formData.homeSqft) > 0) && (
+        <Card 
+          title={
+            <Space>
+              <span>Home Size & Scope</span>
+              <Button 
+                type="link" 
+                icon={<EditOutlined />}
+                onClick={() => onEdit(2)}
+              >
+                Edit
+              </Button>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Descriptions column={2}>
+            <Descriptions.Item label="Home Square Footage">{parseFloat(formData.homeSqft).toLocaleString()} sq ft</Descriptions.Item>
+            <Descriptions.Item label="Job Scope">
+              <Tag color={formData.jobScope === 'interior' ? 'blue' : formData.jobScope === 'exterior' ? 'green' : 'purple'}>
+                {formData.jobScope === 'interior' ? 'Interior Only' : formData.jobScope === 'exterior' ? 'Exterior Only' : 'Both Interior & Exterior'}
+              </Tag>
+            </Descriptions.Item>
+            {formData.numberOfStories && (
+              <Descriptions.Item label="Number of Stories">
+                {formData.numberOfStories === 1 ? 'Single Story' : formData.numberOfStories === 2 ? 'Two Story' : 'Three Story+'}
+              </Descriptions.Item>
+            )}
+            {formData.conditionModifier && (
+              <Descriptions.Item label="Property Condition">
+                <Tag color={
+                  formData.conditionModifier === 'excellent' ? 'green' :
+                  formData.conditionModifier === 'good' ? 'blue' :
+                  formData.conditionModifier === 'average' ? 'default' :
+                  formData.conditionModifier === 'fair' ? 'orange' : 'red'
+                }>
+                  {formData.conditionModifier.charAt(0).toUpperCase() + formData.conditionModifier.slice(1)}
+                </Tag>
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        </Card>
+      )}
+
+      {/* Areas & Surfaces - Hidden for Turnkey */}
+      {!isTurnkey && (
+        <Card 
+          title={
+            <Space>
+              <span>Areas & Surfaces</span>
+              <Button 
+                type="link" 
+                icon={<EditOutlined />}
+                onClick={() => onEdit(2)}
+              >
+                Edit
+              </Button>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          {areaDetails.map(area => (
+            <div key={area.areaName} style={{ marginBottom: 16 }}>
+              <Title level={5}>{area.areaName}</Title>
+              <Table
+                size="small"
+                pagination={false}
+                dataSource={area.items}
+                rowKey={(record, index) => index}
+                columns={[
+                  { title: 'Category', dataIndex: 'type', key: 'type' },
+                  { 
+                    title: 'Quantity', 
+                    key: 'quantity', 
+                    render: (_, record) => record.quantity ? `${record.quantity} ${record.unit === 'sqft' ? 'sq ft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'units' : 'hrs'}` : 'N/A'
+                  },
+                  { 
+                    title: 'Coats', 
+                    dataIndex: 'coats', 
+                    key: 'coats',
+                    render: (val) => val > 0 ? `${val} coat${val > 1 ? 's' : ''}` : '-'
+                  },
+                  { 
+                    title: 'Gallons', 
+                    dataIndex: 'gallons', 
+                    key: 'gallons',
+                    render: (val) => val ? `${val} gal` : '-'
+                  },
+                  { 
+                    title: 'Labor Rate', 
+                    dataIndex: 'laborRate', 
+                    key: 'laborRate',
+                    render: (val, record) => val ? `$${val}/${record.unit === 'sqft' ? 'sqft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'unit' : 'hr'}` : '-'
+                  },
+                  { title: 'Dimensions', dataIndex: 'dimensions', key: 'dimensions', render: (val) => val || '-' },
+                ]}
+              />
+              <Space style={{ marginTop: 8 }}>
+                {area.totalSqft > 0 && <Text type="secondary">Total Area: {area.totalSqft.toFixed(0)} sq ft</Text>}
+                {area.totalGallons > 0 && <Text type="secondary">• Total Gallons: {area.totalGallons} gal</Text>}
+              </Space>
+            </div>
+          ))}
+        </Card>
+      )}
 
       {/* Products */}
       <Card 
@@ -536,6 +622,27 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
           </Row>
 
           <Divider orientation="left">Detailed Breakdown</Divider>
+          
+          {/* Material Calculation Settings */}
+          {calculatedQuote.includeMaterials !== undefined && (
+            <Alert
+              message={calculatedQuote.includeMaterials ? "Materials Included in Quote" : "Labor-Only Quote (Materials Not Included)"}
+              description={
+                calculatedQuote.includeMaterials ? (
+                  <Space direction="vertical" size={0}>
+                    <Text>Coverage: {calculatedQuote.coverage || 350} sq ft per gallon</Text>
+                    <Text>Application Method: {(calculatedQuote.applicationMethod || 'roll').toUpperCase()}</Text>
+                    <Text>Coats: {calculatedQuote.coats || 2}</Text>
+                  </Space>
+                ) : (
+                  <Text>Customer is providing all paint and materials. Quote includes labor only.</Text>
+                )
+              }
+              type={calculatedQuote.includeMaterials ? "success" : "warning"}
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
           
           {/* Quote Validity Notice */}
           {calculatedQuote.quoteValidityDays && (

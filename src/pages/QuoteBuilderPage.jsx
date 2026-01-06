@@ -12,6 +12,7 @@ import CustomerInfoStep from '../components/QuoteBuilder/CustomerInfoStep';
 import JobTypeStep from '../components/QuoteBuilder/JobTypeStep';
 import AreasStepEnhanced from '../components/QuoteBuilder/AreasStepEnhanced';
 import ExteriorAreasStep from '../components/QuoteBuilder/ExteriorAreasStep';
+import HomeSizeStep from '../components/QuoteBuilder/HomeSizeStep';
 import ProductsStep from '../components/QuoteBuilder/ProductsStep';
 import SummaryStep from '../components/QuoteBuilder/SummaryStep';
 import { quoteBuilderApi } from '../services/quoteBuilderApi';
@@ -48,7 +49,13 @@ function QuoteBuilderPage() {
     // Job Type (Step 2)
     jobType: 'interior',
     
-    // Areas (Step 3)
+    // Turnkey-specific fields
+    homeSqft: null,
+    jobScope: 'both', // interior/exterior/both
+    numberOfStories: 1,
+    conditionModifier: 'average',
+    
+    // Areas (Step 3) - for non-turnkey models
     areas: [],
     
     // Products (Step 4)
@@ -78,17 +85,17 @@ function QuoteBuilderPage() {
   const lastSaveTime = useRef(Date.now());
 
   // Auto-save every 30 seconds
-  useEffect(() => {
-    autoSaveInterval.current = setInterval(() => {
-      handleAutoSave();
-    }, 30000); // 30 seconds
+  // useEffect(() => {
+  //   autoSaveInterval.current = setInterval(() => {
+  //     handleAutoSave();
+  //   }, 30000); // 30 seconds
 
-    return () => {
-      if (autoSaveInterval.current) {
-        clearInterval(autoSaveInterval.current);
-      }
-    };
-  }, [formData]);
+  //   return () => {
+  //     if (autoSaveInterval.current) {
+  //       clearInterval(autoSaveInterval.current);
+  //     }
+  //   };
+  // }, [formData]);
 
   // Fetch pricing schemes and load quote data on mount
   useEffect(() => {
@@ -109,6 +116,121 @@ function QuoteBuilderPage() {
     
     initializePage();
   }, []);
+
+  // Watch for pricing scheme changes and warn user if switching models
+  useEffect(() => {
+    if (!formData.pricingSchemeId || pricingSchemes.length === 0) return;
+    
+    const selectedScheme = pricingSchemes.find(s => s.id === formData.pricingSchemeId);
+    if (!selectedScheme) return;
+    
+    const isTurnkey = selectedScheme.type === 'turnkey' || selectedScheme.type === 'sqft_turnkey';
+    const hasAreas = formData.areas && formData.areas.length > 0;
+    const hasHomeSqft = formData.homeSqft && formData.homeSqft > 0;
+    
+    // If switching from non-turnkey to turnkey and has areas data
+    if (isTurnkey && hasAreas && !hasHomeSqft) {
+      message.warning({
+        content: 'Switched to Turnkey pricing. Room measurements and products are not needed. They have been cleared.',
+        duration: 5
+      });
+      
+      // Clear areas and productSets since turnkey doesn't use them
+      setFormData(prev => ({
+        ...prev,
+        areas: [],
+        productSets: [],
+        homeSqft: prev.homeSqft || null,
+        jobScope: prev.jobScope || 'both',
+        numberOfStories: prev.numberOfStories || 1,
+        conditionModifier: prev.conditionModifier || 'average'
+      }));
+    }
+    
+    // If switching from turnkey to non-turnkey and has home sqft
+    if (!isTurnkey && hasHomeSqft && !hasAreas) {
+      message.warning({
+        content: 'Switched from Turnkey pricing. You will need to add room measurements.',
+        duration: 5
+      });
+      
+      // Clear turnkey-specific fields AND productSets to force rebuild
+      setFormData(prev => ({
+        ...prev,
+        homeSqft: null,
+        jobScope: 'both',
+        numberOfStories: 1,
+        conditionModifier: 'average',
+        productSets: [] // Force rebuild based on new areas
+      }));
+    }
+    
+    // If switching between non-turnkey types, clear productSets to force sync
+    // This handles switching from flat rate to sqft-based, etc.
+    if (!isTurnkey && hasAreas && formData.productSets && formData.productSets.length > 0) {
+      // Check if we need to rebuild productSets based on scheme type change
+      const prevSchemeId = formData._lastPricingSchemeId;
+      if (prevSchemeId && prevSchemeId !== formData.pricingSchemeId) {
+        message.info({
+          content: 'Pricing scheme changed. Product selections will be updated.',
+          duration: 3
+        });
+        
+        setFormData(prev => ({
+          ...prev,
+          productSets: [], // Force rebuild
+          _lastPricingSchemeId: formData.pricingSchemeId
+        }));
+      }
+    }
+  }, [formData.pricingSchemeId, pricingSchemes]);
+
+  // Watch for job type changes and clear areas to prevent showing wrong surface types
+  useEffect(() => {
+    // Skip on initial mount and when loading draft/edit
+    if (!formData.jobType) return;
+    
+    // Only clear if we have areas from a different job type
+    const hasAreas = formData.areas && formData.areas.length > 0;
+    if (hasAreas) {
+      // Check if areas match current job type by looking at surface categories
+      const firstArea = formData.areas[0];
+      const firstItem = firstArea?.items?.[0] || firstArea?.laborItems?.[0];
+      const categoryName = firstItem?.categoryName?.toLowerCase() || '';
+      
+      // Interior categories: walls, ceilings, trim, doors, cabinets
+      // Exterior categories: siding, fascia, soffit, gutters, deck
+      const isInteriorCategory = categoryName.includes('wall') || 
+                                 categoryName.includes('ceiling') || 
+                                 categoryName.includes('trim') || 
+                                 categoryName.includes('door') || 
+                                 categoryName.includes('cabinet');
+      
+      const isExteriorCategory = categoryName.includes('siding') || 
+                                 categoryName.includes('fascia') || 
+                                 categoryName.includes('soffit') || 
+                                 categoryName.includes('gutter') || 
+                                 categoryName.includes('deck');
+      
+      // If job type doesn't match area categories, clear them
+      const shouldClearAreas = 
+        (formData.jobType === 'interior' && isExteriorCategory) ||
+        (formData.jobType === 'exterior' && isInteriorCategory);
+      
+      if (shouldClearAreas) {
+        message.info({
+          content: `Job type changed to ${formData.jobType}. Previous areas have been cleared.`,
+          duration: 4
+        });
+        
+        setFormData(prev => ({
+          ...prev,
+          areas: [],
+          productSets: []
+        }));
+      }
+    }
+  }, [formData.jobType]);
 
   const fetchPricingSchemes = async () => {
     try {
@@ -175,7 +297,11 @@ function QuoteBuilderPage() {
 
   const loadQuoteForEdit = (quote) => {
     try {
-      setFormData({
+      // Check if the quote uses turnkey pricing
+      const quoteScheme = pricingSchemes.find(s => s.id === quote.pricingSchemeId);
+      const isTurnkeyQuote = quoteScheme && (quoteScheme.type === 'turnkey' || quoteScheme.type === 'sqft_turnkey');
+      
+      const baseData = {
         // Customer Info
         customerName: quote.customerName || '',
         customerEmail: quote.customerEmail || '',
@@ -189,13 +315,19 @@ function QuoteBuilderPage() {
         // Job Type
         jobType: quote.jobType || 'interior',
         
-        // Areas - ensure proper structure
-        areas: quote.areas || [],
+        // Turnkey-specific fields (only load if turnkey)
+        homeSqft: isTurnkeyQuote ? (quote.homeSqft || null) : null,
+        jobScope: isTurnkeyQuote ? (quote.jobScope || 'both') : 'both',
+        numberOfStories: isTurnkeyQuote ? (quote.numberOfStories || 1) : 1,
+        conditionModifier: isTurnkeyQuote ? (quote.conditionModifier || 'average') : 'average',
+        
+        // Areas - only load if NOT turnkey
+        areas: isTurnkeyQuote ? [] : (quote.areas || []),
         
         // Products
         productStrategy: quote.productStrategy || 'GBB',
         allowCustomerProductChoice: quote.allowCustomerProductChoice || false,
-        productSets: quote.productSets || [],
+        productSets: isTurnkeyQuote ? [] : (quote.productSets || []),
         
         // Summary
         notes: quote.notes || '',
@@ -204,7 +336,9 @@ function QuoteBuilderPage() {
         quoteId: quote.id,
         clientId: quote.clientId || null,
         status: quote.status || 'draft'
-      });
+      };
+      
+      setFormData(baseData);
       
       message.success('Quote loaded for editing');
     } catch (error) {
@@ -240,11 +374,31 @@ function QuoteBuilderPage() {
       const response = await quoteBuilderApi.getQuoteById(quoteId);
       const draft = response.quote;
       
-      setFormData({
+      // Check if the draft uses turnkey pricing
+      const draftScheme = pricingSchemes.find(s => s.id === draft.pricingSchemeId);
+      const isTurnkeyDraft = draftScheme && (draftScheme.type === 'turnkey' || draftScheme.type === 'sqft_turnkey');
+      
+      // If it's a turnkey draft, don't load areas/productSets
+      // If it's a non-turnkey draft, don't load turnkey-specific fields
+      const draftData = {
         ...formData,
         ...draft,
         quoteId: draft.id
-      });
+      };
+      
+      if (isTurnkeyDraft) {
+        // Clear areas and productSets for turnkey
+        draftData.areas = [];
+        draftData.productSets = [];
+      } else {
+        // Clear turnkey-specific fields for non-turnkey
+        draftData.homeSqft = null;
+        draftData.jobScope = 'both';
+        draftData.numberOfStories = 1;
+        draftData.conditionModifier = 'average';
+      }
+      
+      setFormData(draftData);
       
       message.success('Draft loaded successfully');
     } catch (error) {
@@ -336,7 +490,42 @@ function QuoteBuilderPage() {
     setDetectedClient(null);
   };
 
-  const progress = ((currentStep + 1) / steps.length) * 100;
+  // Determine pricing model type with normalization
+  const getPricingModelType = () => {
+    if (!formData.pricingSchemeId || !pricingSchemes.length) return null;
+    const scheme = pricingSchemes.find(s => s.id === formData.pricingSchemeId);
+    if (!scheme) return null;
+    
+    // Normalize legacy types to new types
+    const typeMap = {
+      'turnkey': 'turnkey',
+      'sqft_turnkey': 'turnkey',
+      'rate_based_sqft': 'rate_based_sqft',
+      'sqft_labor_paint': 'rate_based_sqft',
+      'production_based': 'production_based',
+      'hourly_time_materials': 'production_based',
+      'flat_rate_unit': 'flat_rate_unit',
+      'unit_pricing': 'flat_rate_unit',
+      'room_flat_rate': 'flat_rate_unit',
+    };
+    
+    return typeMap[scheme.type] || 'rate_based_sqft'; // Default to rate-based
+  };
+
+  // Determine if current pricing scheme is turnkey
+  const isTurnkeyPricing = () => {
+    return getPricingModelType() === 'turnkey';
+  };
+
+  // Dynamic steps based on pricing model
+  const dynamicSteps = isTurnkeyPricing() ? [
+    { id: 0, title: 'Customer Info', icon: UserOutlined },
+    { id: 1, title: 'Home Size & Scope', icon: HomeOutlined },
+    { id: 2, title: 'Products', icon: BgColorsOutlined },
+    { id: 3, title: 'Summary', icon: FileTextOutlined }
+  ] : steps;
+
+  const progress = ((currentStep + 1) / dynamicSteps.length) * 100;
 
   const renderStepContent = () => {
     switch (currentStep) {
@@ -354,44 +543,85 @@ function QuoteBuilderPage() {
         );
       
       case 1:
-        return (
-          <JobTypeStep
-            formData={formData}
-            onUpdate={handleStepDataUpdate}
-            onNext={handleNext}
-            onPrevious={handlePrevious}
-          />
-        );
+        // For turnkey: show Home Size & Scope, for others: show Job Type
+        if (isTurnkeyPricing()) {
+          return (
+            <HomeSizeStep
+              formData={formData}
+              setFormData={setFormData}
+              onNext={handleNext}
+              onPrevious={handlePrevious}
+              pricingSchemes={pricingSchemes}
+            />
+          );
+        } else {
+          return (
+            <JobTypeStep
+              formData={formData}
+              onUpdate={handleStepDataUpdate}
+              onNext={handleNext}
+              onPrevious={handlePrevious}
+            />
+          );
+        }
       
       case 2:
-        // Use ExteriorAreasStep for exterior jobs, AreasStepEnhanced for interior
-        return formData.jobType === 'exterior' ? (
-          <ExteriorAreasStep
-            formData={formData}
-            onUpdate={handleStepDataUpdate}
-            onNext={handleNext}
-            onPrevious={handlePrevious}
-          />
-        ) : (
-          <AreasStepEnhanced
-            formData={formData}
-            onUpdate={handleStepDataUpdate}
-            onNext={handleNext}
-            onPrevious={handlePrevious}
-          />
-        );
+        // For turnkey: Products, for others: Areas
+        if (isTurnkeyPricing()) {
+          return (
+            <ProductsStep
+              formData={formData}
+              onUpdate={handleStepDataUpdate}
+              onNext={handleNext}
+              onPrevious={handlePrevious}
+              pricingSchemes={pricingSchemes}
+            />
+          );
+        } else {
+          // Use ExteriorAreasStep for exterior jobs, AreasStepEnhanced for interior
+          return formData.jobType === 'exterior' ? (
+            <ExteriorAreasStep
+              formData={formData}
+              onUpdate={handleStepDataUpdate}
+              onNext={handleNext}
+              onPrevious={handlePrevious}
+            />
+          ) : (
+            <AreasStepEnhanced
+              formData={formData}
+              onUpdate={handleStepDataUpdate}
+              onNext={handleNext}
+              onPrevious={handlePrevious}
+            />
+          );
+        }
       
       case 3:
-        return (
-          <ProductsStep
-            formData={formData}
-            onUpdate={handleStepDataUpdate}
-            onNext={handleNext}
-            onPrevious={handlePrevious}
-          />
-        );
+        // For turnkey: Summary, for others: Products
+        if (isTurnkeyPricing()) {
+          return (
+            <SummaryStep
+              formData={formData}
+              onUpdate={handleStepDataUpdate}
+              onPrevious={handlePrevious}
+              onEdit={handleEdit}
+              pricingSchemes={pricingSchemes}
+            />
+          );
+        } else {
+          return (
+            <ProductsStep
+              formData={formData}
+              onUpdate={handleStepDataUpdate}
+              onNext={handleNext}
+              onPrevious={handlePrevious}
+              pricingSchemes={pricingSchemes}
+            />
+          );
+        }
       
       case 4:
+        // Only for non-turnkey: Summary
         return (
           <SummaryStep
             formData={formData}
@@ -417,7 +647,7 @@ function QuoteBuilderPage() {
               {isEditMode ? 'Edit Quote' : 'Create New Quote'}
             </h2>
             <span className="text-sm text-gray-500">
-              Step {currentStep + 1} of {steps.length}
+              Step {currentStep + 1} of {dynamicSteps.length}
             </span>
           </div>
           
@@ -425,7 +655,7 @@ function QuoteBuilderPage() {
           
           {/* Step Indicators */}
           <Steps current={currentStep} className="hidden md:flex">
-            {steps.map((step) => (
+            {dynamicSteps.map((step) => (
               <Steps.Step
                 key={step.id}
                 title={step.title}
@@ -440,10 +670,10 @@ function QuoteBuilderPage() {
           <div className="mb-6">
             <h3 className="text-xl font-semibold flex items-center gap-2">
               {(() => {
-                const StepIcon = steps[currentStep].icon;
+                const StepIcon = dynamicSteps[currentStep].icon;
                 return <StepIcon className="text-blue-500" />;
               })()}
-              {steps[currentStep].title}
+              {dynamicSteps[currentStep].title}
             </h3>
           </div>
 

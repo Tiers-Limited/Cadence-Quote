@@ -315,13 +315,13 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
                   <Text style={{ fontSize: '16px' }}>${calculatedQuote.laborTotal?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
                 </Col>
 
-                {calculatedQuote.materialCost && (
+                {calculatedQuote.materialMarkupPercent !== undefined && calculatedQuote.materialMarkupPercent > 0 && (
                   <>
                     <Col span={16} style={{ paddingLeft: 20 }}>
                       <Text type='secondary'>Materials (Raw Cost)</Text>
                     </Col>
                     <Col span={8} style={{ textAlign: 'right' }}>
-                      <Text type='secondary'>${calculatedQuote.materialCost?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+                      <Text type='secondary'>${(calculatedQuote.materialCost || calculatedQuote.materialTotal)?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
                     </Col>
                     
                     <Col span={16} style={{ paddingLeft: 20 }}>

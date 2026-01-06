@@ -335,7 +335,7 @@ const QuotesListPage = () => {
       title: 'Quote #',
       dataIndex: 'quoteNumber',
       key: 'quoteNumber',
-      width: 120,
+      width: 160,
       fixed: isMobile ? undefined : 'left',
       render: (text, record) => (
         <Button type="link" onClick={() => handleViewQuote(record.id)}>

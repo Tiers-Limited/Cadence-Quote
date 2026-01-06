@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { FiLogOut, FiHome, FiSettings, FiUsers, FiPackage, FiSidebar, FiMenu, FiX, FiDroplet, FiDollarSign, FiFileText, FiToggleLeft, FiCreditCard, FiClipboard } from 'react-icons/fi'
+import { FiLogOut, FiHome, FiSettings, FiUsers, FiPackage, FiSidebar, FiMenu, FiX, FiDroplet, FiDollarSign, FiFileText, FiToggleLeft, FiCreditCard, FiClipboard, FiTrendingUp } from 'react-icons/fi'
 import { message, Layout, Menu, Button, theme, Drawer, Badge } from 'antd'
 import { useAuth } from '../hooks/useAuth'
 import { useState, useEffect } from 'react'
@@ -7,6 +7,8 @@ import { apiService } from '../services/apiService'
 import '../styles/sidebar.css'
 import Logo from './Logo'
 import LogoIcon from './LogoIcon'
+
+const { SubMenu } = Menu
 
 function MainLayout({ children }) {
   const navigate = useNavigate()
@@ -16,6 +18,7 @@ function MainLayout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [activeProposalId, setActiveProposalId] = useState(null)
+  const [openKeys, setOpenKeys] = useState(['pricing-engine-submenu', 'pipeline', 'settings-submenu'])
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken()
@@ -143,65 +146,77 @@ function MainLayout({ children }) {
       onClick: () => handleMenuClick('/dashboard')
     },
     {
-      key: 'pricing-engine',
-      path: '/pricing-engine',
+      key: 'pricing-engine-submenu',
       icon: <FiDollarSign size={20} />,
       label: 'Pricing Engine',
-      onClick: () => handleMenuClick('/pricing-engine')
-    },
-     {
-      label: 'New Quote',
-      key: 'quotes-new',
-      path: '/quotes/new',
-      exactMatch: true,
-      icon: <Badge dot offset={[-5, 5]}>
-        <FiFileText size={20} />
-      </Badge>,
-      onClick: () => handleMenuClick('/quotes/new')
-    },
-    {
-      key: 'quotes',
-      path: '/quotes',
-      icon: <FiClipboard size={20} />,
-      label: 'Quotes',
-      onClick: () => handleMenuClick('/quotes')
+      children: [
+        {
+          key: 'pricing-engine',
+          path: '/pricing-engine',
+          icon: <FiDollarSign size={18} />,
+          label: 'Labor & Pricing',
+          onClick: () => handleMenuClick('/pricing-engine')
+        },
+        {
+          key: 'product-tiers',
+          path: '/products/tiers',
+          icon: <FiPackage size={18} />,
+          label: 'Product Tiers',
+          onClick: () => handleMenuClick('/products/tiers')
+        },
+      ]
     },
     {
-      key: 'product-tiers',
-      path: '/products/tiers',
-      icon: <FiPackage size={20} />,
-      label: 'Product Tiers',
-      onClick: () => handleMenuClick('/products/tiers')
+      key: 'pipeline',
+      icon: <FiTrendingUp size={20} />,
+      label: 'Pipeline',
+      children: [
+        {
+          label: 'New Quote',
+          key: 'quotes-new',
+          path: '/quotes/new',
+          exactMatch: true,
+          icon: <Badge dot offset={[-5, 5]}>
+            <FiFileText size={18} />
+          </Badge>,
+          onClick: () => handleMenuClick('/quotes/new')
+        },
+        {
+          key: 'quotes',
+          path: '/quotes',
+          icon: <FiClipboard size={18} />,
+          label: 'Quotes',
+          onClick: () => handleMenuClick('/quotes')
+        },
+        {
+          key: 'leads',
+          path: '/leads',
+          icon: <FiUsers size={18} />,
+          label: 'Leads',
+          onClick: () => handleMenuClick('/leads/forms')
+        },
+      ]
     },
-   
     {
-      key: 'leads',
-      path: '/leads',
-      icon: <FiUsers size={20} />,
-      label: 'Leads',
-      onClick: () => handleMenuClick('/leads/forms')
-    },
-    {
-      key: 'proposal-defaults',
-      path: '/proposal-defaults',
-      icon: <FiFileText size={20} />,
-      label: 'Proposal Defaults',
-      onClick: () => handleMenuClick('/proposal-defaults')
-    },
-    // {
-    //   key: 'service-types',
-    //   path: '/service-types',
-    //   icon: <FiPackage size={20} />,
-    //   label: 'Service Types',
-    //   onClick: () => handleMenuClick('/service-types')
-    // },
-    // Removed standalone labor rates; consolidated under Pricing Engine
-    {
-      key: 'settings',
-      path: '/settings',
+      key: 'settings-submenu',
       icon: <FiSettings size={20} />,
       label: 'Settings',
-      onClick: () => handleMenuClick('/settings'),
+      children: [
+        {
+          key: 'proposal-defaults',
+          path: '/proposal-defaults',
+          icon: <FiFileText size={18} />,
+          label: 'Proposal Defaults',
+          onClick: () => handleMenuClick('/proposal-defaults')
+        },
+        {
+          key: 'settings',
+          path: '/settings',
+          icon: <FiSettings size={18} />,
+          label: 'General Settings',
+          onClick: () => handleMenuClick('/settings'),
+        },
+      ]
     },
   ]
 
@@ -249,8 +264,19 @@ function MainLayout({ children }) {
   const getSelectedKey = () => {
     const currentPath = location.pathname
     
+    // Flatten menu items to include submenu children
+    const flattenedItems = []
+    menuItems.forEach(item => {
+      if (item.children) {
+        // Add submenu children to flattened list
+        item.children.forEach(child => flattenedItems.push(child))
+      } else {
+        flattenedItems.push(item)
+      }
+    })
+    
     // First pass: Check for exact matches (highest priority)
-    const exactMatch = menuItems.find(item => 
+    const exactMatch = flattenedItems.find(item => 
       item.exactMatch && item.path === currentPath
     )
     if (exactMatch) return exactMatch.key
@@ -259,8 +285,8 @@ function MainLayout({ children }) {
     let bestMatch = null
     let longestMatchLength = 0
     
-    for (const item of menuItems) {
-      if (currentPath.startsWith(item.path)) {
+    for (const item of flattenedItems) {
+      if (item.path && currentPath.startsWith(item.path)) {
         const matchLength = item.path.length
         if (matchLength > longestMatchLength) {
           longestMatchLength = matchLength
@@ -276,7 +302,20 @@ function MainLayout({ children }) {
   }
   
   const selectedKey = getSelectedKey()
-  const currentMenuItem = menuItems.find(item => item.key === selectedKey)
+  
+  // Find current menu item label (including submenu items)
+  const findMenuItem = (items, key) => {
+    for (const item of items) {
+      if (item.key === key) return item
+      if (item.children) {
+        const found = item.children.find(child => child.key === key)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  
+  const currentMenuItem = findMenuItem(menuItems, selectedKey)
   const headerTitle = currentMenuItem?.label || 'Dashboard'
 
   // Sidebar content component (reusable for both desktop and mobile)
@@ -295,6 +334,8 @@ function MainLayout({ children }) {
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
+          openKeys={collapsed && !isMobile ? [] : openKeys}
+          onOpenChange={(keys) => setOpenKeys(keys)}
           style={{
             background: '#fafafa',
             border: 'none',

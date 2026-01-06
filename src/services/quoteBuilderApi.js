@@ -20,7 +20,7 @@ const quoteBuilderApi = {
    */
   saveDraft: async (quoteData) => {
     const response = await apiService.post('/quote-builder/save-draft', quoteData);
-    return response.data;
+    return response;
   },
 
   /**
@@ -34,11 +34,13 @@ const quoteBuilderApi = {
   /**
    * Calculate quote totals
    */
-  calculateQuote: async (areas, productSets, pricingSchemeId) => {
+  calculateQuote: async (areas, productSets, pricingSchemeId, jobType, additionalData = {}) => {
     const response = await apiService.post('/quote-builder/calculate', {
       areas,
       productSets,
       pricingSchemeId,
+      jobType,
+      ...additionalData, // Includes homeSqft, jobScope, numberOfStories, conditionModifier
     });
     return response;
   },

@@ -115,10 +115,17 @@ const PricingSchemes = () => {
       key: 'type',
       render: (type) => {
         const types = {
+          // New pricing models
+          turnkey: 'Turnkey Pricing (Whole-Home)',
+          rate_based_sqft: 'Rate-Based Square Foot',
+          production_based: 'Production-Based Pricing',
+          flat_rate_unit: 'Flat Rate (Unit-Based)',
+          // Legacy support
           sqft_turnkey: 'Square Foot (Turnkey)',
-          sqft_labor_only: 'Square Foot (Labor)',
+          sqft_labor_paint: 'Square Foot (Labor + Paint)',
           hourly_time_materials: 'Time & Materials',
-          unit_based: 'Unit-Based'
+          unit_pricing: 'Unit-Based',
+          room_flat_rate: 'Room-Based'
         };
         return types[type] || type;
       },
@@ -163,14 +170,15 @@ const PricingSchemes = () => {
   // Dynamic form fields based on pricing type
   const getRulesFields = (type) => {
     switch (type) {
-      case 'sqft_turnkey':
-      case 'sqft_labor_only':
+      case 'turnkey':
+      case 'sqft_turnkey': // Legacy support
         return (
           <>
             <Form.Item
-              label="Interior Walls (per sq ft)"
-              name={['rules', 'interior_walls']}
+              label="Turnkey Rate (per sq ft of home)"
+              name={['rules', 'turnkeyRate']}
               rules={[{ required: true }]}
+              initialValue={3.50}
             >
               <InputNumber 
                 prefix="$" 
@@ -180,9 +188,40 @@ const PricingSchemes = () => {
               />
             </Form.Item>
             <Form.Item
-              label="Exterior Walls (per sq ft)"
-              name={['rules', 'exterior_walls']}
+              label="Interior Only Rate (optional)"
+              name={['rules', 'interiorRate']}
+            >
+              <InputNumber 
+                prefix="$" 
+                min={0} 
+                precision={2}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Exterior Only Rate (optional)"
+              name={['rules', 'exteriorRate']}
+            >
+              <InputNumber 
+                prefix="$" 
+                min={0} 
+                precision={2}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+          </>
+        );
+      
+      case 'rate_based_sqft':
+      case 'sqft_labor_paint': // Legacy support
+        return (
+          <>
+            <Typography.Title level={5}>Labor Rates</Typography.Title>
+            <Form.Item
+              label="Walls (per sq ft)"
+              name={['rules', 'laborRates', 'walls']}
               rules={[{ required: true }]}
+              initialValue={0.55}
             >
               <InputNumber 
                 prefix="$" 
@@ -193,8 +232,9 @@ const PricingSchemes = () => {
             </Form.Item>
             <Form.Item
               label="Ceilings (per sq ft)"
-              name={['rules', 'ceilings']}
+              name={['rules', 'laborRates', 'ceilings']}
               rules={[{ required: true }]}
+              initialValue={0.65}
             >
               <InputNumber 
                 prefix="$" 
@@ -205,8 +245,33 @@ const PricingSchemes = () => {
             </Form.Item>
             <Form.Item
               label="Trim (per linear ft)"
-              name={['rules', 'trim']}
+              name={['rules', 'laborRates', 'trim']}
               rules={[{ required: true }]}
+              initialValue={2.50}
+            >
+              <InputNumber 
+                prefix="$" 
+                min={0} 
+                precision={2}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Doors (per unit)"
+              name={['rules', 'laborRates', 'doors']}
+              initialValue={45}
+            >
+              <InputNumber 
+                prefix="$" 
+                min={0} 
+                precision={2}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Cabinets (per unit)"
+              name={['rules', 'laborRates', 'cabinets']}
+              initialValue={65}
             >
               <InputNumber 
                 prefix="$" 
@@ -218,13 +283,15 @@ const PricingSchemes = () => {
           </>
         );
       
-      case 'hourly_time_materials':
+      case 'production_based':
+      case 'hourly_time_materials': // Legacy support
         return (
           <>
             <Form.Item
-              label="Hourly Rate"
-              name={['rules', 'hourly_rate']}
+              label="Hourly Labor Rate (per painter)"
+              name={['rules', 'hourlyLaborRate']}
               rules={[{ required: true }]}
+              initialValue={50}
             >
               <InputNumber 
                 prefix="$" 
@@ -233,27 +300,54 @@ const PricingSchemes = () => {
                 style={{ width: '100%' }}
               />
             </Form.Item>
+            <Typography.Title level={5}>Production Rates</Typography.Title>
             <Form.Item
-              label="Material Markup (%)"
-              name={['rules', 'material_markup']}
+              label="Walls (sq ft per hour)"
+              name={['rules', 'productionRates', 'walls']}
               rules={[{ required: true }]}
+              initialValue={300}
             >
               <InputNumber 
                 min={0} 
-                max={100}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Ceilings (sq ft per hour)"
+              name={['rules', 'productionRates', 'ceilings']}
+              rules={[{ required: true }]}
+              initialValue={250}
+            >
+              <InputNumber 
+                min={0} 
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Trim (linear ft per hour)"
+              name={['rules', 'productionRates', 'trim']}
+              rules={[{ required: true }]}
+              initialValue={75}
+            >
+              <InputNumber 
+                min={0} 
                 style={{ width: '100%' }}
               />
             </Form.Item>
           </>
         );
       
-      case 'unit_based':
+      case 'flat_rate_unit':
+      case 'unit_pricing': // Legacy support
+      case 'room_flat_rate': // Legacy support
         return (
           <>
+            <Typography.Title level={5}>Unit Prices</Typography.Title>
             <Form.Item
-              label="Per Room Rate"
-              name={['rules', 'per_room']}
+              label="Per Door"
+              name={['rules', 'unitPrices', 'door']}
               rules={[{ required: true }]}
+              initialValue={85}
             >
               <InputNumber 
                 prefix="$" 
@@ -263,9 +357,10 @@ const PricingSchemes = () => {
               />
             </Form.Item>
             <Form.Item
-              label="Per Door Rate"
-              name={['rules', 'per_door']}
+              label="Per Window"
+              name={['rules', 'unitPrices', 'window']}
               rules={[{ required: true }]}
+              initialValue={75}
             >
               <InputNumber 
                 prefix="$" 
@@ -275,9 +370,33 @@ const PricingSchemes = () => {
               />
             </Form.Item>
             <Form.Item
-              label="Per Window Rate"
-              name={['rules', 'per_window']}
-              rules={[{ required: true }]}
+              label="Small Room"
+              name={['rules', 'unitPrices', 'room_small']}
+              initialValue={350}
+            >
+              <InputNumber 
+                prefix="$" 
+                min={0} 
+                precision={2}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Medium Room"
+              name={['rules', 'unitPrices', 'room_medium']}
+              initialValue={500}
+            >
+              <InputNumber 
+                prefix="$" 
+                min={0} 
+                precision={2}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Large Room"
+              name={['rules', 'unitPrices', 'room_large']}
+              initialValue={750}
             >
               <InputNumber 
                 prefix="$" 
@@ -340,10 +459,10 @@ const PricingSchemes = () => {
             rules={[{ required: true }]}
           >
             <Select>
-              <Option value="sqft_turnkey">Square Foot (Turnkey)</Option>
-              <Option value="sqft_labor_only">Square Foot (Labor Only)</Option>
-              <Option value="hourly_time_materials">Time & Materials</Option>
-              <Option value="unit_based">Unit-Based</Option>
+              <Option value="turnkey">Turnkey Pricing (Whole-Home)</Option>
+              <Option value="rate_based_sqft">Rate-Based Square Foot</Option>
+              <Option value="production_based">Production-Based Pricing</Option>
+              <Option value="flat_rate_unit">Flat Rate (Unit-Based)</Option>
             </Select>
           </Form.Item>
 
@@ -353,6 +472,80 @@ const PricingSchemes = () => {
           >
             <Input.TextArea />
           </Form.Item>
+
+          <Card title="Common Settings" className="mb-4">
+            <Form.Item
+              name={['rules', 'includeMaterials']}
+              label="Include Materials"
+              valuePropName="checked"
+              initialValue={true}
+            >
+              <Switch />
+            </Form.Item>
+
+            <Form.Item noStyle shouldUpdate>
+              {({ getFieldValue }) => {
+                const includeMaterials = getFieldValue(['rules', 'includeMaterials']);
+                if (!includeMaterials) return null;
+                
+                return (
+                  <>
+                    <Form.Item
+                      label="Cost per Gallon"
+                      name={['rules', 'costPerGallon']}
+                      initialValue={40}
+                      rules={[{ required: true }]}
+                    >
+                      <InputNumber 
+                        prefix="$" 
+                        min={0} 
+                        precision={2}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Number of Coats"
+                      name={['rules', 'coats']}
+                      initialValue={2}
+                      rules={[{ required: true }]}
+                    >
+                      <InputNumber 
+                        min={1} 
+                        max={5}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Coverage (sq ft per gallon)"
+                      name={['rules', 'coverage']}
+                      initialValue={350}
+                      rules={[{ required: true }]}
+                    >
+                      <InputNumber 
+                        min={250} 
+                        max={450}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Application Method"
+                      name={['rules', 'applicationMethod']}
+                      initialValue="roll"
+                      rules={[{ required: true }]}
+                    >
+                      <Select>
+                        <Option value="roll">Roll (350 sq ft/gal)</Option>
+                        <Option value="spray">Spray (300 sq ft/gal)</Option>
+                      </Select>
+                    </Form.Item>
+                  </>
+                );
+              }}
+            </Form.Item>
+          </Card>
 
           <Card title="Pricing Rules" className="mb-4">
             <Form.Item noStyle shouldUpdate>
