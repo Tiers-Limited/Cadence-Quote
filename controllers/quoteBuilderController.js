@@ -57,6 +57,27 @@ async function calculateQuotePricing(quote, tenantId) {
     
     const model = modelMap[schemeType] || schemeType;
     
+    // Fetch labor category rates for rate-based pricing
+    const LaborCategoryRate = require('../models/LaborCategoryRate');
+    const LaborCategory = require('../models/LaborCategory');
+    
+    const laborCategoryRates = await LaborCategoryRate.findAll({
+      where: { tenantId, isActive: true },
+      include: [{
+        model: LaborCategory,
+        as: 'category',
+        where: { isActive: true },
+        required: true
+      }]
+    });
+    
+    // Build labor rates object for rate-based pricing
+    const laborRatesMap = {};
+    laborCategoryRates.forEach(lcr => {
+      const categoryName = lcr.category.categoryName;
+      laborRatesMap[categoryName] = parseFloat(lcr.rate);
+    });
+    
     // Merge material calculation overrides from quote data
     const mergedRules = {
       ...rules,
@@ -65,13 +86,77 @@ async function calculateQuotePricing(quote, tenantId) {
       applicationMethod: quote.applicationMethod || rules.applicationMethod || 'roll',
       coats: quote.coats || rules.coats || 2,
       costPerGallon: rules.costPerGallon || 40,
+      
+      // Turnkey rates from contractor settings
+      interiorRate: settings?.turnkeyInteriorRate || 3.50,
+      exteriorRate: settings?.turnkeyExteriorRate || 3.50,
+      
+      // Labor rates for rate-based pricing (from labor_category_rates table)
+      laborRates: {
+        walls: laborRatesMap['Walls'] || 0.55,
+        ceilings: laborRatesMap['Ceilings'] || 0.65,
+        trim: laborRatesMap['Trim'] || 2.50,
+        doors: laborRatesMap['Doors'] || 45,
+        cabinets: laborRatesMap['Cabinets'] || 65,
+        'exterior walls': laborRatesMap['Exterior Walls'] || 0.55,
+        'exterior trim': laborRatesMap['Exterior Trim'] || 2.50,
+        'exterior doors': laborRatesMap['Exterior Doors'] || 45,
+        'deck': laborRatesMap['Decks & Railings'] || 2.00,
+        'soffit & fascia': laborRatesMap['Soffit & Fascia'] || 2.50,
+        'shutters': laborRatesMap['Shutters'] || 50,
+      },
+      
+      // Production rates from contractor settings (sqft/hour or units/hour)
+      productionRates: {
+        walls: settings?.productionInteriorWalls || 300,
+        ceilings: settings?.productionInteriorCeilings || 250,
+        trim: settings?.productionInteriorTrim || 150,
+        'exterior walls': settings?.productionExteriorWalls || 250,
+        'exterior trim': settings?.productionExteriorTrim || 120,
+        'soffit & fascia': settings?.productionSoffitFascia || 100,
+        doors: settings?.productionDoors || 2,
+        cabinets: settings?.productionCabinets || 1.5,
+      },
+      hourlyLaborRate: settings?.defaultLaborHourRate || 50,
+      crewSize: settings?.crewSize || 2,
+      
+      // Flat rate unit prices from contractor settings
+      unitPrices: settings?.flatRateUnitPrices || {
+        door: 85,
+        window: 75,
+        room_small: 350,
+        room_medium: 450,
+        room_large: 600,
+        cabinet: 125,
+        walls: 2.5,
+        ceilings: 2.0,
+        trim: 1.5,
+      },
     };
+    
+    // Transform areas data: convert laborItems to items format expected by calculator
+    const transformedAreas = (quote.areas || []).map(area => {
+      // Use laborItems if available (new format), otherwise use items (old format)
+      const items = area.laborItems || area.items || [];
+      const selectedItems = items.filter(item => item.selected);
+      
+      return {
+        name: area.name || 'Unnamed Area',
+        items: selectedItems.map(item => ({
+          categoryName: item.categoryName,
+          quantity: parseFloat(item.quantity) || 0,
+          measurementUnit: item.measurementUnit || 'sqft',
+          laborRate: parseFloat(item.laborRate) || 0,
+          numberOfCoats: parseInt(item.numberOfCoats) || 2,
+        }))
+      };
+    }).filter(area => area.items.length > 0); // Only include areas with selected items
     
     // Prepare calculation parameters
     const params = {
       model,
       rules: mergedRules,
-      areas: quote.areas || [],
+      areas: transformedAreas,
       homeSqft: quote.homeSqft || 0,
       jobScope: quote.jobType || 'interior',
     };
@@ -1027,9 +1112,49 @@ exports.calculateQuote = async (req, res) => {
       includeMaterials = true,
       coverage = 350,
       applicationMethod = 'roll',
-      coats = 2
+      coats = 2,
+      selectedTier = 'better'  // NEW: GBB tier selection (good/better/best/single)
     } = req.body;
     const tenantId = req.user.tenantId;
+
+    // Helper: Get tier-specific value from GBB structure
+    const getTierValue = (baseValue, gbbOverrides, tier = selectedTier) => {
+      if (!gbbOverrides || !gbbOverrides[tier]) return baseValue;
+      return gbbOverrides[tier] ?? baseValue;
+    };
+
+    // Helper: Map internal pricing model type to friendly name
+    const getPricingModelFriendlyName = (type) => {
+      const typeMap = {
+        'turnkey': 'Standard Turnkey Pricing',
+        'sqft_turnkey': 'Standard Turnkey Pricing',
+        'sqft_labor_paint': 'Rate-Based Pricing (Labor + Materials)',
+        'rate_based_sqft': 'Rate-Based Pricing (Labor + Materials)',
+        'hourly_time_materials': 'Production-Based Pricing (Time & Materials)',
+        'production_based': 'Production-Based Pricing (Time & Materials)',
+        'unit_pricing': 'Flat Rate Unit Pricing',
+        'flat_rate_unit': 'Flat Rate Unit Pricing',
+        'room_flat_rate': 'Flat Rate Unit Pricing'
+      };
+      return typeMap[type] || type;
+    };
+
+    // Helper: Round gallons to nearest whole number (1.2-1.9 → 2, 2.1-2.9 → 3)
+    const roundGallons = (gallons) => {
+      return Math.ceil(gallons);
+    };
+
+    // Helper: Get product set for a surface type
+    const getProductSetForSurface = (surfaceType) => {
+      if (!productSets) return null;
+      if (Array.isArray(productSets)) {
+        return productSets.find(ps => 
+          ps.surfaceType === surfaceType || 
+          ps.surfaceType?.toLowerCase().includes(surfaceType?.toLowerCase())
+        );
+      }
+      return productSets[surfaceType];
+    };
 
     // Get pricing scheme (optional - use default if not provided)
     let pricingScheme = null;
@@ -1076,12 +1201,18 @@ exports.calculateQuote = async (req, res) => {
     // If turnkey and homeSqft is provided, use turnkey calculation
     if (isTurnkey && homeSqft && homeSqft > 0) {
       
-      // Determine turnkey rate based on job scope
-      let turnkeyRate = parseFloat(pricingRules.turnkeyRate) || 3.50;
+      // Determine turnkey rate based on job scope with GBB tier support
+      let baseRate = parseFloat(pricingRules.turnkeyRate) || 3.50;
       if (jobScope === 'interior' && pricingRules.interiorRate) {
-        turnkeyRate = parseFloat(pricingRules.interiorRate);
+        baseRate = parseFloat(pricingRules.interiorRate);
       } else if (jobScope === 'exterior' && pricingRules.exteriorRate) {
-        turnkeyRate = parseFloat(pricingRules.exteriorRate);
+        baseRate = parseFloat(pricingRules.exteriorRate);
+      }
+
+      // Apply GBB tier adjustments
+      let turnkeyRate = baseRate;
+      if (pricingRules.gbbRates && selectedTier !== 'single') {
+        turnkeyRate = getTierValue(baseRate, pricingRules.gbbRates, selectedTier);
       }
 
       // Apply condition modifier
@@ -1274,13 +1405,23 @@ exports.calculateQuote = async (req, res) => {
                 break;
 
               case 'sqft_labor_paint':
-                // Separate labor per sqft
-                const laborPerSqft = parseFloat(categoryRule.price || 0.55);
+              case 'rate_based_sqft':
+                // Separate labor per sqft with GBB tier support
+                let laborPerSqft = parseFloat(categoryRule.price || 0.55);
+                
+                // Apply GBB tier override if available
+                if (categoryRule.gbbRates) {
+                  laborPerSqft = getTierValue(laborPerSqft, categoryRule.gbbRates, selectedTier);
+                }
+                
                 if (item.measurementUnit === 'sqft') {
                   itemBreakdown.laborCost = quantity * laborPerSqft;
                 } else if (item.measurementUnit === 'linear_foot') {
-                  // Linear foot pricing (e.g., trim)
-                  const lfRate = parseFloat(pricingRules.trim?.price || 2.50);
+                  // Linear foot pricing (e.g., trim) with GBB
+                  let lfRate = parseFloat(pricingRules.trim?.price || 2.50);
+                  if (pricingRules.trim?.gbbRates) {
+                    lfRate = getTierValue(lfRate, pricingRules.trim.gbbRates, selectedTier);
+                  }
                   itemBreakdown.laborCost = quantity * lfRate;
                 } else {
                   // For hours or units, use labor rate from item
@@ -1289,16 +1430,33 @@ exports.calculateQuote = async (req, res) => {
                 break;
 
               case 'hourly_time_materials':
-                // Calculate based on hourly rate
-                const hourlyRate = parseFloat(pricingRules.hourly_rate?.price || 50);
-                const crewSize = parseInt(pricingRules.crew_size?.value || 2);
+              case 'production_based':
+                // Calculate based on hourly rate with GBB tier support
+                let hourlyRate = parseFloat(pricingRules.hourlyLaborRate || pricingRules.hourly_rate?.price || 50);
+                let crewSize = parseInt(pricingRules.crewSize || pricingRules.crew_size?.value || 2);
+                
+                // Apply GBB tier override for hourly rate
+                if (pricingRules.gbbHourlyRates) {
+                  hourlyRate = getTierValue(hourlyRate, pricingRules.gbbHourlyRates, selectedTier);
+                }
+                
+                // Apply GBB tier override for crew size
+                if (pricingRules.gbbCrewSizes) {
+                  crewSize = getTierValue(crewSize, pricingRules.gbbCrewSizes, selectedTier);
+                }
                 
                 if (item.measurementUnit === 'hour') {
                   // Direct hours
                   itemBreakdown.laborCost = quantity * hourlyRate * crewSize;
                 } else if (item.measurementUnit === 'sqft') {
                   // Convert sqft to hours based on productivity
-                  const productivity = parseFloat(pricingRules.productivity_rate || 250); // sqft per hour
+                  let productivity = parseFloat(pricingRules.productionRates?.[categoryKey] || pricingRules.productivity_rate || 250);
+                  
+                  // Apply GBB tier override for productivity
+                  if (pricingRules.gbbProductionRates && pricingRules.gbbProductionRates[categoryKey]) {
+                    productivity = getTierValue(productivity, pricingRules.gbbProductionRates[categoryKey], selectedTier);
+                  }
+                  
                   const hours = Math.ceil((quantity / productivity) * 10) / 10;
                   itemBreakdown.hours = hours;
                   itemBreakdown.laborCost = hours * hourlyRate * crewSize;
@@ -1309,13 +1467,22 @@ exports.calculateQuote = async (req, res) => {
                 break;
 
               case 'unit_pricing':
-                // Price per unit (doors, windows, cabinets, etc.)
-                const unitPrice = parseFloat(categoryRule.price || 85);
+              case 'flat_rate_unit':
+                // Price per unit (doors, windows, cabinets, etc.) with GBB support
+                let unitPrice = parseFloat(categoryRule.price || pricingRules.unitPrices?.[categoryKey] || 85);
+                
+                // Apply GBB tier override
+                if (categoryRule.gbbPrices) {
+                  unitPrice = getTierValue(unitPrice, categoryRule.gbbPrices, selectedTier);
+                } else if (pricingRules.gbbUnitPrices && pricingRules.gbbUnitPrices[categoryKey]) {
+                  unitPrice = getTierValue(unitPrice, pricingRules.gbbUnitPrices[categoryKey], selectedTier);
+                }
+                
                 if (item.measurementUnit === 'unit') {
                   itemBreakdown.laborCost = quantity * unitPrice;
                 } else {
                   // For sqft or linear_foot, use per-unit calculation
-                  itemBreakdown.laborCost = quantity * (parseFloat(categoryRule.price) || parseFloat(item.laborRate) || 0);
+                  itemBreakdown.laborCost = quantity * unitPrice;
                 }
                 break;
 
@@ -1335,23 +1502,26 @@ exports.calculateQuote = async (req, res) => {
             itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
           }
 
-          // Calculate material cost if gallons are provided AND materials are included
-          if (finalIncludeMaterials && item.gallons && item.gallons > 0) {
+          // Calculate material cost server-side AND materials are included
+          if (finalIncludeMaterials && quantity > 0 && item.measurementUnit === 'sqft') {
             // Get product for this surface type
-            const productSet = (productSets || []).find(ps => 
-              ps.surfaceType === item.categoryName || 
-              ps.surfaceType.toLowerCase().includes(item.categoryName.toLowerCase())
-            );
+            const productSet = getProductSetForSurface(item.categoryName);
             
-            let pricePerGallon = 35; // Default price
+            let pricePerGallon = pricingRules.costPerGallon || 35; // Default price from scheme or fallback
+            let itemCoats = item.numberOfCoats || finalCoats;
+            let itemCoverage = finalCoverage;
             
             if (productSet) {
-              // Get the selected product ID from the tier
-              const selectedProductId = productSet.products?.good || productSet.products?.better || 
-                                       productSet.products?.best || productSet.products?.single;
+              // Get the selected product ID from the chosen tier
+              const tierKey = selectedTier === 'single' ? 'single' : selectedTier;
+              const selectedProductId = productSet.products?.[tierKey] || 
+                                       productSet.products?.better || // Fallback to better
+                                       productSet.products?.good ||    // Then good
+                                       productSet.products?.best ||    // Then best
+                                       productSet.products?.single;    // Finally single
               
               if (selectedProductId) {
-                // Fetch actual product price from database
+                // Fetch actual product price and tier-specific coats/coverage from database
                 try {
                   const productConfig = await ProductConfig.findOne({
                     where: { id: selectedProductId, tenantId },
@@ -1361,27 +1531,39 @@ exports.calculateQuote = async (req, res) => {
                     }]
                   });
                   
-                  if (productConfig && productConfig.sheens && productConfig.sheens.length > 0) {
-                    // Use the price from the first sheen (or average)
-                    pricePerGallon = parseFloat(productConfig.sheens[0].price || 35);
+                  if (productConfig) {
+                    // Get price from first sheen
+                    if (productConfig.sheens && productConfig.sheens.length > 0) {
+                      pricePerGallon = Number.parseFloat(productConfig.sheens[0].price || pricePerGallon);
+                    }
+                    
+                    // Get tier-specific coats and coverage
+                    if (productConfig.defaultCoats) {
+                      itemCoats = parseInt(productConfig.defaultCoats) || itemCoats;
+                    }
+                    if (productConfig.coverageSqftPerGal) {
+                      itemCoverage = parseInt(productConfig.coverageSqftPerGal) || itemCoverage;
+                    }
                   }
                 } catch (err) {
                   console.error('Error fetching product price:', err);
-                  pricePerGallon = 35; // Fallback
+                  // Keep default values
                 }
               }
-              
-              // If productSet has materialCost calculated from frontend, use that
-              if (productSet.materialCost) {
-                itemBreakdown.materialCost = parseFloat(productSet.materialCost);
-              } else {
-                itemBreakdown.materialCost = item.gallons * pricePerGallon;
-              }
-            } else {
-              itemBreakdown.materialCost = item.gallons * pricePerGallon;
             }
+            
+            // Calculate gallons server-side with waste factor (10%)
+            const wasteFactor = 1.10;
+            const calculatedGallons = (quantity * itemCoats / itemCoverage) * wasteFactor;
+            const roundedGallons = roundGallons(calculatedGallons);
+            
+            itemBreakdown.gallons = roundedGallons;
+            itemBreakdown.numberOfCoats = itemCoats;
+            itemBreakdown.coverage = itemCoverage;
+            itemBreakdown.materialCost = roundedGallons * pricePerGallon;
           } else {
-            // Materials not included - set to 0
+            // Materials not included or not sqft-based - set to 0
+            itemBreakdown.gallons = 0;
             itemBreakdown.materialCost = 0;
           }
 
@@ -1607,6 +1789,12 @@ exports.calculateQuote = async (req, res) => {
         coverage: finalCoverage,
         applicationMethod: finalApplicationMethod,
         coats: finalCoats,
+        selectedTier: selectedTier,
+        
+        // Pricing model metadata
+        pricingModelType: pricingScheme?.type || 'rate_based_sqft',
+        pricingModelName: pricingScheme?.name || 'Default Pricing',
+        pricingModelFriendlyName: getPricingModelFriendlyName(pricingScheme?.type) || 'Rate-Based Square Foot Pricing',
         
         // Additional info
         quoteValidityDays: parseInt(quoteValidityDays),

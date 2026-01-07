@@ -136,11 +136,19 @@ function calculateRateBasedPricing(params) {
       // Get labor rate from rules
       let laborRate = 0;
       if (rules.laborRates) {
-        if (category.includes('wall')) laborRate = rules.laborRates.walls || 0.55;
+        // Interior categories
+        if (category.includes('wall') && !category.includes('exterior')) laborRate = rules.laborRates.walls || 0.55;
         else if (category.includes('ceiling')) laborRate = rules.laborRates.ceilings || 0.65;
-        else if (category.includes('trim')) laborRate = rules.laborRates.trim || 2.50;
-        else if (category.includes('door')) laborRate = rules.laborRates.doors || 45;
+        else if (category.includes('trim') && !category.includes('exterior')) laborRate = rules.laborRates.trim || 2.50;
+        else if (category.includes('door') && !category.includes('exterior')) laborRate = rules.laborRates.doors || 45;
         else if (category.includes('cabinet')) laborRate = rules.laborRates.cabinets || 65;
+        // Exterior categories
+        else if (category.includes('exterior wall')) laborRate = rules.laborRates['exterior walls'] || 0.55;
+        else if (category.includes('exterior trim')) laborRate = rules.laborRates['exterior trim'] || 2.50;
+        else if (category.includes('exterior door')) laborRate = rules.laborRates['exterior doors'] || 45;
+        else if (category.includes('deck')) laborRate = rules.laborRates.deck || 2.00;
+        else if (category.includes('soffit') || category.includes('fascia')) laborRate = rules.laborRates['soffit & fascia'] || 2.50;
+        else if (category.includes('shutter')) laborRate = rules.laborRates.shutters || 50;
       }
       
       const laborCost = quantity * laborRate;
@@ -190,6 +198,7 @@ function calculateProductionBasedPricing(params) {
   const { areas, rules } = params;
   
   const hourlyLaborRate = rules.hourlyLaborRate || 50;
+  const crewSize = rules.crewSize || 2;
   let totalLaborCost = 0;
   let totalSqft = 0;
   let totalHours = 0;
@@ -204,13 +213,20 @@ function calculateProductionBasedPricing(params) {
       // Get production rate from rules (sqft or linear ft per hour)
       let productionRate = 0;
       if (rules.productionRates) {
-        if (category.includes('wall')) productionRate = rules.productionRates.walls || 300;
+        // Interior categories
+        if (category.includes('wall') && !category.includes('exterior')) productionRate = rules.productionRates.walls || 300;
         else if (category.includes('ceiling')) productionRate = rules.productionRates.ceilings || 250;
-        else if (category.includes('trim')) productionRate = rules.productionRates.trim || 75;
+        else if (category.includes('trim') && !category.includes('exterior')) productionRate = rules.productionRates.trim || 150;
+        else if (category.includes('door')) productionRate = rules.productionRates.doors || 2;
+        else if (category.includes('cabinet')) productionRate = rules.productionRates.cabinets || 1.5;
+        // Exterior categories
+        else if (category.includes('exterior wall')) productionRate = rules.productionRates['exterior walls'] || 250;
+        else if (category.includes('exterior trim')) productionRate = rules.productionRates['exterior trim'] || 120;
+        else if (category.includes('soffit') || category.includes('fascia')) productionRate = rules.productionRates['soffit & fascia'] || 100;
       }
       
       if (productionRate > 0) {
-        const hours = quantity / productionRate;
+        const hours = (quantity / productionRate) / crewSize;
         const laborCost = hours * hourlyLaborRate;
         
         totalHours += hours;
@@ -222,6 +238,7 @@ function calculateProductionBasedPricing(params) {
           quantity,
           unit: item.measurementUnit,
           productionRate,
+          crewSize,
           hours: parseFloat(hours.toFixed(2)),
           hourlyRate: hourlyLaborRate,
           laborCost,
@@ -246,6 +263,7 @@ function calculateProductionBasedPricing(params) {
     gallons: materials.gallons,
     totalHours: parseFloat(totalHours.toFixed(2)),
     hourlyLaborRate,
+    crewSize,
     subtotal,
     total: subtotal,
     totalSqft,
@@ -275,13 +293,20 @@ function calculateFlatRatePricing(params) {
       // Get unit price from rules
       let unitPrice = 0;
       if (rules.unitPrices) {
-        if (category.includes('door')) unitPrice = rules.unitPrices.door || 85;
+        // Surface types (sqft/linear ft)
+        if (category.includes('wall')) unitPrice = rules.unitPrices.walls || 2.5;
+        else if (category.includes('ceiling')) unitPrice = rules.unitPrices.ceilings || 2.0;
+        else if (category.includes('trim')) unitPrice = rules.unitPrices.trim || 1.5;
+        // Item types (per unit)
+        else if (category.includes('door')) unitPrice = rules.unitPrices.door || 85;
         else if (category.includes('window')) unitPrice = rules.unitPrices.window || 75;
+        else if (category.includes('cabinet')) unitPrice = rules.unitPrices.cabinet || 125;
+        // Room types
         else if (category.includes('room')) {
           // Determine room size category
           if (category.includes('small')) unitPrice = rules.unitPrices.room_small || 350;
-          else if (category.includes('large')) unitPrice = rules.unitPrices.room_large || 750;
-          else unitPrice = rules.unitPrices.room_medium || 500;
+          else if (category.includes('large')) unitPrice = rules.unitPrices.room_large || 600;
+          else unitPrice = rules.unitPrices.room_medium || 450;
         }
       }
       

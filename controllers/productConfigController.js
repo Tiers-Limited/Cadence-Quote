@@ -546,6 +546,8 @@ const getDefaults = async (req, res) => {
         // Production Rates - Optional
         productionDoors: Number(settings.productionDoors) || 0,
         productionCabinets: Number(settings.productionCabinets) || 0,
+        // Flat Rate Unit Prices
+        flatRateUnitPrices: settings.flatRateUnitPrices || {},
       },
     });
   } catch (error) {
@@ -573,7 +575,8 @@ const updateDefaults = async (req, res) => {
       prepRepairHourlyRate, finishCabinetHourlyRate,
       productionInteriorWalls, productionInteriorCeilings, productionInteriorTrim,
       productionExteriorWalls, productionExteriorTrim, productionSoffitFascia,
-      productionDoors, productionCabinets
+      productionDoors, productionCabinets,
+      flatRateUnitPrices
     } = req.body;
     
     // Get or create contractor settings
@@ -659,6 +662,10 @@ const updateDefaults = async (req, res) => {
     if (productionCabinets !== undefined) {
       updates.productionCabinets = productionCabinets;
     }
+    // Flat Rate Unit Prices
+    if (flatRateUnitPrices !== undefined) {
+      updates.flatRateUnitPrices = flatRateUnitPrices;
+    }
     
     await settings.update(updates);
     
@@ -688,6 +695,7 @@ const updateDefaults = async (req, res) => {
         productionSoffitFascia: Number(settings.productionSoffitFascia) || 0,
         productionDoors: Number(settings.productionDoors) || 0,
         productionCabinets: Number(settings.productionCabinets) || 0,
+        flatRateUnitPrices: settings.flatRateUnitPrices || {},
       },
     });
   } catch (error) {

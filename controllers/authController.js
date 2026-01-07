@@ -1000,6 +1000,7 @@ const registerWithPayment = async (req, res) => {
         where: { email },
         include: [{
           model: Tenant,
+          as: 'tenant',
           attributes: ['id', 'paymentStatus', 'subscriptionPlan']
         }],
         transaction,
@@ -1007,7 +1008,7 @@ const registerWithPayment = async (req, res) => {
       
       if (existingUser) {
         // If user exists with pending payment, clean up and allow re-registration
-        if (!existingUser.isActive && existingUser.Tenant?.paymentStatus === 'pending') {
+        if (!existingUser.isActive && existingUser.tenant?.paymentStatus === 'pending') {
           console.log('Found incomplete registration, cleaning up for retry');
           
           // Delete old pending payment records

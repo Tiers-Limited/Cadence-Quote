@@ -259,6 +259,14 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     defaultValue: 0.00,
     field: 'production_cabinets',
     comment: 'Cabinets production rate (units/hour)'
+  },
+  // Flat Rate Unit Prices
+  flatRateUnitPrices: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'flat_rate_unit_prices',
+    defaultValue: {},
+    comment: 'Flat rate unit prices for surfaces, items, and rooms'
   }
 }, {
   timestamps: true,
