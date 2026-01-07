@@ -757,7 +757,7 @@ const QuotesListPage = () => {
               </Button>
             )
           ]}
-          width={isMobile ? '100%' : 800}
+         
         >
           {selectedQuote && (
             <>

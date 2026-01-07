@@ -9,8 +9,8 @@ const interiorRooms = [
 ];
 
 const exteriorAreas = [
-  'Front Exterior', 'Back Exterior', 'Side Exterior',
-  'Garage', 'Deck', 'Porch', 'Fence', 'Trim'
+  'Exterior Siding',
+  'Garage', 'Deck', 'Porch', 'Fence', 'Shutters'
 ];
 
 export const RoomSelector = ({ jobType, selectedRooms, onRoomAdd, onRoomRemove, onRoomEdit }) => {

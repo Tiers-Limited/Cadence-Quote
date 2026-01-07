@@ -13,6 +13,8 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
   // Check if current pricing scheme is turnkey
   const currentScheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
   const isTurnkey = currentScheme && (currentScheme.type === 'turnkey' || currentScheme.type === 'sqft_turnkey');
+  const isProductionBased = formData.pricingModelType === 'production_based';
+  const isFlatRate = formData.pricingModelType === 'flat_rate_unit';
   
   // DEBUG: Log what we have
   console.log('=== SummaryStep Debug ===');
@@ -28,7 +30,47 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [showProposalPreview, setShowProposalPreview] = useState(false);
+  const [totalEstimatedHours, setTotalEstimatedHours] = useState(0);
   const [productsMap, setProductsMap] = useState({});
+
+  // Calculate total estimated hours for production-based model
+  useEffect(() => {
+    if (isProductionBased && formData.areas && formData.contractorSettings?.productionRates) {
+      let totalHours = 0;
+      const prodRates = formData.contractorSettings.productionRates;
+      const crewSize = formData.contractorSettings.other?.crewSize || 2;
+      
+      const getProductionRate = (categoryName) => {
+        const keyMap = {
+          'Walls': 'interiorWalls',
+          'Ceilings': 'interiorCeilings',
+          'Trim': 'interiorTrim',
+          'Cabinets': 'cabinets',
+          'Doors': 'doors',
+          'Exterior Walls': 'exteriorWalls',
+          'Exterior Trim': 'exteriorTrim',
+          'Deck': 'deck',
+          'Fence': 'fence'
+        };
+        const key = keyMap[categoryName] || 'interiorWalls';
+        return prodRates[key] || 300;
+      };
+
+      formData.areas.forEach(area => {
+        if (area.laborItems) {
+          area.laborItems.forEach(item => {
+            if (item.quantity > 0) {
+              const productionRate = getProductionRate(item.categoryName);
+              const hours = (item.quantity / productionRate) / crewSize;
+              totalHours += hours;
+            }
+          });
+        }
+      });
+      
+      setTotalEstimatedHours(totalHours);
+    }
+  }, [isProductionBased, formData.areas, formData.contractorSettings]);
 
   useEffect(() => {
     calculateQuote();
@@ -306,6 +348,33 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         style={{ marginBottom: 24 }}
       />
 
+      {/* Pricing Model Display Banner */}
+      {formData.pricingSchemeId && currentScheme && (
+        <Card 
+          style={{ 
+            marginBottom: 16, 
+            backgroundColor: '#f0f5ff', 
+            borderColor: '#1890ff',
+            borderWidth: 2
+          }}
+        >
+          <div style={{ textAlign: 'center' }}>
+            <Tag color="purple" style={{ fontSize: 16, padding: '8px 16px', marginBottom: 8 }}>
+              {formData.pricingModelFriendlyName || currentScheme.name}
+            </Tag>
+            <div>
+              <Text type="secondary" style={{ fontSize: 14 }}>
+                {currentScheme.description || 
+                 (currentScheme.type.includes('turnkey') ? 'All-inclusive pricing based on total square footage' :
+                  currentScheme.type.includes('production') ? 'Time & materials with estimated hours' :
+                  currentScheme.type.includes('flat') || currentScheme.type.includes('unit') ? 'Fixed pricing per unit/item' :
+                  'Square foot based labor pricing')}
+              </Text>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Customer Information */}
       <Card 
         title={
@@ -442,35 +511,61 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                 columns={[
                   { title: 'Category', dataIndex: 'type', key: 'type' },
                   { 
-                    title: 'Quantity', 
+                    title: isFlatRate ? 'Quantity (Count)' : 'Quantity', 
                     key: 'quantity', 
-                    render: (_, record) => record.quantity ? `${record.quantity} ${record.unit === 'sqft' ? 'sq ft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'units' : 'hrs'}` : 'N/A'
+                    render: (_, record) => {
+                      if (!record.quantity) return 'N/A';
+                      if (isFlatRate) {
+                        // Flat-rate: show simple count without measurement units
+                        return `${record.quantity} ${record.unit === 'unit' ? 'items' : 'count'}`;
+                      }
+                      // Detailed: show with measurement units
+                      return `${record.quantity} ${record.unit === 'sqft' ? 'sq ft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'units' : 'hrs'}`;
+                    }
                   },
-                  { 
-                    title: 'Coats', 
-                    dataIndex: 'coats', 
-                    key: 'coats',
-                    render: (val) => val > 0 ? `${val} coat${val > 1 ? 's' : ''}` : '-'
-                  },
-                  { 
-                    title: 'Gallons', 
-                    dataIndex: 'gallons', 
-                    key: 'gallons',
-                    render: (val) => val ? `${val} gal` : '-'
-                  },
+                  ...(!isFlatRate ? [
+                    { 
+                      title: 'Coats', 
+                      dataIndex: 'coats', 
+                      key: 'coats',
+                      render: (val) => val > 0 ? `${val} coat${val > 1 ? 's' : ''}` : '-'
+                    },
+                    { 
+                      title: 'Gallons', 
+                      dataIndex: 'gallons', 
+                      key: 'gallons',
+                      render: (val) => val ? `${val} gal` : '-'
+                    }
+                  ] : []),
                   { 
                     title: 'Labor Rate', 
                     dataIndex: 'laborRate', 
                     key: 'laborRate',
-                    render: (val, record) => val ? `$${val}/${record.unit === 'sqft' ? 'sqft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'unit' : 'hr'}` : '-'
+                    render: (val, record) => {
+                      if (!val) return '-';
+                      if (isFlatRate) {
+                        // Flat-rate: show fixed price per item
+                        return `$${val}/item`;
+                      }
+                      return `$${val}/${record.unit === 'sqft' ? 'sqft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'unit' : 'hr'}`;
+                    }
                   },
-                  { title: 'Dimensions', dataIndex: 'dimensions', key: 'dimensions', render: (val) => val || '-' },
+                  ...(!isFlatRate ? [
+                    { title: 'Dimensions', dataIndex: 'dimensions', key: 'dimensions', render: (val) => val || '-' }
+                  ] : []),
                 ]}
               />
-              <Space style={{ marginTop: 8 }}>
-                {area.totalSqft > 0 && <Text type="secondary">Total Area: {area.totalSqft.toFixed(0)} sq ft</Text>}
-                {area.totalGallons > 0 && <Text type="secondary">• Total Gallons: {area.totalGallons} gal</Text>}
-              </Space>
+              {!isFlatRate && (
+                <Space style={{ marginTop: 8 }}>
+                  {area.totalSqft > 0 && <Text type="secondary">Total Area: {area.totalSqft.toFixed(0)} sq ft</Text>}
+                  {area.totalGallons > 0 && <Text type="secondary">• Total Gallons: {area.totalGallons} gal</Text>}
+                </Space>
+              )}
+              {isFlatRate && (
+                <Space style={{ marginTop: 8 }}>
+                  <Text type="secondary">Total Items: {area.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}</Text>
+                </Space>
+              )}
             </div>
           ))}
         </Card>
@@ -594,7 +689,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
       {calculatedQuote && (
         <Card title="Cost Breakdown" loading={loading} style={{ marginBottom: 16 }}>
           <Row gutter={16} style={{ marginBottom: 24 }}>
-            <Col xs={24} sm={8}>
+            <Col xs={24} sm={isProductionBased ? 6 : 8}>
               <Statistic 
                 title="Labor Total" 
                 value={calculatedQuote.laborTotal || 0} 
@@ -602,7 +697,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                 precision={2}
               />
             </Col>
-            <Col xs={24} sm={8}>
+            <Col xs={24} sm={isProductionBased ? 6 : 8}>
               <Statistic 
                 title="Materials Total" 
                 value={calculatedQuote.materialTotal || 0} 
@@ -610,7 +705,18 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                 precision={2}
               />
             </Col>
-            <Col xs={24} sm={8}>
+            {isProductionBased && totalEstimatedHours > 0 && (
+              <Col xs={24} sm={6}>
+                <Statistic 
+                  title="Estimated Hours" 
+                  value={totalEstimatedHours} 
+                  precision={1}
+                  suffix="hrs"
+                  valueStyle={{ color: '#1890ff' }}
+                />
+              </Col>
+            )}
+            <Col xs={24} sm={isProductionBased ? 6 : 8}>
               <Statistic 
                 title="Final Total" 
                 value={calculatedQuote.total || 0} 

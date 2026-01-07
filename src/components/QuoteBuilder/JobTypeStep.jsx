@@ -1,33 +1,106 @@
 // src/components/QuoteBuilder/JobTypeStep.jsx
-import React, { useState } from 'react';
-import { Card, Button, Alert, Row, Col, Typography } from 'antd';
-import { HomeOutlined, BuildOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Card, Button, Alert, Row, Col, Typography, Select, Form, Divider } from 'antd';
+import { HomeOutlined, BuildOutlined, DollarOutlined } from '@ant-design/icons';
+import DynamicPricingFields from './DynamicPricingFields';
 
 const { Title, Text } = Typography;
+const { Option } = Select;
 
-const JobTypeStep = ({ formData, onUpdate, onNext, onPrevious }) => {
+const JobTypeStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes = [] }) => {
   const [selectedType, setSelectedType] = useState(formData.jobType || null);
+  const [selectedScheme, setSelectedScheme] = useState(null);
+
+  // Find the currently selected pricing scheme
+  useEffect(() => {
+    if (formData.pricingSchemeId && pricingSchemes.length > 0) {
+      const scheme = pricingSchemes.find(s => s.id === formData.pricingSchemeId);
+      setSelectedScheme(scheme || null);
+    } else if (pricingSchemes.length > 0 && !formData.pricingSchemeId) {
+      // Auto-select default or first scheme
+      const defaultScheme = pricingSchemes.find(s => s.isDefault) || pricingSchemes[0];
+      if (defaultScheme) {
+        setSelectedScheme(defaultScheme);
+        onUpdate({ pricingSchemeId: defaultScheme.id });
+      }
+    }
+  }, [formData.pricingSchemeId, pricingSchemes]);
 
   const handleJobTypeSelect = (type) => {
     setSelectedType(type);
     onUpdate({ jobType: type });
   };
 
+  const handlePricingSchemeChange = (schemeId) => {
+    const scheme = pricingSchemes.find(s => s.id === schemeId);
+    setSelectedScheme(scheme);
+    onUpdate({ pricingSchemeId: schemeId });
+  };
+
+  const handleDynamicFieldChange = (updates) => {
+    onUpdate(updates);
+  };
+
   const handleNext = () => {
-    if (selectedType) {
+    if (selectedType && formData.pricingSchemeId) {
+      // For turnkey, validate that homeSqft is provided
+      const isTurnkey = selectedScheme?.type === 'turnkey' || selectedScheme?.type === 'sqft_turnkey';
+      if (isTurnkey && !formData.homeSqft) {
+        alert('Please enter the total home size for turnkey pricing');
+        return;
+      }
       onNext();
     }
   };
 
+  const isTurnkey = selectedScheme?.type === 'turnkey' || selectedScheme?.type === 'sqft_turnkey';
+
   return (
     <div className="job-type-step">
       <Alert
-        message="Step 2: Job Type"
-        description="Select the primary category of work. This determines which areas, materials, and processes are available."
+        message="Step 2: Job Type & Pricing Model"
+        description="Select the job type and pricing model for this quote. The pricing model determines how labor and materials are calculated."
         type="info"
         showIcon
         style={{ marginBottom: 24 }}
       />
+
+      {/* Pricing Scheme Selector */}
+      {/* <Card style={{ marginBottom: 24 }}>
+        <Form layout="vertical">
+          <Form.Item
+            label={
+              <span>
+                <DollarOutlined style={{ marginRight: 8 }} />
+                <strong>Pricing Model</strong>
+              </span>
+            }
+            required
+          >
+            <Select
+              size="large"
+              placeholder="Select a pricing model"
+              value={formData.pricingSchemeId}
+              onChange={handlePricingSchemeChange}
+              style={{ width: '100%' }}
+            >
+              {pricingSchemes.map(scheme => (
+                <Option key={scheme.id} value={scheme.id}>
+                  <div>
+                    <strong>{scheme.name}</strong>
+                    {scheme.isDefault && <span style={{ color: '#1890ff', marginLeft: 8 }}>(Default)</span>}
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {scheme.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      {scheme.description && ` - ${scheme.description}`}
+                    </Text>
+                  </div>
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Form>
+      </Card> */}
 
       <Title level={3} style={{ textAlign: 'center', marginBottom: 32 }}>
         What type of painting project is this?
@@ -103,6 +176,24 @@ const JobTypeStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         </Col>
       </Row>
 
+      {/* Dynamic Pricing Fields - shown after job type is selected */}
+      {selectedType && selectedScheme && (
+        <>
+          <Divider />
+          <Card style={{ marginTop: 24 }}>
+            <Title level={4} style={{ marginBottom: 16 }}>
+              {isTurnkey ? 'Home Size Details' : 'Model Overview'}
+            </Title>
+            <DynamicPricingFields
+              pricingScheme={selectedScheme}
+              formData={formData}
+              onChange={handleDynamicFieldChange}
+              showMaterialControls={!isTurnkey}
+            />
+          </Card>
+        </>
+      )}
+
       {!selectedType && (
         <Alert
           message="Please select a job type to continue"
@@ -120,9 +211,9 @@ const JobTypeStep = ({ formData, onUpdate, onNext, onPrevious }) => {
           type="primary" 
           size="large" 
           onClick={handleNext}
-          disabled={!selectedType}
+          disabled={!selectedType || !formData.pricingSchemeId || (isTurnkey && !formData.homeSqft)}
         >
-          Next: Areas & Surfaces
+          Next: {isTurnkey ? 'Products & Summary' : 'Areas & Surfaces'}
         </Button>
       </div>
 

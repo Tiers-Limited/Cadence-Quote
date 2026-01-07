@@ -16,12 +16,6 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
   const [gbbDefaults, setGbbDefaults] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Material calculation settings
-  const [includeMaterials, setIncludeMaterials] = useState(formData.includeMaterials ?? true);
-  const [coverage, setCoverage] = useState(formData.coverage || 350);
-  const [applicationMethod, setApplicationMethod] = useState(formData.applicationMethod || 'roll');
-  const [coats, setCoats] = useState(formData.coats || 2);
-
   const pricingSchemeId = formData.pricingSchemeId;
   
   // Check if current pricing scheme is turnkey
@@ -37,14 +31,9 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
     onUpdate({ 
       productStrategy, 
       allowCustomerProductChoice: allowCustomerChoice,
-      productSets,
-      // Material calculation settings
-      includeMaterials,
-      coverage,
-      applicationMethod,
-      coats
+      productSets
     });
-  }, [productStrategy, allowCustomerChoice, productSets, includeMaterials, coverage, applicationMethod, coats]);
+  }, [productStrategy, allowCustomerChoice, productSets]);
 
   const fetchProducts = async () => {
     try {
@@ -128,6 +117,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
       'Doors': 'interior_trim_doors',
       'Cabinets': 'cabinets',
       'Siding': 'exterior_siding',
+      'Exterior Siding': 'exterior_siding',
       'Windows': 'exterior_trim',
       'Soffit & Fascia': 'exterior_trim',
       'Accent Walls': 'interior_walls',
@@ -162,6 +152,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
           'Doors': 'interior_trim_doors',
           'Cabinets': 'cabinets',
           'Siding': 'exterior_siding',
+          'Exterior Siding': 'exterior_siding',
           'Windows': 'exterior_trim',
           'Soffit & Fascia': 'exterior_trim',
           // New labor category names
@@ -237,6 +228,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
           'Doors': 'interior_trim_doors',
           'Cabinets': 'cabinets',
           'Siding': 'exterior_siding',
+          'Exterior Siding': 'exterior_siding',
           'Windows': 'exterior_trim',
           'Soffit & Fascia': 'exterior_trim',
           'Accent Walls': 'interior_walls',
@@ -529,81 +521,6 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
         )}
       </Card>
 
-      {/* Material Calculation Settings */}
-      <Card title="Material Calculation Settings" style={{ marginBottom: 24 }}>
-        <Row gutter={[16, 16]}>
-          <Col xs={24}>
-            <Checkbox
-              checked={includeMaterials}
-              onChange={(e) => setIncludeMaterials(e.target.checked)}
-            >
-              <strong>Include materials in quote</strong> (Uncheck if customer is providing materials)
-            </Checkbox>
-          </Col>
-          
-          {includeMaterials && (
-            <>
-              <Col xs={24} sm={12} md={6}>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>Application Method</Text>
-                <Radio.Group 
-                  value={applicationMethod} 
-                  onChange={(e) => {
-                    const method = e.target.value;
-                    setApplicationMethod(method);
-                    // Auto-adjust coverage for spray
-                    if (method === 'spray' && coverage > 300) {
-                      setCoverage(300);
-                    } else if (method === 'roll' && coverage < 350) {
-                      setCoverage(350);
-                    }
-                  }}
-                >
-                  <Radio value="roll">Roll (350 sq ft/gal)</Radio>
-                  <Radio value="spray">Spray (300 sq ft/gal)</Radio>
-                </Radio.Group>
-              </Col>
-
-              <Col xs={24} sm={12} md={6}>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>Coverage (sq ft per gallon)</Text>
-                <Select
-                  value={coverage}
-                  onChange={(value) => setCoverage(value)}
-                  style={{ width: '100%' }}
-                >
-                  <Option value={250}>250 sq ft/gal (Low)</Option>
-                  <Option value={300}>300 sq ft/gal (Spray)</Option>
-                  <Option value={350}>350 sq ft/gal (Standard)</Option>
-                  <Option value={400}>400 sq ft/gal (High)</Option>
-                  <Option value={450}>450 sq ft/gal (Premium)</Option>
-                </Select>
-              </Col>
-
-              <Col xs={24} sm={12} md={6}>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>Number of Coats</Text>
-                <Select
-                  value={coats}
-                  onChange={(value) => setCoats(value)}
-                  style={{ width: '100%' }}
-                >
-                  <Option value={1}>1 Coat</Option>
-                  <Option value={2}>2 Coats (Standard)</Option>
-                  <Option value={3}>3 Coats (Premium)</Option>
-                </Select>
-              </Col>
-
-              <Col xs={24} md={6}>
-                <Alert 
-                  type="info" 
-                  message={`Est. ${((1000 * coats) / coverage).toFixed(1)} gallons per 1,000 sq ft`} 
-                  showIcon
-                  style={{ height: '100%' }}
-                />
-              </Col>
-            </>
-          )}
-        </Row>
-      </Card>
-
       {/* Turnkey Simplified Product Selection */}
       {isTurnkey && (
         <div style={{ marginTop: 24 }}>
@@ -871,12 +788,12 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                       )}
                       {!set.products.good && (() => {
                         const d = getDefaultsForSurface(set.surfaceType);
-                        const p = d?.goodProduct;
+                        const p = d?.goodProductId ? getProductById(d.goodProductId) : null;
                         return p ? (
                           <div style={{ marginTop: 8 }}>
                             <Divider style={{ margin: '8px 0' }} />
                             <Text type="secondary" style={{ fontSize: 12 }}>
-                              Recommended: {p.brand?.name || 'Brand'} — {p.name} ({p.category})
+                              Recommended: {p.brandName} — {p.productName} (${p.pricePerGallon}/gal)
                             </Text>
                           </div>
                         ) : null;
@@ -934,12 +851,12 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                       )}
                       {!set.products.better && (() => {
                         const d = getDefaultsForSurface(set.surfaceType);
-                        const p = d?.betterProduct;
+                        const p = d?.betterProductId ? getProductById(d.betterProductId) : null;
                         return p ? (
                           <div style={{ marginTop: 8 }}>
                             <Divider style={{ margin: '8px 0' }} />
                             <Text type="secondary" style={{ fontSize: 12 }}>
-                              Recommended: {p.brand?.name || 'Brand'} — {p.name} ({p.category})
+                              Recommended: {p.brandName} — {p.productName} (${p.pricePerGallon}/gal)
                             </Text>
                           </div>
                         ) : null;
@@ -997,12 +914,12 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                       )}
                       {!set.products.best && (() => {
                         const d = getDefaultsForSurface(set.surfaceType);
-                        const p = d?.bestProduct;
+                        const p = d?.bestProductId ? getProductById(d.bestProductId) : null;
                         return p ? (
                           <div style={{ marginTop: 8 }}>
                             <Divider style={{ margin: '8px 0' }} />
                             <Text type="secondary" style={{ fontSize: 12 }}>
-                              Recommended: {p.brand?.name || 'Brand'} — {p.name} ({p.category})
+                              Recommended: {p.brandName} — {p.productName} (${p.pricePerGallon}/gal)
                             </Text>
                           </div>
                         ) : null;

@@ -84,7 +84,8 @@ const ContractorProductConfigManager = () => {
       markupForm.setFieldsValue({
         defaultMarkup: laborDefaults.defaultMarkup || 15,
         taxRate: laborDefaults.defaultTaxRate || 0,
-        laborHourRate: laborDefaults.defaultLaborHourRate || 0,
+        laborHourRate: laborDefaults.defaultLaborHourRate || 50,
+        crewSize: laborDefaults.crewSize || 2,
         laborMarkupPercent: laborDefaults.laborMarkupPercent || 0,
         materialMarkupPercent: laborDefaults.materialMarkupPercent || 0,
         overheadPercent: laborDefaults.overheadPercent || 0,
@@ -95,7 +96,7 @@ const ContractorProductConfigManager = () => {
         turnkeyExteriorRate: laborDefaults.turnkeyExteriorRate || 0,
         prepRepairHourlyRate: laborDefaults.prepRepairHourlyRate || 0,
         finishCabinetHourlyRate: laborDefaults.finishCabinetHourlyRate || 0,
-        productionInteriorWalls: laborDefaults.productionInteriorWalls || 0,
+        productionInteriorWalls: laborDefaults.productionInteriorWalls || 300,
         productionInteriorCeilings: laborDefaults.productionInteriorCeilings || 0,
         productionInteriorTrim: laborDefaults.productionInteriorTrim || 0,
         productionExteriorWalls: laborDefaults.productionExteriorWalls || 0,
@@ -103,6 +104,23 @@ const ContractorProductConfigManager = () => {
         productionSoffitFascia: laborDefaults.productionSoffitFascia || 0,
         productionDoors: laborDefaults.productionDoors || 0,
         productionCabinets: laborDefaults.productionCabinets || 0,
+        // Material Settings
+        includeMaterials: laborDefaults.includeMaterials !== undefined ? laborDefaults.includeMaterials : true,
+        coverage: laborDefaults.coverage || 350,
+        applicationMethod: laborDefaults.applicationMethod || 'roll',
+        coats: laborDefaults.coats || 2,
+        // Flat Rate Unit Prices
+        flatRateUnitPrices: {
+          door: laborDefaults.flatRateUnitPrices?.door || 85,
+          window: laborDefaults.flatRateUnitPrices?.window || 75,
+          room_small: laborDefaults.flatRateUnitPrices?.room_small || 350,
+          room_medium: laborDefaults.flatRateUnitPrices?.room_medium || 450,
+          room_large: laborDefaults.flatRateUnitPrices?.room_large || 600,
+          cabinet: laborDefaults.flatRateUnitPrices?.cabinet || 125,
+          walls: laborDefaults.flatRateUnitPrices?.walls || 2.5,
+          ceilings: laborDefaults.flatRateUnitPrices?.ceilings || 2.0,
+          trim: laborDefaults.flatRateUnitPrices?.trim || 1.5,
+        },
       });
     }
   }, [laborDefaults, markupForm]);
@@ -480,6 +498,7 @@ const ContractorProductConfigManager = () => {
         defaultMarkup: values.defaultMarkup,
         defaultTaxRate: values.taxRate,
         defaultLaborHourRate: values.laborHourRate,
+        crewSize: values.crewSize,
         laborMarkupPercent: values.laborMarkupPercent,
         materialMarkupPercent: values.materialMarkupPercent,
         overheadPercent: values.overheadPercent,
@@ -498,6 +517,23 @@ const ContractorProductConfigManager = () => {
         productionSoffitFascia: values.productionSoffitFascia,
         productionDoors: values.productionDoors,
         productionCabinets: values.productionCabinets,
+        // Material Settings
+        includeMaterials: values.includeMaterials,
+        coverage: values.coverage,
+        applicationMethod: values.applicationMethod,
+        coats: values.coats,
+        // Flat Rate Unit Prices
+        flatRateUnitPrices: {
+          door: values.flatRateUnitPrices?.door || 85,
+          window: values.flatRateUnitPrices?.window || 75,
+          room_small: values.flatRateUnitPrices?.room_small || 350,
+          room_medium: values.flatRateUnitPrices?.room_medium || 450,
+          room_large: values.flatRateUnitPrices?.room_large || 600,
+          cabinet: values.flatRateUnitPrices?.cabinet || 125,
+          walls: values.flatRateUnitPrices?.walls || 2.5,
+          ceilings: values.flatRateUnitPrices?.ceilings || 2.0,
+          trim: values.flatRateUnitPrices?.trim || 1.5,
+        },
       });
       
       if (response.success) {
@@ -780,6 +816,13 @@ const ContractorProductConfigManager = () => {
         {/* Labor and Pricing Tab - Consolidated */}
         <TabPane tab="Labor and Pricing" key="labor">
           <Card>
+            <Alert
+              message="Complete Labor Pricing Configuration"
+              description="Configure all pricing models: Production Rates (sqft/hour), Rate-Based Rates ($/unit per category), Flat Rate Unit Prices, and Turnkey Rates. Expand Interior/Exterior sections to view and edit all rates."
+              type="info"
+              showIcon
+              className="mb-4"
+            />
             <Form form={markupForm} layout={isMobile ? 'vertical' : 'horizontal'} labelCol={{ span: 12 }} wrapperCol={{ span: 12 }}>
               
               {/* Labor Rates Section */}
@@ -790,11 +833,34 @@ const ContractorProductConfigManager = () => {
               >
                 <Panel header={<span className="font-semibold text-base">Labor Rates</span>} key="labor-rates">
                   
-                  {/* Base Hourly Rate */}
+                  {/* Base Hourly Rate & Crew Size */}
                   <div className="mb-6">
-                    <h4 className="font-medium mb-3">Base Hourly Labor Rate</h4>
-                    <Form.Item name="laborHourRate" label="Base Labor Rate" rules={[{ required: true }]} tooltip="Standard labor rate per hour"> 
-                      <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ hour" style={{ width: 200 }} />
+                    <h4 className="font-medium mb-3">Production-Based Pricing Settings</h4>
+                    <Form.Item name="laborHourRate" label="Hourly Labor Rate" rules={[{ required: true }]} tooltip="Standard labor rate per hour per painter"> 
+                      <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/hr" style={{ width: 200 }} />
+                    </Form.Item>
+                    <Form.Item name="crewSize" label="Default Crew Size" rules={[{ required: true }]} tooltip="Default number of painters in a crew"> 
+                      <InputNumber min={1} max={10} precision={0} addonAfter="painters" style={{ width: 200 }} />
+                    </Form.Item>
+                  </div>
+
+                  {/* Material Settings */}
+                  <div className="mb-6">
+                    <h4 className="font-medium mb-3">Material Settings (Global Defaults)</h4>
+                    <Form.Item name="includeMaterials" label="Include Materials" valuePropName="checked" tooltip="Default setting for including materials in quotes">
+                      <Switch checkedChildren="Included" unCheckedChildren="Excluded" />
+                    </Form.Item>
+                    <Form.Item name="coverage" label="Paint Coverage" rules={[{ required: true }]} tooltip="Default square feet covered per gallon"> 
+                      <InputNumber min={250} max={450} precision={0} addonAfter="sq ft/gal" style={{ width: 200 }} />
+                    </Form.Item>
+                    <Form.Item name="applicationMethod" label="Application Method" rules={[{ required: true }]} tooltip="Default paint application method">
+                      <Select style={{ width: 200 }}>
+                        <Option value="roll">Roll (350 sq ft/gal)</Option>
+                        <Option value="spray">Spray (300 sq ft/gal)</Option>
+                      </Select>
+                    </Form.Item>
+                    <Form.Item name="coats" label="Number of Coats" rules={[{ required: true }]} tooltip="Default number of paint coats"> 
+                      <InputNumber min={1} max={4} precision={0} addonAfter="coats" style={{ width: 200 }} />
                     </Form.Item>
                   </div>
 
@@ -805,6 +871,7 @@ const ContractorProductConfigManager = () => {
                     className="mb-3"
                   >
                     <Panel header="Interior" key="interior">
+                      <h4 className="font-medium mb-3">Production Rates (sqft/hour)</h4>
                       <Form.Item name="productionInteriorWalls" label="Walls" tooltip="Square feet per hour"> 
                         <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
                       </Form.Item>
@@ -814,6 +881,20 @@ const ContractorProductConfigManager = () => {
                       <Form.Item name="productionInteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
                         <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
                       </Form.Item>
+
+                      <Divider />
+                      <h4 className="font-medium mb-3">Rate-Based Labor Rates ($/unit)</h4>
+                      {laborLoading ? (
+                        <div className="text-center py-4">Loading labor rates...</div>
+                      ) : (
+                        <Table
+                          columns={laborColumns}
+                          dataSource={laborCategories.filter(cat => cat.categoryType === 'interior')}
+                          rowKey="id"
+                          pagination={false}
+                          size="small"
+                        />
+                      )}
                     </Panel>
                   </Collapse>
 
@@ -823,7 +904,8 @@ const ContractorProductConfigManager = () => {
                     className="mb-3"
                   >
                     <Panel header="Exterior" key="exterior">
-                      <Form.Item name="productionExteriorWalls" label="Walls" tooltip="Square feet per hour"> 
+                      <h4 className="font-medium mb-3">Production Rates (sqft/hour)</h4>
+                      <Form.Item name="productionExteriorWalls" label="Exterior Siding" tooltip="Square feet per hour for exterior siding"> 
                         <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
                       </Form.Item>
                       <Form.Item name="productionExteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
@@ -832,6 +914,20 @@ const ContractorProductConfigManager = () => {
                       <Form.Item name="productionSoffitFascia" label="Soffit & Fascia" tooltip="Linear feet per hour"> 
                         <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
                       </Form.Item>
+
+                      <Divider />
+                      <h4 className="font-medium mb-3">Rate-Based Labor Rates ($/unit)</h4>
+                      {laborLoading ? (
+                        <div className="text-center py-4">Loading labor rates...</div>
+                      ) : (
+                        <Table
+                          columns={laborColumns}
+                          dataSource={laborCategories.filter(cat => cat.categoryType === 'exterior')}
+                          rowKey="id"
+                          pagination={false}
+                          size="small"
+                        />
+                      )}
                     </Panel>
                   </Collapse>
 
@@ -870,14 +966,77 @@ const ContractorProductConfigManager = () => {
                     </Panel>
                   </Collapse>
 
+                  {/* Flat Rate Unit Pricing Section */}
+                  <Collapse 
+                    expandIconPosition="end"
+                    className="mt-3"
+                  >
+                    <Panel header="Flat Rate Unit Pricing" key="flat-rate">
+                      <Alert
+                        message="Fixed prices per unit (door, window, room, etc.). Materials included."
+                        type="info"
+                        showIcon
+                        className="mb-4"
+                      />
+                      
+                      <h4 className="font-medium mb-3">Surface Units</h4>
+                      <Form.Item name={['flatRateUnitPrices', 'walls']} label="Walls" tooltip="Price per square foot for walls"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
+                      </Form.Item>
+                      <Form.Item name={['flatRateUnitPrices', 'ceilings']} label="Ceilings" tooltip="Price per square foot for ceilings"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
+                      </Form.Item>
+                      <Form.Item name={['flatRateUnitPrices', 'trim']} label="Trim" tooltip="Price per linear foot for trim"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ linear ft" style={{ width: 200 }} />
+                      </Form.Item>
+                      
+                      <Divider />
+                      <h4 className="font-medium mb-3">Item Units</h4>
+                      <Form.Item name={['flatRateUnitPrices', 'door']} label="Door" tooltip="Fixed price per door"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ door" style={{ width: 200 }} />
+                      </Form.Item>
+                      <Form.Item name={['flatRateUnitPrices', 'window']} label="Window" tooltip="Fixed price per window"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ window" style={{ width: 200 }} />
+                      </Form.Item>
+                      <Form.Item name={['flatRateUnitPrices', 'cabinet']} label="Cabinet" tooltip="Fixed price per cabinet unit"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ cabinet" style={{ width: 200 }} />
+                      </Form.Item>
+                      
+                      <Divider />
+                      <h4 className="font-medium mb-3">Room Units</h4>
+                      <Form.Item name={['flatRateUnitPrices', 'room_small']} label="Small Room" tooltip="Fixed price for small rooms (< 150 sq ft)"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
+                      </Form.Item>
+                      <Form.Item name={['flatRateUnitPrices', 'room_medium']} label="Medium Room" tooltip="Fixed price for medium rooms (150-250 sq ft)"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
+                      </Form.Item>
+                      <Form.Item name={['flatRateUnitPrices', 'room_large']} label="Large Room" tooltip="Fixed price for large rooms (> 250 sq ft)"> 
+                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
+                      </Form.Item>
+                    </Panel>
+                  </Collapse>
+
                 </Panel>
               </Collapse>
 
               {/* Action Button for Labor Section */}
               <Form.Item wrapperCol={{ span: 24 }} className="mt-4">
-                <Button type="primary" onClick={handleSaveMarkupAndTax} loading={savingSettings} block={isMobile}>
-                  Save Labor & Pricing Settings
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2 items-center justify-end">
+                  {laborHasChanges && (
+                    <span className="text-sm text-orange-600">⚠️ Unsaved labor rate changes</span>
+                  )}
+                  <Button 
+                    type="primary" 
+                    onClick={() => {
+                      handleSaveMarkupAndTax();
+                      if (laborHasChanges) saveLaborRates();
+                    }} 
+                    loading={savingSettings || laborSaving} 
+                    block={isMobile}
+                  >
+                    Save All Labor & Pricing Settings
+                  </Button>
+                </div>
               </Form.Item>
             </Form>
           </Card>

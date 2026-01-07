@@ -22,10 +22,7 @@ const COMMON_ROOMS = {
     'Laundry Room'
   ],
   exterior: [
-    'Front Exterior',
-    'Back Exterior',
-    'Side Exterior (Left)',
-    'Side Exterior (Right)',
+    'Exterior Siding',
     'Garage',
     'Deck',
     'Fence',
@@ -69,6 +66,12 @@ const AreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   const jobType = formData.jobType || 'interior';
   const availableRooms = COMMON_ROOMS[jobType] || [];
   const availableSurfaces = SURFACE_TYPES[jobType] || [];
+
+  // Determine pricing model type for conditional rendering
+  const modelType = formData.pricingModelType || 'rate_based_sqft';
+  const isFlatRate = modelType === 'flat_rate_unit';
+  const isProduction = modelType === 'production_based';
+  const isDetailed = modelType === 'rate_based_sqft' || modelType === 'sqft_labor_paint';
 
   useEffect(() => {
     fetchServiceTypes();
@@ -174,8 +177,18 @@ const AreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   return (
     <div className="areas-step">
       <Alert
-        message="Step 3: Areas & Surfaces"
-        description="Select the rooms/areas to be painted and specify surfaces for each. Color and sheen selection will happen later in the Customer Portal."
+        message={`Step 3: Areas & Surfaces – ${
+          isFlatRate ? 'Flat Rate Unit Mode' : 
+          isProduction ? 'Production (Time) Mode' : 
+          'Detailed SqFt Mode'
+        }`}
+        description={
+          isFlatRate 
+            ? "📦 Just count items - no measurements needed! Fixed price per item (door, window, cabinet, etc.). Example: 5 doors, 8 windows, 12 cabinet doors." 
+            : isProduction 
+            ? "Enter measurements → we'll estimate hours based on your productivity rates." 
+            : "Choose the rooms or areas to be painted, then select surfaces and specify square footage for each."
+        }
         type="info"
         showIcon
         style={{ marginBottom: 24 }}
@@ -214,7 +227,9 @@ const AreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         <div style={{ marginTop: 24 }}>
           <Title level={4}>Configure Selected Areas</Title>
           <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-            For each area, select surfaces, choose substrate type, and enter square footage.
+            {isFlatRate 
+              ? 'For each area, select items and enter quantity (count).'
+              : 'For each area, select surfaces, choose substrate type, and enter square footage.'}
           </Text>
 
           {areas.map(area => (
@@ -293,12 +308,13 @@ const AreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
 
                         <Col xs={24} sm={6}>
                           <InputNumber
-                            placeholder="Sq Ft"
+                            placeholder={isFlatRate ? 'Count' : 'Sq Ft'}
                             style={{ width: '100%' }}
                             min={0}
+                            step={isFlatRate ? 1 : 10}
                             value={surface.sqft}
                             onChange={(value) => updateSurface(area.id, surface.type, 'sqft', value)}
-                            addonAfter="sq ft"
+                            addonAfter={isFlatRate ? 'items' : 'sq ft'}
                           />
                         </Col>
 

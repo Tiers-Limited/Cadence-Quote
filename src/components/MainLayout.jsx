@@ -18,7 +18,7 @@ function MainLayout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [activeProposalId, setActiveProposalId] = useState(null)
-  const [openKeys, setOpenKeys] = useState(['pricing-engine-submenu', 'pipeline', 'settings-submenu'])
+  const [openKeys, setOpenKeys] = useState([])
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken()
