@@ -32,7 +32,7 @@ export const UserProvider = ({ children }) => {
          
           if (data.success) {
             // setUser({ ...data.data.user, role:"customer" })
-            setUser(data.data.user)
+            setUser({...data.data.user,tenant:data.data.tenant})
             setIsAuthenticated(true)
           } else {
             localStorage.removeItem('authToken')

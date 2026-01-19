@@ -12,7 +12,8 @@ import {
   Tooltip,
   Badge,
   Alert,
-  Select
+  Select,
+  Tabs
 } from 'antd';
 import { 
   FiEye, 
@@ -35,6 +36,8 @@ function CustomerDashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [proposals, setProposals] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [activeTab, setActiveTab] = useState('proposals');
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
@@ -45,8 +48,12 @@ function CustomerDashboard() {
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
-    fetchProposals();
-  }, [pagination.current, pagination.pageSize, searchText, statusFilter]);
+    if (activeTab === 'proposals') {
+      fetchProposals();
+    } else {
+      fetchJobs();
+    }
+  }, [pagination.current, pagination.pageSize, searchText, statusFilter, activeTab]);
 
   const fetchProposals = async () => {
     try {
@@ -69,6 +76,21 @@ function CustomerDashboard() {
       }
     } catch (error) {
       message.error('Failed to load proposals: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchJobs = async () => {
+    try {
+      setLoading(true);
+      const response = await apiService.get('/customer/jobs');
+      
+      if (response.success) {
+        setJobs(response.data || []);
+      }
+    } catch (error) {
+      message.error('Failed to load jobs: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -99,9 +121,34 @@ function CustomerDashboard() {
       declined: 'red',
       deposit_paid: 'blue',
       completed: 'success',
-      expired: 'default'
+      expired: 'default',
+      // Job statuses
+      scheduled: 'blue',
+      in_progress: 'processing',
+      paused: 'warning',
+      selections_pending: 'orange',
+      selections_complete: 'cyan'
     };
     return colors[status] || 'default';
+  };
+
+  const getJobStatusText = (status) => {
+    const statusTexts = {
+      accepted: 'Accepted',
+      pending_deposit: 'Awaiting Deposit',
+      deposit_paid: 'Deposit Paid',
+      selections_pending: 'Selections Pending',
+      selections_complete: 'Selections Complete',
+      scheduled: 'Scheduled',
+      in_progress: 'In Progress',
+      paused: 'Paused',
+      completed: 'Completed',
+      invoiced: 'Invoiced',
+      paid: 'Paid',
+      canceled: 'Canceled',
+      on_hold: 'On Hold'
+    };
+    return statusTexts[status] || status;
   };
 
   const getStatusText = (record) => {
@@ -176,15 +223,21 @@ function CustomerDashboard() {
   };
 
   const handleView = (record) => {
-    if (record.status === 'pending') {
-      navigate(`/portal/proposal/${record.id}`);
+    console.log('Viewing record:', record);
+    if (record.status === 'pending' || record.status === 'sent') {
+      // New flow: Use ProposalAcceptance component
+      navigate(`/portal/proposals/${record.id}/accept`);
     } else if (record.status === 'accepted' && !record.depositVerified) {
-      navigate(`/portal/proposal/${record.id}?payment=true`);
-    } else if (record.depositVerified && !record.finishStandardsAcknowledged) {
-      navigate(`/portal/finish-standards/${record.id}`);
-    } else if (record.portalOpen || record.selectionsComplete) {
-      navigate(`/portal/colors/${record.id}`);
+      // Redirect to deposit payment
+      navigate(`/portal/proposals/${record.id}/accept?step=payment`);
+    } else if (record.depositVerified && record.portalOpen && !record.selectionsComplete) {
+      // New flow: Use ProductSelectionWizard
+      navigate(`/portal/proposals/${record.id}/selections`);
+    } else if (record.selectionsComplete && record.jobId) {
+      // New flow: Use JobTracking component
+      navigate(`/portal/job/${record.jobId}`);
     } else {
+      // Fallback to old proposal view
       navigate(`/portal/proposal/${record.id}`);
     }
   };
@@ -255,14 +308,18 @@ function CustomerDashboard() {
       dataIndex: 'validUntil',
       key: 'validUntil',
       width: 120,
-      render: (date) => date ? new Date(date).toLocaleDateString() : 'N/A'
+      render: (date) => date ? new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }) : 'N/A'
     },
     {
       title: 'Created',
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 120,
-      render: (date) => new Date(date).toLocaleDateString()
+      render: (date) => new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })
     },
     {
       title: 'Actions',
@@ -270,6 +327,7 @@ function CustomerDashboard() {
       fixed: 'right',
       width: 200,
       render: (_, record) => (
+        
         <Space size="small">
           <Tooltip title="View Details">
             <Button
@@ -288,7 +346,7 @@ function CustomerDashboard() {
                   type="primary"
                   size="small"
                   icon={<FiCheck />}
-                  onClick={() => showAcceptModal(record)}
+                  onClick={() => navigate(`/portal/proposals/${record.id}/accept`)}
                   loading={actionLoading}
                 >
                   Review
@@ -314,11 +372,128 @@ function CustomerDashboard() {
               type="primary"
               size="small"
               icon={<FiDollarSign />}
-              onClick={() => navigate(`/portal/payment/${record.id}`)}
+              onClick={() => navigate(`/portal/proposals/${record.id}/accept?step=payment`)}
             >
               Pay Deposit
             </Button>
           )}
+          
+          {record.depositVerified && record.portalOpen && !record.selectionsComplete && (
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => navigate(`/portal/proposals/${record.id}/selections`)}
+            >
+              Make Selections
+            </Button>
+          )}
+          
+          {record.selectionsComplete && record.jobId && (
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => navigate(`/portal/job/${record.jobId}`)}
+            >
+              Track Job
+            </Button>
+          )}
+        </Space>
+      )
+    }
+  ];
+
+  const jobColumns = [
+    {
+      title: 'Job #',
+      dataIndex: 'jobNumber',
+      key: 'jobNumber',
+      fixed: 'left',
+      width: 150,
+      render: (text) => <Text strong>{text}</Text>
+    },
+    {
+      title: 'Job Name',
+      dataIndex: 'jobName',
+      key: 'jobName',
+      width: 200,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+          
+      render: (status) => (
+        <Tag color={getStatusColor(status)} className="px-3 py-1">
+          {getJobStatusText(status)}
+        </Tag>
+      )
+    },
+    {
+      title: 'Scheduled Start',
+      dataIndex: 'scheduledStartDate',
+      key: 'scheduledStartDate',
+      width: 140,
+      render: (date) => date ? new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }) : 'Not scheduled'
+    },
+    {
+      title: 'Scheduled End',
+      dataIndex: 'scheduledEndDate',
+      key: 'scheduledEndDate',
+      width: 140,
+      render: (date) => date ? new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }) : 'Not scheduled'
+    },
+    {
+      title: 'Duration',
+      dataIndex: 'estimatedDuration',
+      key: 'estimatedDuration',
+      width: 100,
+      render: (duration) => duration ? `${duration} days` : 'N/A'
+    },
+    {
+      title: 'Total Amount',
+      dataIndex: 'totalAmount',
+      key: 'totalAmount',
+      width: 130,
+      align: 'right',
+      render: (value) => (
+        <Text strong className="text-green-600">${parseFloat(value).toFixed(2)}</Text>
+      )
+    },
+    {
+      title: 'Created',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 120,
+      render: (date) => new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      fixed: 'right',
+      width: 160,
+      render: (_, record) => (
+        <Space size="small">
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => navigate(`/portal/job/${record.id}`)}
+          >
+            Track Job
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<FiEye />}
+            onClick={() => navigate(`/portal/job/${record.id}`)}
+          >
+            Details
+          </Button>
         </Space>
       )
     }
@@ -327,59 +502,96 @@ function CustomerDashboard() {
   return (
     <div className="p-6 max-w-full">
       <div className="mb-6">
-        <Title level={2}>My Quotes</Title>
+        <Title level={2}>My Dashboard</Title>
         <Paragraph type="secondary">
-          View and manage all your painting project quotes
+          View and manage your painting project quotes and jobs
         </Paragraph>
       </div>
 
       <Card>
-        <div className="mb-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-          <Space wrap>
-            <Search
-              placeholder="Search by quote number, name, or email..."
-              allowClear
-              enterButton={<FiSearch />}
-              size="large"
-              style={{ width: 350 }}
-              onSearch={handleSearch}
-              onChange={(e) => !e.target.value && handleSearch('')}
-            />
-            
-            <Select
-              size="large"
-              style={{ width: 180 }}
-              value={statusFilter}
-              onChange={handleStatusFilterChange}
-              options={[
-                { label: 'All Quotes', value: 'all' },
-                { label: 'Awaiting Review', value: 'sent' },
-                { label: 'Accepted', value: 'accepted' },
-                { label: 'Declined', value: 'declined' },
-                { label: 'Completed', value: 'completed' }
-              ]}
-            />
-          </Space>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'quotes',
+              label: (
+                <span>
+                  <Badge count={proposals.length} offset={[10, 0]} showZero>
+                    Quotes
+                  </Badge>
+                </span>
+              ),
+              children: (
+                <>
+                  <div className="mb-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                    <Space wrap>
+                      <Search
+                        placeholder="Search by quote number, name, or email..."
+                        allowClear
+                        enterButton={<FiSearch />}
+                        size="large"
+                        style={{ width: 350 }}
+                        onSearch={handleSearch}
+                        onChange={(e) => !e.target.value && handleSearch('')}
+                      />
+                      
+                      <Select
+                        size="large"
+                        style={{ width: 180 }}
+                        value={statusFilter}
+                        onChange={handleStatusFilterChange}
+                        options={[
+                          { label: 'All Quotes', value: 'all' },
+                          { label: 'Awaiting Review', value: 'sent' },
+                          { label: 'Accepted', value: 'accepted' },
+                          { label: 'Declined', value: 'declined' },
+                          { label: 'Completed', value: 'completed' }
+                        ]}
+                      />
+                    </Space>
+                  </div>
 
-          <Badge count={proposals.length} showZero color="blue">
-            <Button size="large">Total Quotes</Button>
-          </Badge>
-        </div>
-
-        <Table
-          columns={columns}
-          dataSource={proposals}
-          loading={loading}
-          pagination={{
-            ...pagination,
-            showSizeChanger: true,
-            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} quotes`,
-            pageSizeOptions: ['10', '20', '50', '100']
-          }}
-          onChange={handleTableChange}
-          rowKey="id"
-          scroll={{ x: 1300 }}
-          className="custom-table"
+                  <Table
+                    columns={columns}
+                    dataSource={proposals}
+                    loading={loading}
+                    pagination={{
+                      ...pagination,
+                      showSizeChanger: true,
+                      showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} quotes`,
+                      pageSizeOptions: ['10', '20', '50', '100']
+                    }}
+                    onChange={handleTableChange}
+                    rowKey="id"
+                    scroll={{ x: 1300 }}
+                    className="custom-table"
+                  />
+                </>
+              )
+            },
+            {
+              key: 'jobs',
+              label: (
+                <span>
+                  <Badge count={jobs.length} offset={[10, 0]} showZero>
+                    Jobs
+                  </Badge>
+                </span>
+              ),
+              children: (
+                <Table
+                  columns={jobColumns}
+                  dataSource={jobs}
+                  loading={loading}
+                  pagination={false}
+                  rowKey="id"
+                  scroll={{ x: 1200 }}
+                  className="custom-table"
+                />
+              )
+            }
+          ]}
         />
       </Card>
     </div>

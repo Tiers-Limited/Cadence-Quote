@@ -532,7 +532,9 @@ const GlobalProductsPage = () => {
       title: 'Created At',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: (date) => new Date(date).toLocaleDateString(),
+      render: (date) => new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }),
     }] : []),
     {
       title: 'Actions',

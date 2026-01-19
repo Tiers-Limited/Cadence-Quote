@@ -41,6 +41,13 @@ const ContractorProductConfigManager = () => {
   const [laborDefaults, setLaborDefaults] = useState(null);
   const [selectedGlobalProduct, setSelectedGlobalProduct] = useState(null);
   const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
+  
+  // Pagination states for global products in modal dropdown
+  const [modalBrandFilter, setModalBrandFilter] = useState(null);
+  const [modalCategoryFilter, setModalCategoryFilter] = useState(null);
+  const [modalSearchText, setModalSearchText] = useState('');
+  const [productsPagination, setProductsPagination] = useState({ page: 1, limit: 20, hasMore: true, total: 0 });
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -65,6 +72,7 @@ const ContractorProductConfigManager = () => {
   const [laborRates, setLaborRates] = useState({});
   const [laborSearchText, setLaborSearchText] = useState('');
   const [laborHasChanges, setLaborHasChanges] = useState(false);
+  const [pricingSchemes, setPricingSchemes] = useState([]);
 
   // Responsive detection
   useEffect(() => {
@@ -82,7 +90,6 @@ const ContractorProductConfigManager = () => {
   useEffect(() => {
     if (laborDefaults) {
       markupForm.setFieldsValue({
-        defaultMarkup: laborDefaults.defaultMarkup || 15,
         taxRate: laborDefaults.defaultTaxRate || 0,
         laborHourRate: laborDefaults.defaultLaborHourRate || 50,
         crewSize: laborDefaults.crewSize || 2,
@@ -102,6 +109,7 @@ const ContractorProductConfigManager = () => {
         productionExteriorWalls: laborDefaults.productionExteriorWalls || 0,
         productionExteriorTrim: laborDefaults.productionExteriorTrim || 0,
         productionSoffitFascia: laborDefaults.productionSoffitFascia || 0,
+        productionGutters: laborDefaults.productionGutters || 0,
         productionDoors: laborDefaults.productionDoors || 0,
         productionCabinets: laborDefaults.productionCabinets || 0,
         // Material Settings
@@ -119,7 +127,12 @@ const ContractorProductConfigManager = () => {
           cabinet: laborDefaults.flatRateUnitPrices?.cabinet || 125,
           walls: laborDefaults.flatRateUnitPrices?.walls || 2.5,
           ceilings: laborDefaults.flatRateUnitPrices?.ceilings || 2.0,
-          trim: laborDefaults.flatRateUnitPrices?.trim || 1.5,
+          interior_trim: laborDefaults.flatRateUnitPrices?.interior_trim || 1.5,
+          siding: laborDefaults.flatRateUnitPrices?.siding || 3.0,
+          exterior_trim: laborDefaults.flatRateUnitPrices?.exterior_trim || 1.8,
+          soffit_fascia: laborDefaults.flatRateUnitPrices?.soffit_fascia || 2.0,
+          gutters: laborDefaults.flatRateUnitPrices?.gutters || 4.0,
+          deck: laborDefaults.flatRateUnitPrices?.deck || 2.5,
         },
       });
     }
@@ -128,21 +141,78 @@ const ContractorProductConfigManager = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [brandsRes, productsRes, configsRes, defaultsRes] = await Promise.all([
+      const [brandsRes, configsRes, defaultsRes, schemesRes] = await Promise.all([
         apiService.getAdminBrands(),
-        apiService.getGlobalProducts(),
         apiService.getProductConfigs(),
         apiService.getProductConfigDefaults(),
+        apiService.getPricingSchemes(),
       ]);
 
       setBrands(brandsRes.data || []);
-      setGlobalProducts(productsRes.data || []);
       setConfigs(configsRes?.data || []);
       setLaborDefaults(defaultsRes.data || null);
+      setPricingSchemes(schemesRes.data || []);
     } catch (error) {
       message.error('Failed to load data: ' + error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch global products with pagination and brand filter
+  const fetchGlobalProducts = async (page = 1, brandId = null, category = null, search = '', append = false) => {
+    try {
+      if (page === 1) {
+        setLoadingMoreProducts(true);
+      }
+      
+      const params = {
+        page,
+        limit: 20,
+      };
+      
+      if (brandId) {
+        params.brandId = brandId;
+      }
+      
+      if (category) {
+        params.category = category;
+      }
+      
+      if (search && search.trim()) {
+        params.search = search.trim();
+      }
+      
+      const response = await apiService.getGlobalProducts(params);
+      
+      if (response.success) {
+        const newProducts = response.data || [];
+        const pagination = response.pagination || {};
+        
+        setGlobalProducts(prev => append ? [...prev, ...newProducts] : newProducts);
+        setProductsPagination({
+          page: pagination.page || page,
+          limit: pagination.limit || 20,
+          hasMore: pagination.hasMore || false,
+          total: pagination.total || 0
+        });
+      }
+    } catch (error) {
+      message.error('Failed to load products: ' + error.message);
+    } finally {
+      setLoadingMoreProducts(false);
+    }
+  };
+
+  // Load more products when scrolling
+  const handleProductsScroll = (e) => {
+    const { target } = e;
+    const threshold = 50; // pixels from bottom
+    
+    if (target.scrollTop + target.offsetHeight >= target.scrollHeight - threshold) {
+      if (productsPagination.hasMore && !loadingMoreProducts) {
+        fetchGlobalProducts(productsPagination.page + 1, modalBrandFilter, modalCategoryFilter, modalSearchText, true);
+      }
     }
   };
 
@@ -299,22 +369,39 @@ const ContractorProductConfigManager = () => {
       return;
     }
 
-    // Check if a brand is selected for filtering
-    if (!selectedBrandFilter) {
-      message.warning('Please select a brand from the filter dropdown before adding a configuration');
-      return;
-    }
-
     setEditingConfig(null);
     setSelectedGlobalProduct(null);
+    setModalBrandFilter(null);
+    setModalCategoryFilter(null);
+    setModalSearchText('');
     form.resetFields();
     
+    // Don't load products initially - wait for user to select filters
+    setGlobalProducts([]);
+    setProductsPagination({ page: 1, limit: 20, hasMore: true, total: 0 });
+    
     setModalVisible(true);
+  };
+
+  // Handler for modal filter changes
+  const handleModalFilterChange = () => {
+    // Fetch products with the new filters
+    fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, modalSearchText, false);
   };
 
   const handleEdit = (record) => {
     setEditingConfig(record);
     setSelectedGlobalProduct(record.globalProduct);
+    
+    // Load products for the product's brand and category
+    const brandId = record.globalProduct?.brandId;
+    const category = record.globalProduct?.category;
+    if (brandId) {
+      setModalBrandFilter(brandId);
+      setModalCategoryFilter(category || null);
+      setModalSearchText('');
+      fetchGlobalProducts(1, brandId, category, '', false);
+    }
     
     // Parse sheens into form-friendly format
     const sheensFormData = {};
@@ -374,7 +461,6 @@ const ContractorProductConfigManager = () => {
         globalProductId: values.globalProductId,
         sheens: sheensArray,
         laborRates: laborDefaults?.laborRates || { interior: [], exterior: [] },
-        defaultMarkup: laborDefaults?.defaultMarkup || 15,
         productMarkups: {},
         taxRate: laborDefaults?.defaultTaxRate || 0,
       };
@@ -495,7 +581,6 @@ const ContractorProductConfigManager = () => {
       const values = await markupForm.validateFields();
       
       const response = await apiService.updateProductConfigDefaults({
-        defaultMarkup: values.defaultMarkup,
         defaultTaxRate: values.taxRate,
         defaultLaborHourRate: values.laborHourRate,
         crewSize: values.crewSize,
@@ -515,6 +600,7 @@ const ContractorProductConfigManager = () => {
         productionExteriorWalls: values.productionExteriorWalls,
         productionExteriorTrim: values.productionExteriorTrim,
         productionSoffitFascia: values.productionSoffitFascia,
+        productionGutters: values.productionGutters,
         productionDoors: values.productionDoors,
         productionCabinets: values.productionCabinets,
         // Material Settings
@@ -532,7 +618,12 @@ const ContractorProductConfigManager = () => {
           cabinet: values.flatRateUnitPrices?.cabinet || 125,
           walls: values.flatRateUnitPrices?.walls || 2.5,
           ceilings: values.flatRateUnitPrices?.ceilings || 2.0,
-          trim: values.flatRateUnitPrices?.trim || 1.5,
+          interior_trim: values.flatRateUnitPrices?.interior_trim || 1.5,
+          siding: values.flatRateUnitPrices?.siding || 3.0,
+          exterior_trim: values.flatRateUnitPrices?.exterior_trim || 1.8,
+          soffit_fascia: values.flatRateUnitPrices?.soffit_fascia || 2.0,
+          gutters: values.flatRateUnitPrices?.gutters || 4.0,
+          deck: values.flatRateUnitPrices?.deck || 2.5,
         },
       });
       
@@ -644,22 +735,7 @@ const ContractorProductConfigManager = () => {
       ),
       responsive: ['md'],
     },
-    {
-      title: 'Markup',
-      dataIndex: 'defaultMarkup',
-      key: 'markup',
-      width: isMobile ? 80 : 100,
-      render: (markup) => <Tag color="orange">{markup}%</Tag>,
-      responsive: ['md'],
-    },
-    {
-      title: 'Tax',
-      dataIndex: 'taxRate',
-      key: 'tax',
-      width: isMobile ? 80 : 100,
-      render: (tax) => <Tag color="purple">{tax}%</Tag>,
-      responsive: ['lg'],
-    },
+    
     {
       title: 'Actions',
       key: 'actions',
@@ -720,21 +796,6 @@ const ContractorProductConfigManager = () => {
         globalProd?.customBrand?.toLowerCase().includes(searchText.toLowerCase());
     
     return brandMatch && categoryMatch && searchMatch;
-  });
-
-  // Filter global products based on selected brand and category
-  const filteredGlobalProducts = globalProducts.filter(gp => {
-    // Filter by brand
-    const brandMatch = !selectedBrandFilter
-      ? true
-      : gp.brandId === selectedBrandFilter;
-    
-    // Filter by category
-    const categoryMatch = !selectedCategoryFilter
-      ? true
-      : gp.category === selectedCategoryFilter;
-    
-    return brandMatch && categoryMatch;
   });
 
   // Render sheen fields dynamically based on selected product
@@ -800,6 +861,190 @@ const ContractorProductConfigManager = () => {
     );
   };
 
+  // Helper function to get pricing scheme-specific labor categories
+  const getLaborCategoriesForScheme = (scheme, jobType) => {
+    if (!scheme) return [];
+    
+    const schemeType = scheme.type;
+    
+    // Flat rate doesn't use rate-based labor categories
+    if (schemeType === 'flat_rate_unit') {
+      return [];
+    }
+    
+    // Filter labor categories by job type
+    return laborCategories.filter(cat => cat.categoryType === jobType);
+  };
+
+  // Render labor rates grouped by pricing scheme
+  const renderLaborRatesByScheme = () => {
+    if (pricingSchemes.length === 0) {
+      return <div className="text-center py-4 text-gray-500">No pricing schemes available</div>;
+    }
+
+    return pricingSchemes.map(scheme => {
+      const isRateBased = scheme.type === 'rate_based_sqft' || scheme.type === 'sqft_labor_paint';
+      const isProductionBased = scheme.type === 'production_based';
+      const isFlatRate = scheme.type === 'flat_rate_unit';
+      const isTurnkey = scheme.type === 'turnkey';
+
+      return (
+        <Collapse 
+          key={scheme.id}
+          expandIconPosition="start"
+          className="mb-3"
+          style={{ borderLeft: scheme.isDefault ? '3px solid #1890ff' : 'none' }}
+        >
+          <Panel 
+            header={
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">{scheme.name}</span>
+                {scheme.isDefault && <Tag color="blue">Default</Tag>}
+                <Tag color={isFlatRate ? 'purple' : isRateBased ? 'green' : isProductionBased ? 'orange' : 'cyan'}>
+                  {isFlatRate ? 'Flat Unit' : isRateBased ? 'Rate-Based' : isProductionBased ? 'Production' : 'Turnkey'}
+                </Tag>
+              </div>
+            } 
+            key={scheme.id}
+          >
+            <div className="text-sm text-gray-600 mb-4">{scheme.description}</div>
+
+            {/* Rate-Based Labor Rates */}
+            {isRateBased && (
+              <div>
+                <h4 className="font-medium mb-3">Rate-Based Labor Rates ($/unit)</h4>
+                {laborLoading ? (
+                  <div className="text-center py-4">Loading labor rates...</div>
+                ) : (
+                  <>
+                    <div className="mb-4">
+                      <div className="font-medium mb-2">Interior Categories</div>
+                      <Table
+                        columns={laborColumns}
+                        dataSource={getLaborCategoriesForScheme(scheme, 'interior')}
+                        rowKey="id"
+                        pagination={false}
+                        size="small"
+                      />
+                    </div>
+                    <div>
+                      <div className="font-medium mb-2">Exterior Categories</div>
+                      <Table
+                        columns={laborColumns}
+                        dataSource={getLaborCategoriesForScheme(scheme, 'exterior')}
+                        rowKey="id"
+                        pagination={false}
+                        size="small"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Production-Based Rates */}
+            {isProductionBased && (
+              <div>
+                
+                 <div className="mb-6">
+                    <h4 className="font-medium mb-3">Production-Based Pricing Settings</h4>
+                    <Form.Item name="laborHourRate" label="Hourly Labor Rate" rules={[{ required: true }]} tooltip="Standard labor rate per hour per painter"> 
+                      <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/hr" style={{ width: 200 }} />
+                    </Form.Item>
+                    <Form.Item name="crewSize" label="Default Crew Size" rules={[{ required: true }]} tooltip="Default number of painters in a crew"> 
+                      <InputNumber min={1} max={10} precision={0} addonAfter="painters" style={{ width: 200 }} />
+                    </Form.Item>
+                  </div>
+                <div className="mb-4">
+                  <div className="font-medium mb-2">Interior</div>
+                  <Form.Item name="productionInteriorWalls" label="Walls" tooltip="Square feet per hour"> 
+                    <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="productionInteriorCeilings" label="Ceilings" tooltip="Square feet per hour"> 
+                    <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="productionInteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
+                    <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                </div>
+                <div>
+                  <div className="font-medium mb-2">Exterior</div>
+                  <Form.Item name="productionExteriorWalls" label="Siding" tooltip="Square feet per hour"> 
+                    <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="productionExteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
+                    <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="productionSoffitFascia" label="Soffit & Fascia" tooltip="Linear feet per hour"> 
+                    <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="productionGutters" label="Gutters" tooltip="Linear feet per hour"> 
+                    <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                </div>
+              </div>
+            )}
+
+            {/* Flat Rate Unit Pricing */}
+            {isFlatRate && (
+              <div>
+                <Alert
+                  message="Fixed prices per unit - materials included"
+                  type="info"
+                  showIcon
+                  className="mb-4"
+                />
+                <div className="mb-4">
+                  <div className="font-medium mb-2">Interior Units</div>
+                  <Form.Item name={['flatRateUnitPrices', 'walls']} label="Walls" tooltip="Price per unit for walls"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'ceilings']} label="Ceilings" tooltip="Price per unit for ceilings"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'door']} label="Doors" tooltip="Fixed price per door"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'window']} label="Windows" tooltip="Fixed price per window"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'cabinet']} label="Cabinets" tooltip="Fixed price per cabinet unit"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                </div>
+                <div>
+                  <div className="font-medium mb-2">Exterior Units</div>
+                  <Form.Item name={['flatRateUnitPrices', 'siding']} label="Siding" tooltip="Price per unit for siding"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'exterior_trim']} label="Trim" tooltip="Price per unit for exterior trim"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'deck']} label="Decks" tooltip="Price per unit for decks"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                </div>
+              </div>
+            )}
+
+            {/* Turnkey Rates */}
+            {isTurnkey && (
+              <div>
+                <h4 className="font-medium mb-3">Turnkey Rates ($/sq ft all-inclusive)</h4>
+                <Form.Item name="turnkeyInteriorRate" label="Interior Rate" tooltip="All-in price per sq ft"> 
+                  <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
+                </Form.Item>
+                <Form.Item name="turnkeyExteriorRate" label="Exterior Rate" tooltip="All-in price per sq ft"> 
+                  <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
+                </Form.Item>
+              </div>
+            )}
+          </Panel>
+        </Collapse>
+      );
+    });
+  };
+
   return (
     <div className="p-3 sm:p-6">
       <div className="mb-4">
@@ -813,41 +1058,33 @@ const ContractorProductConfigManager = () => {
         type="card"
         size={isMobile ? 'small' : 'large'}
       >
-        {/* Labor and Pricing Tab - Consolidated */}
+        {/* Labor and Pricing Tab - Grouped by Pricing Scheme */}
         <TabPane tab="Labor and Pricing" key="labor">
           <Card>
-            <Alert
-              message="Complete Labor Pricing Configuration"
-              description="Configure all pricing models: Production Rates (sqft/hour), Rate-Based Rates ($/unit per category), Flat Rate Unit Prices, and Turnkey Rates. Expand Interior/Exterior sections to view and edit all rates."
-              type="info"
-              showIcon
-              className="mb-4"
-            />
+           
             <Form form={markupForm} layout={isMobile ? 'vertical' : 'horizontal'} labelCol={{ span: 12 }} wrapperCol={{ span: 12 }}>
               
-              {/* Labor Rates Section */}
+              {/* Global Settings (applied to all schemes) */}
               <Collapse 
-                defaultActiveKeys={['labor-rates']}
-                expandIconPosition="end"
+                defaultActiveKeys={['global-settings']}
+                expandIconPosition="start"
                 className="mb-4"
               >
-                <Panel header={<span className="font-semibold text-base">Labor Rates</span>} key="labor-rates">
+                <Panel header={<span className="font-semibold text-base">📋 Global Settings</span>} key="global-settings">
+                  <Alert
+                    message="These settings apply to all pricing schemes"
+                    type="warning"
+                    showIcon
+                    className="mb-4"
+                  />
                   
-                  {/* Base Hourly Rate & Crew Size */}
-                  <div className="mb-6">
-                    <h4 className="font-medium mb-3">Production-Based Pricing Settings</h4>
-                    <Form.Item name="laborHourRate" label="Hourly Labor Rate" rules={[{ required: true }]} tooltip="Standard labor rate per hour per painter"> 
-                      <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/hr" style={{ width: 200 }} />
-                    </Form.Item>
-                    <Form.Item name="crewSize" label="Default Crew Size" rules={[{ required: true }]} tooltip="Default number of painters in a crew"> 
-                      <InputNumber min={1} max={10} precision={0} addonAfter="painters" style={{ width: 200 }} />
-                    </Form.Item>
-                  </div>
+               
+                 
 
                   {/* Material Settings */}
                   <div className="mb-6">
-                    <h4 className="font-medium mb-3">Material Settings (Global Defaults)</h4>
-                    <Form.Item name="includeMaterials" label="Include Materials" valuePropName="checked" tooltip="Default setting for including materials in quotes">
+                    <h4 className="font-medium mb-3">Material Settings</h4>
+                    <Form.Item name="includeMaterials" label="Include Materials" valuePropName="checked" tooltip="Default setting for including materials">
                       <Switch checkedChildren="Included" unCheckedChildren="Excluded" />
                     </Form.Item>
                     <Form.Item name="coverage" label="Paint Coverage" rules={[{ required: true }]} tooltip="Default square feet covered per gallon"> 
@@ -863,163 +1100,16 @@ const ContractorProductConfigManager = () => {
                       <InputNumber min={1} max={4} precision={0} addonAfter="coats" style={{ width: 200 }} />
                     </Form.Item>
                   </div>
-
-                  {/* Interior Section */}
-                  <Collapse 
-                    defaultActiveKeys={['interior']}
-                    expandIconPosition="end"
-                    className="mb-3"
-                  >
-                    <Panel header="Interior" key="interior">
-                      <h4 className="font-medium mb-3">Production Rates (sqft/hour)</h4>
-                      <Form.Item name="productionInteriorWalls" label="Walls" tooltip="Square feet per hour"> 
-                        <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="productionInteriorCeilings" label="Ceilings" tooltip="Square feet per hour"> 
-                        <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="productionInteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
-                        <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
-                      </Form.Item>
-
-                      <Divider />
-                      <h4 className="font-medium mb-3">Rate-Based Labor Rates ($/unit)</h4>
-                      {laborLoading ? (
-                        <div className="text-center py-4">Loading labor rates...</div>
-                      ) : (
-                        <Table
-                          columns={laborColumns}
-                          dataSource={laborCategories.filter(cat => cat.categoryType === 'interior')}
-                          rowKey="id"
-                          pagination={false}
-                          size="small"
-                        />
-                      )}
-                    </Panel>
-                  </Collapse>
-
-                  {/* Exterior Section */}
-                  <Collapse 
-                    expandIconPosition="end"
-                    className="mb-3"
-                  >
-                    <Panel header="Exterior" key="exterior">
-                      <h4 className="font-medium mb-3">Production Rates (sqft/hour)</h4>
-                      <Form.Item name="productionExteriorWalls" label="Exterior Siding" tooltip="Square feet per hour for exterior siding"> 
-                        <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="productionExteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
-                        <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="productionSoffitFascia" label="Soffit & Fascia" tooltip="Linear feet per hour"> 
-                        <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
-                      </Form.Item>
-
-                      <Divider />
-                      <h4 className="font-medium mb-3">Rate-Based Labor Rates ($/unit)</h4>
-                      {laborLoading ? (
-                        <div className="text-center py-4">Loading labor rates...</div>
-                      ) : (
-                        <Table
-                          columns={laborColumns}
-                          dataSource={laborCategories.filter(cat => cat.categoryType === 'exterior')}
-                          rowKey="id"
-                          pagination={false}
-                          size="small"
-                        />
-                      )}
-                    </Panel>
-                  </Collapse>
-
-                  {/* Optional / Specialty Section */}
-                  <Collapse 
-                    expandIconPosition="end"
-                    className="mb-3"
-                  >
-                    <Panel header="Optional / Specialty" key="optional">
-                      <Form.Item name="productionDoors" label="Doors" tooltip="Units per hour"> 
-                        <InputNumber min={0} precision={2} addonAfter="units / hour" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="productionCabinets" label="Cabinets" tooltip="Units per hour"> 
-                        <InputNumber min={0} precision={2} addonAfter="units / hour" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="prepRepairHourlyRate" label="Prep/Repair Rate" tooltip="Hourly rate for prep and repair work"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ hour" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="finishCabinetHourlyRate" label="Finish/Cabinet Rate" tooltip="Hourly rate for finish and cabinet work"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ hour" style={{ width: 200 }} />
-                      </Form.Item>
-                    </Panel>
-                  </Collapse>
-
-                  {/* Turnkey Labor Pricing Section */}
-                  <Collapse 
-                    expandIconPosition="end"
-                  >
-                    <Panel header="Turnkey Labor Pricing" key="turnkey">
-                      <Form.Item name="turnkeyInteriorRate" label="Interior Rate" tooltip="All-in price per sq ft for interior projects"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name="turnkeyExteriorRate" label="Exterior Rate" tooltip="All-in price per sq ft for exterior projects"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
-                      </Form.Item>
-                    </Panel>
-                  </Collapse>
-
-                  {/* Flat Rate Unit Pricing Section */}
-                  <Collapse 
-                    expandIconPosition="end"
-                    className="mt-3"
-                  >
-                    <Panel header="Flat Rate Unit Pricing" key="flat-rate">
-                      <Alert
-                        message="Fixed prices per unit (door, window, room, etc.). Materials included."
-                        type="info"
-                        showIcon
-                        className="mb-4"
-                      />
-                      
-                      <h4 className="font-medium mb-3">Surface Units</h4>
-                      <Form.Item name={['flatRateUnitPrices', 'walls']} label="Walls" tooltip="Price per square foot for walls"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name={['flatRateUnitPrices', 'ceilings']} label="Ceilings" tooltip="Price per square foot for ceilings"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ sq ft" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name={['flatRateUnitPrices', 'trim']} label="Trim" tooltip="Price per linear foot for trim"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ linear ft" style={{ width: 200 }} />
-                      </Form.Item>
-                      
-                      <Divider />
-                      <h4 className="font-medium mb-3">Item Units</h4>
-                      <Form.Item name={['flatRateUnitPrices', 'door']} label="Door" tooltip="Fixed price per door"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ door" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name={['flatRateUnitPrices', 'window']} label="Window" tooltip="Fixed price per window"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ window" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name={['flatRateUnitPrices', 'cabinet']} label="Cabinet" tooltip="Fixed price per cabinet unit"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ cabinet" style={{ width: 200 }} />
-                      </Form.Item>
-                      
-                      <Divider />
-                      <h4 className="font-medium mb-3">Room Units</h4>
-                      <Form.Item name={['flatRateUnitPrices', 'room_small']} label="Small Room" tooltip="Fixed price for small rooms (< 150 sq ft)"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name={['flatRateUnitPrices', 'room_medium']} label="Medium Room" tooltip="Fixed price for medium rooms (150-250 sq ft)"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
-                      </Form.Item>
-                      <Form.Item name={['flatRateUnitPrices', 'room_large']} label="Large Room" tooltip="Fixed price for large rooms (> 250 sq ft)"> 
-                        <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
-                      </Form.Item>
-                    </Panel>
-                  </Collapse>
-
                 </Panel>
               </Collapse>
 
-              {/* Action Button for Labor Section */}
+              {/* Labor Rates Grouped by Pricing Scheme */}
+              <div className="mb-4">
+               
+                {renderLaborRatesByScheme()}
+              </div>
+
+              {/* Action Button */}
               <Form.Item wrapperCol={{ span: 24 }} className="mt-4">
                 <div className="flex flex-col sm:flex-row gap-2 items-center justify-end">
                   {laborHasChanges && (
@@ -1117,7 +1207,7 @@ const ContractorProductConfigManager = () => {
               {/* Markup Percentages */}
               <Collapse 
                 defaultActiveKeys={['markup-percentages']}
-                expandIconPosition="end"
+                expandIconPosition="start"
                 className="mb-4"
               >
                 <Panel header={<span className="font-semibold text-base">Markup Percentages</span>} key="markup-percentages">
@@ -1134,18 +1224,16 @@ const ContractorProductConfigManager = () => {
                     <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
                   </Form.Item>
                 </Panel>
+                
               </Collapse>
 
               {/* Tax & Quote Settings */}
               <Collapse 
                 defaultActiveKeys={['tax-settings']}
-                expandIconPosition="end"
+                expandIconPosition="start"
                 className="mb-4"
               >
                 <Panel header={<span className="font-semibold text-base">Tax & Quote Settings</span>} key="tax-settings">
-                  <Form.Item name="defaultMarkup" label="Default Markup" rules={[{ required: true }]}> 
-                    <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
-                  </Form.Item>
                   <Form.Item name="taxRate" label="Tax Rate" rules={[{ required: true }]}> 
                     <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 200 }} />
                   </Form.Item>
@@ -1177,19 +1265,105 @@ const ContractorProductConfigManager = () => {
         onCancel={() => {
           setModalVisible(false);
           setSelectedGlobalProduct(null);
+          setModalBrandFilter(null);
+          setModalCategoryFilter(null);
+          setModalSearchText('');
+          setGlobalProducts([]);
+          setProductsPagination({ page: 1, limit: 20, hasMore: true, total: 0 });
           form.resetFields();
         }}
         footer={null}
-        width={isMobile ? '100%' : 700}
+        width={isMobile ? '100%' : 800}
         style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
         bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
+          {/* Filter Controls in Modal */}
+          {!editingConfig && (
+            <Card size="small" className="mb-4" style={{ backgroundColor: '#f5f5f5' }}>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Brand</label>
+                  <Select
+                    placeholder="Select brand (optional)"
+                    className="w-full"
+                    value={modalBrandFilter}
+                    onChange={(value) => {
+                      setModalBrandFilter(value);
+                      // Auto-fetch when brand changes
+                      setTimeout(() => fetchGlobalProducts(1, value, modalCategoryFilter, modalSearchText, false), 100);
+                    }}
+                    allowClear
+                    onClear={() => {
+                      setModalBrandFilter(null);
+                      fetchGlobalProducts(1, null, modalCategoryFilter, modalSearchText, false);
+                    }}
+                  >
+                    {brands.map((brand) => (
+                      <Option key={brand.id} value={brand.id}>
+                        {brand.name}
+                      </Option>
+                    ))}
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">Category (optional)</label>
+                  <Select
+                    placeholder="Select category (optional)"
+                    className="w-full"
+                    value={modalCategoryFilter}
+                    onChange={(value) => {
+                      setModalCategoryFilter(value);
+                      // Auto-fetch when category changes
+                      setTimeout(() => fetchGlobalProducts(1, modalBrandFilter, value, modalSearchText, false), 100);
+                    }}
+                    allowClear
+                    onClear={() => {
+                      setModalCategoryFilter(null);
+                      fetchGlobalProducts(1, modalBrandFilter, null, modalSearchText, false);
+                    }}
+                  >
+                    <Option value="Interior">Interior</Option>
+                    <Option value="Exterior">Exterior</Option>
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">Search Product Name</label>
+                  <Input
+                    placeholder="Search products by name..."
+                    prefix={<SearchOutlined />}
+                    value={modalSearchText}
+                    onChange={(e) => setModalSearchText(e.target.value)}
+                    onPressEnter={handleModalFilterChange}
+                    allowClear
+                    onClear={() => {
+                      setModalSearchText('');
+                      fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, '', false);
+                    }}
+                  />
+                </div>
+                
+                <Button 
+                  type="primary" 
+                  icon={<SearchOutlined />}
+                  onClick={handleModalFilterChange}
+                  block
+                  size="small"
+                >
+                  Search Products
+                </Button>
+              </div>
+            </Card>
+          )}
+          
           {/* Global Product Selection */}
           <Form.Item
             name="globalProductId"
             label="Select Product"
             rules={[{ required: true, message: 'Please select a product' }]}
+            extra={loadingMoreProducts ? 'Loading more products...' : (productsPagination.hasMore ? `Scroll down to load more (${globalProducts.length}/${productsPagination.total})` : globalProducts.length > 0 ? `Showing all ${globalProducts.length} products` : 'Use filters above to load products')}
           >
             <Select
               placeholder="Select a product from global catalog"
@@ -1197,15 +1371,22 @@ const ContractorProductConfigManager = () => {
               showSearch
               optionFilterProp="children"
               disabled={!!editingConfig}
+              loading={loadingMoreProducts && globalProducts.length === 0}
+              onPopupScroll={handleProductsScroll}
               filterOption={(input, option) =>
                 option.children.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {filteredGlobalProducts.map((product) => (
+              {globalProducts.map((product) => (
                 <Option key={product.id} value={product.id}>
                   {product.brand?.name || product.customBrand} - {product.name} ({product.category})
                 </Option>
               ))}
+              {loadingMoreProducts && globalProducts.length > 0 && (
+                <Option disabled key="loading" value="loading">
+                  <div style={{ textAlign: 'center', padding: '8px' }}>Loading more...</div>
+                </Option>
+              )}
             </Select>
           </Form.Item>
 
@@ -1231,6 +1412,11 @@ const ContractorProductConfigManager = () => {
                 onClick={() => {
                   setModalVisible(false);
                   setSelectedGlobalProduct(null);
+                  setModalBrandFilter(null);
+                  setModalCategoryFilter(null);
+                  setModalSearchText('');
+                  setGlobalProducts([]);
+                  setProductsPagination({ page: 1, limit: 20, hasMore: true, total: 0 });
                   form.resetFields();
                 }}
                 block={isMobile}

@@ -99,7 +99,9 @@ function LeadsPage() {
       title: 'Date',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: (date) => new Date(date).toLocaleDateString(),
+      render: (date) => new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }),
       sorter: (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
     },
     {

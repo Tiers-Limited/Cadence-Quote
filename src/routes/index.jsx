@@ -19,18 +19,50 @@ import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
 
 // Customer Portal Components
-import CustomerDashboard from '../pages/customer/CustomerDashboard';
-import ViewProposal from '../pages/customer/ViewProposal';
+
 import DepositPayment from '../pages/customer/DepositPayment';
 import FinishStandardsAcknowledgement from '../pages/customer/FinishStandardsAcknowledgement';
 import ProductSelections from '../pages/customer/ProductSelections';
 import ColorSelections from '../pages/customer/ColorSelections';
 import CustomerDocuments from '../pages/customer/CustomerDocuments';
+import MagicLinkDashboard from '../pages/contractor/MagicLinkDashboard';
+import JobProgressView from '../pages/customer/JobProgressView';
+import CustomerJobDetail from '../pages/customer/CustomerJobDetail';
+import ProposalAcceptance from '../pages/customer/ProposalAcceptance';
+import ProductSelectionWizard from '../pages/customer/ProductSelectionWizard';
+import JobTracking from '../pages/customer/JobTracking';
+import CustomerCalendar from '../pages/customer/CustomerCalendar';
 
-// Client Authentication Components
-import ClientSetPassword from '../pages/ClientSetPassword';
-import ClientForgotPassword from '../pages/ClientForgotPassword';
-import ClientResetPassword from '../pages/ClientResetPassword';
+// Magic Link Portal Components
+import MagicLinkAccess from '../components/CustomerPortal/MagicLinkAccess';
+import MagicLinkCustomerDashboard from '../components/CustomerPortal/MagicLinkCustomerDashboard';
+
+
+import { withMagicLinkAuth } from '../components/CustomerPortal/withMagicLinkAuth';
+
+// Wrap customer portal components with magic link authentication
+
+const MagicLinkDepositPayment = withMagicLinkAuth(DepositPayment);
+const MagicLinkFinishStandards = withMagicLinkAuth(FinishStandardsAcknowledgement);
+const MagicLinkProductSelections = withMagicLinkAuth(ProductSelections);
+const MagicLinkColorSelections = withMagicLinkAuth(ColorSelections);
+const MagicLinkCustomerDocuments = withMagicLinkAuth(CustomerDocuments);
+const MagicLinkJobProgress = withMagicLinkAuth(JobProgressView);
+const MagicLinkCustomerJobDetail = withMagicLinkAuth(CustomerJobDetail);
+
+// Wrap new customer portal components
+const MagicLinkProposalAcceptance = withMagicLinkAuth(ProposalAcceptance);
+const MagicLinkProductSelectionWizard = withMagicLinkAuth(ProductSelectionWizard);
+const MagicLinkJobTracking = withMagicLinkAuth(JobTracking);
+const MagicLinkCustomerCalendar = withMagicLinkAuth(CustomerCalendar);
+
+// Portal Admin Components
+import PortalAdminSettings from '../components/Admin/PortalAdminSettings';
+
+// Jobs Components
+import JobsListPage from '../pages/JobsListPage';
+import JobDetailPage from '../pages/JobDetailPage';
+import JobCalendarPage from '../pages/JobCalendarPage';
 
 import EmailVerificationPage from '../pages/EmailVerificationPage';
 import TwoFactorVerificationPage from '../pages/TwoFactorVerificationPage';
@@ -58,6 +90,7 @@ import FeatureFlagsPage from '../pages/admin/FeatureFlagsPage';
 import StripeBillingPage from '../pages/admin/StripeBillingPage';
 import AdminSettingsPage from '../pages/admin/AdminSettingsPage';
 import ContractorProductConfigManager from '../pages/ContractorProductConfigManager';
+import { CustomerPortalLayout } from '..';
 
 const AppRoutes = () => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -85,15 +118,9 @@ const AppRoutes = () => {
       <Route path='/forgot-password' element={<ForgotPasswordPage />} />
       <Route path='/reset-password' element={<ResetPasswordPage />} />
       
-      {/* Client Authentication Routes */}
-      <Route path='/client/set-password' element={<ClientSetPassword />} />
-      <Route path='/client/forgot-password' element={<ClientForgotPassword />} />
-      <Route path='/client/reset-password' element={<ClientResetPassword />} />
-      
       <Route path='/auth/apple/success' element={<AuthSuccess />} />
       <Route path='/auth/google/success' element={<GoogleAuthSuccessPage />} />
       <Route path='/auth/resume-payment' element={<ResumePaymentPage />} />
-      {/* <Route path='/auth/apple/success' element={<AppleAuthSuccessPage />} /> */}
       <Route path="/verify-email" element={<EmailVerificationPage />} />
       <Route path='/verify-2fa' element={<TwoFactorVerificationPage />} />
       <Route path='/registration-success' element={<PaymentSuccessPage />} />
@@ -119,6 +146,9 @@ const AppRoutes = () => {
         <Route path='/quotes/new' element={<QuoteBuilderPage />} />
         <Route path='/quotes/edit/:quoteId' element={<QuoteBuilderPage />} />
         <Route path='/quote-builder' element={<QuoteBuilderPage />} />
+        <Route path='/jobs' element={<JobsListPage />} />
+        <Route path='/jobs/:jobId' element={<JobDetailPage />} />
+        <Route path='/jobs/calendar' element={<JobCalendarPage />} />
         <Route path='/pricing-engine' element={<ContractorProductConfigManager />} />
         <Route path='/products/catalog' element={<ContractorProductConfigManager />} />
         <Route path='/products/colors' element={<ColorLibrary />} />
@@ -133,6 +163,7 @@ const AppRoutes = () => {
         <Route path='/service-types' element={<ServiceTypesPage />} />
         {/* Labor rates consolidated under Pricing Engine, route preserved if needed */}
         <Route path='/labor-rates' element={<LaborRatesPage />} />
+        <Route path='/magic-links' element={<MagicLinkDashboard />} />
       </Route>
 
       {/* Settings Route - Accessible to both contractor_admin and business_admin */}
@@ -146,26 +177,22 @@ const AppRoutes = () => {
         }
       >
         <Route path='/settings' element={<SettingsPage />} />
+        <Route path='/portal-admin' element={<PortalAdminSettings />} />
       </Route>
 
-      {/* Customer Portal Routes - Only accessible to customer role */}
-      <Route
-        path='/portal/*'
-        element={
-          <RoleBasedRoute allowedRoles={['customer']}>
-            <MainLayout>
-              <Outlet />
-            </MainLayout>
-          </RoleBasedRoute>
-        }
-      >
-        <Route path='dashboard' element={<CustomerDashboard />} />
-        <Route path='proposal/:proposalId' element={<ViewProposal />} />
-        <Route path='payment/:proposalId' element={<DepositPayment />} />
-        <Route path='finish-standards/:proposalId' element={<FinishStandardsAcknowledgement />} />
-        <Route path='selections/:proposalId' element={<ProductSelections />} />
-        <Route path='colors/:proposalId' element={<ColorSelections />} />
-        <Route path='documents/:proposalId' element={<CustomerDocuments />} />
+      {/* Magic Link Portal Access - Public route (no authentication required) */}
+      <Route path='/portal/access/:token' element={<MagicLinkAccess />} />
+      <Route path='/portal' element={<CustomerPortalLayout/>}>
+        <Route index element={<Navigate to='/portal/dashboard' replace />} />
+        <Route path='dashboard' element={<MagicLinkCustomerDashboard />} />
+        <Route path='proposals/:proposalId/accept' element={<MagicLinkProposalAcceptance />} />
+        <Route path='finish-standards/:proposalId' element={<MagicLinkFinishStandards />} />
+        <Route path='proposals/:proposalId/selections' element={<MagicLinkProductSelectionWizard />} />
+        <Route path='documents/:proposalId' element={<MagicLinkCustomerDocuments />} />
+        {/* <Route path='jobs/:proposalId' element={<MagicLinkJobProgress />} /> */}
+        <Route path='jobs/:jobId' element={<MagicLinkJobTracking />} />
+        <Route path='job/:jobId' element={<MagicLinkCustomerJobDetail />} />
+        <Route path='calendar' element={<MagicLinkCustomerCalendar />} />
       </Route>
 
       {/* Admin Routes - Only accessible to admin role */}

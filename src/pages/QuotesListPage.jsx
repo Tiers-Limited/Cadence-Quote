@@ -28,12 +28,19 @@ import {
   CalendarOutlined,
   MailOutlined,
   UserAddOutlined,
-  LockOutlined
+  LockOutlined,
+  DollarCircleOutlined,
+  ReloadOutlined,
+  SyncOutlined,
+  MoreOutlined
 } from '@ant-design/icons';
 import quoteApiService from '../services/quoteApiService';
 import { apiService } from '../services/apiService';
 import ManualDepositVerificationModal from '../components/ManualDepositVerificationModal';
 import ContractorPortalControls from '../components/ContractorPortalControls';
+import MarkDepositPaidModal from '../components/AdminActions/MarkDepositPaidModal';
+import ReopenQuoteModal from '../components/AdminActions/ReopenQuoteModal';
+import SyncPaymentModal from '../components/AdminActions/SyncPaymentModal';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -51,6 +58,10 @@ const QuotesListPage = () => {
   const [productNames, setProductNames] = useState({});
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [depositModalVisible, setDepositModalVisible] = useState(false);
+  const [markDepositPaidModalVisible, setMarkDepositPaidModalVisible] = useState(false);
+  const [reopenQuoteModalVisible, setReopenQuoteModalVisible] = useState(false);
+  const [syncPaymentModalVisible, setSyncPaymentModalVisible] = useState(false);
+  const [selectedQuoteForAction, setSelectedQuoteForAction] = useState(null);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -347,6 +358,7 @@ const QuotesListPage = () => {
       title: 'Customer',
       dataIndex: 'customerName',
       key: 'customerName',
+      width: 220,
       responsive: ['sm'],
       render: (text, record) => (
         <div>
@@ -365,6 +377,23 @@ const QuotesListPage = () => {
           {record.customerEmail && (
             <div style={{ fontSize: '12px', color: '#888' }}>{record.customerEmail}</div>
           )}
+        </div>
+      )
+    },
+    {
+      title: "Address",
+      dataIndex: "street",
+      key:"street",
+      width: 180,
+       responsive: ['sm'],
+      render: (text, record) => (
+        <div>
+          <div className='flex flex-col'>
+            <strong>{text}</strong>
+             <div style={{ fontSize: '12px', color: '#888' }}>{record.city}, {record.state}</div>
+            
+          </div>
+         
         </div>
       )
     },
@@ -408,7 +437,9 @@ const QuotesListPage = () => {
           <StatusBadge status={status} />
           {record.sentAt && !isMobile && (
             <div style={{ fontSize: '11px', color: '#888', marginTop: 4 }}>
-              Sent: {new Date(record.sentAt).toLocaleDateString()}
+              Sent: {new Date(record.sentAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}
             </div>
           )}
         </div>
@@ -422,10 +453,14 @@ const QuotesListPage = () => {
       responsive: ['lg'],
       render: (text, record) => (
         <div>
-          <div>{new Date(text).toLocaleDateString()}</div>
+          <div>{new Date(text).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}</div>
           {record.validUntil && (
             <div style={{ fontSize: '11px', color: '#ff4d4f' }}>
-              Valid until: {new Date(record.validUntil).toLocaleDateString()}
+              Valid until: {new Date(record.validUntil).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}
             </div>
           )}
         </div>
@@ -694,7 +729,9 @@ const QuotesListPage = () => {
                   <p style={{ margin: '4px 0', fontSize: '12px', color: '#666' }}>{record.customerEmail}</p>
                   <p style={{ margin: '4px 0' }}><strong>Job:</strong> {record.jobType?.toUpperCase()} - {record.jobCategory}</p>
                   <p style={{ margin: '4px 0' }}><strong>Status:</strong> <StatusBadge status={record.status} /></p>
-                  <p style={{ margin: '4px 0', fontSize: '11px', color: '#888' }}>Created: {new Date(record.createdAt).toLocaleDateString()}</p>
+                  <p style={{ margin: '4px 0', fontSize: '11px', color: '#888' }}>Created: {new Date(record.createdAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}</p>
                 </div>
               ),
               rowExpandable: () => true,
@@ -779,12 +816,16 @@ const QuotesListPage = () => {
                   </Space>
                   {selectedQuote.client?.hasPortalAccess && selectedQuote.client?.portalActivatedAt && (
                     <div style={{ fontSize: '12px', color: '#52c41a', marginTop: '4px' }}>
-                      Activated: {new Date(selectedQuote.client.portalActivatedAt).toLocaleDateString()}
+                      Activated: {new Date(selectedQuote.client.portalActivatedAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}
                     </div>
                   )}
                   {selectedQuote.client?.hasPortalAccess && selectedQuote.client?.portalInvitedAt && !selectedQuote.client?.portalActivatedAt && (
                     <div style={{ fontSize: '12px', color: '#faad14', marginTop: '4px' }}>
-                      Invited: {new Date(selectedQuote.client.portalInvitedAt).toLocaleDateString()} (Pending)
+                      Invited: {new Date(selectedQuote.client.portalInvitedAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })} (Pending)
                     </div>
                   )}
                 </Descriptions.Item>
@@ -879,7 +920,9 @@ const QuotesListPage = () => {
                     )}
                     {selectedQuote.portalClosedAt && selectedQuote.portalOpen && (
                       <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>
-                        Expires: {new Date(selectedQuote.portalClosedAt).toLocaleDateString()}
+                        Expires: {new Date(selectedQuote.portalClosedAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}
                       </span>
                     )}
                   </Descriptions.Item>
@@ -891,7 +934,9 @@ const QuotesListPage = () => {
                     </Tag>
                     {selectedQuote.selectionsCompletedAt && (
                       <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>
-                        {new Date(selectedQuote.selectionsCompletedAt).toLocaleDateString()}
+                        {new Date(selectedQuote.selectionsCompletedAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}
                       </span>
                     )}
                   </Descriptions.Item>
@@ -961,27 +1006,67 @@ const QuotesListPage = () => {
 
               {selectedQuote.productSets && selectedQuote.productSets.length > 0 && (
                 <>
-                  <h3 style={{ marginTop: 24, marginBottom: 16 }}>Product Sets</h3>
-                  {selectedQuote.productSets.map((set, index) => (
-                    <Card key={index} size="small" style={{ marginBottom: 12 }} loading={loadingProducts}>
-                      <h4>{set.surfaceType}</h4>
-                      {set.products && (
-                        <div>
-                          <p><strong>Good:</strong> {productNames[set.products.good] || `Product ID ${set.products.good}`}</p>
-                          <p><strong>Better:</strong> {productNames[set.products.better] || `Product ID ${set.products.better}`}</p>
-                          <p><strong>Best:</strong> {productNames[set.products.best] || `Product ID ${set.products.best}`}</p>
-                        </div>
-                      )}
-                      {set.prices && (
-                        <div style={{ marginTop: 8 }}>
-                          <p><strong>Prices:</strong></p>
-                          <p>Good: ${set.prices.good}</p>
-                          <p>Better: ${set.prices.better}</p>
-                          <p>Best: ${set.prices.best}</p>
-                        </div>
-                      )}
-                    </Card>
-                  ))}
+                  <h3 style={{ marginTop: 24, marginBottom: 16 }}>Product Selection (Good, Better, Best)</h3>
+                  <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', border: '1px solid #d9d9d9' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#fafafa', borderBottom: '2px solid #d9d9d9' }}>
+                          {selectedQuote.productSets.some(ps => ps.areaId !== undefined) && (
+                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', borderRight: '1px solid #d9d9d9' }}>Area</th>
+                          )}
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', borderRight: '1px solid #d9d9d9' }}>Surface</th>
+                          <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', borderRight: '1px solid #d9d9d9' }}>Good</th>
+                          <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', borderRight: '1px solid #d9d9d9' }}>Better</th>
+                          <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', borderRight: '1px solid #d9d9d9' }}>Best</th>
+                          <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600' }}>Quantity</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedQuote.productSets.map((set, index) => (
+                          <tr key={index} style={{ borderBottom: '1px solid #d9d9d9', backgroundColor: index % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            {selectedQuote.productSets.some(ps => ps.areaId !== undefined) && (
+                              <td style={{ padding: '12px', borderRight: '1px solid #d9d9d9', fontWeight: '500' }}>
+                                {set.areaName || `Area ${set.areaId}` || 'N/A'}
+                              </td>
+                            )}
+                            <td style={{ padding: '12px', borderRight: '1px solid #d9d9d9', fontWeight: '500' }}>
+                              {set.surfaceType || 'N/A'}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'center', borderRight: '1px solid #d9d9d9', fontSize: '13px' }}>
+                              {set.products?.good ? (
+                                <span>{productNames[set.products.good] || `Product ${set.products.good}`}</span>
+                              ) : (
+                                <span style={{ color: '#999' }}>—</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'center', borderRight: '1px solid #d9d9d9', fontSize: '13px' }}>
+                              {set.products?.better ? (
+                                <span>{productNames[set.products.better] || `Product ${set.products.better}`}</span>
+                              ) : (
+                                <span style={{ color: '#999' }}>—</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'center', borderRight: '1px solid #d9d9d9', fontSize: '13px' }}>
+                              {set.products?.best ? (
+                                <span>{productNames[set.products.best] || `Product ${set.products.best}`}</span>
+                              ) : (
+                                <span style={{ color: '#999' }}>—</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'center', fontSize: '13px' }}>
+                              {set.quantity && set.unit ? (
+                                <span>
+                                  {set.quantity} {set.unit === 'sqft' ? 'sq ft' : set.unit === 'linear_foot' ? 'LF' : set.unit === 'unit' ? 'units' : set.unit}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#999' }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               )}
             </>
@@ -1096,6 +1181,43 @@ const QuotesListPage = () => {
             handleViewQuote(selectedQuote.id);
             fetchQuotes();
           }}
+        />
+
+        {/* Admin Action Modals */}
+        <MarkDepositPaidModal
+          visible={markDepositPaidModalVisible}
+          onCancel={() => {
+            setMarkDepositPaidModalVisible(false);
+            setSelectedQuoteForAction(null);
+          }}
+          onSuccess={() => {
+            fetchQuotes();
+          }}
+          quote={selectedQuoteForAction}
+        />
+
+        <ReopenQuoteModal
+          visible={reopenQuoteModalVisible}
+          onCancel={() => {
+            setReopenQuoteModalVisible(false);
+            setSelectedQuoteForAction(null);
+          }}
+          onSuccess={() => {
+            fetchQuotes();
+          }}
+          quote={selectedQuoteForAction}
+        />
+
+        <SyncPaymentModal
+          visible={syncPaymentModalVisible}
+          onCancel={() => {
+            setSyncPaymentModalVisible(false);
+            setSelectedQuoteForAction(null);
+          }}
+          onSuccess={() => {
+            fetchQuotes();
+          }}
+          quote={selectedQuoteForAction}
         />
       </div>
     </div>

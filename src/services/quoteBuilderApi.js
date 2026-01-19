@@ -48,8 +48,8 @@ const quoteBuilderApi = {
   /**
    * Send quote to client
    */
-  sendQuote: async (quoteId) => {
-    const response = await apiService.post(`/quote-builder/${quoteId}/send`);
+  sendQuote: async (quoteId, emailData = {}) => {
+    const response = await apiService.post(`/quote-builder/${quoteId}/send`, emailData);
     return response.data;
   },
 

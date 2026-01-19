@@ -1,0 +1,364 @@
+/* Customer Dashboard - Magic Link Portal */
+.customer-dashboard {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 2rem;
+}
+
+.dashboard-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+/* Header Section */
+.dashboard-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 2rem;
+  text-align: center;
+}
+
+.contractor-logo {
+  max-width: 150px;
+  max-height: 80px;
+  margin-bottom: 1rem;
+  background: white;
+  padding: 0.5rem;
+  border-radius: 8px;
+}
+
+.dashboard-header h1 {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  color: white;
+}
+
+.welcome-message {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+/* Expiry Warning Banner */
+.expiry-banner {
+  background: #fff3cd;
+  border-left: 4px solid #ffc107;
+  padding: 1rem 1.5rem;
+  margin: 1.5rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.expiry-banner.warning {
+  background: #fff3cd;
+  border-left-color: #ffc107;
+}
+
+.expiry-banner.expired {
+  background: #f8d7da;
+  border-left-color: #dc3545;
+}
+
+.expiry-icon {
+  font-size: 1.5rem;
+}
+
+.expiry-content h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  color: #856404;
+}
+
+.expiry-banner.expired .expiry-content h3 {
+  color: #721c24;
+}
+
+.expiry-content p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #856404;
+}
+
+.expiry-banner.expired .expiry-content p {
+  color: #721c24;
+}
+
+/* Dashboard Content */
+.dashboard-content {
+  padding: 2rem;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  margin-bottom: 1.5rem;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Quotes Grid */
+.quotes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.quote-card {
+  background: white;
+  border: 1px solid #e1e8ed;
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.quote-card:hover {
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.15);
+  transform: translateY(-4px);
+  border-color: #667eea;
+}
+
+.quote-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
+.quote-number {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.quote-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.quote-status.sent {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.quote-status.approved {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.quote-status.declined {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.quote-details {
+  margin-bottom: 1rem;
+}
+
+.quote-detail-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.quote-detail-label {
+  color: #666;
+}
+
+.quote-detail-value {
+  font-weight: 500;
+  color: #333;
+}
+
+.quote-total {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #667eea;
+  text-align: right;
+}
+
+.quote-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: white;
+  color: #667eea;
+  border: 1px solid #667eea;
+}
+
+.btn-secondary:hover {
+  background: #f5f7ff;
+}
+
+/* OTP Verification Modal */
+.otp-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.otp-modal {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.otp-modal h2 {
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.otp-modal p {
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+
+.otp-input-container {
+  margin-bottom: 1.5rem;
+}
+
+.otp-input-container label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #333;
+  font-weight: 500;
+}
+
+.otp-input-container input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #e1e8ed;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.otp-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+/* Loading State */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f4f6;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Error State */
+.error-container {
+  text-align: center;
+  padding: 2rem;
+}
+
+.error-icon {
+  font-size: 3rem;
+  color: #dc3545;
+  margin-bottom: 1rem;
+}
+
+.error-message {
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 3rem 2rem;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  color: #ccc;
+  margin-bottom: 1rem;
+}
+
+.empty-state h3 {
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.empty-state p {
+  color: #999;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .customer-dashboard {
+    padding: 1rem;
+  }
+
+  .dashboard-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .quotes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-content {
+    padding: 1rem;
+  }
+}

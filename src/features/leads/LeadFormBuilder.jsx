@@ -19,7 +19,7 @@ const LeadFormBuilder = () => {
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingForm, setEditingForm] = useState(null);
-  const [activeTab, setActiveTab] = useState('forms');
+  const [activeTab, setActiveTab] = useState('leads');
   const [form] = Form.useForm();
   const [isMobile, setIsMobile] = useState(false);
   
@@ -196,7 +196,9 @@ const LeadFormBuilder = () => {
       title: 'Date',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: (date) => new Date(date).toLocaleDateString(),
+      render: (date) => new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }),
       width: 120,
     },
     {
@@ -469,6 +471,44 @@ const LeadFormBuilder = () => {
   return (
     <div className="p-3 md:p-6">
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
+         <TabPane tab="Leads" key="leads">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <h2 className="text-xl md:text-2xl font-semibold">Lead Management</h2>
+          </div>
+
+          <div className="mb-4">
+            <Input.Search
+              placeholder="Search by name, email, phone, project type, or status..."
+              value={leadsSearchText}
+              onChange={(e) => {
+                setLeadsSearchText(e.target.value);
+                setLeadsCurrentPage(1);
+              }}
+              allowClear
+              style={{ maxWidth: isMobile ? '100%' : 500 }}
+            />
+          </div>
+
+          <Table
+            columns={leadColumns}
+            dataSource={filteredLeads}
+            loading={loading}
+            rowKey="id"
+            scroll={{ x: 'max-content' }}
+            pagination={{
+              current: leadsCurrentPage,
+              pageSize: leadsPageSize,
+              total: filteredLeads.length,
+              onChange: (page, pageSize) => {
+                setLeadsCurrentPage(page);
+                setLeadsPageSize(pageSize);
+              },
+              showSizeChanger: true,
+              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} leads`,
+              pageSizeOptions: ['10', '20', '50', '100'],
+            }}
+          />
+        </TabPane>
         <TabPane tab="Lead Forms" key="forms">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <h2 className="text-xl md:text-2xl font-semibold">Lead Forms</h2>
@@ -516,44 +556,7 @@ const LeadFormBuilder = () => {
           />
         </TabPane>
 
-        <TabPane tab="Leads" key="leads">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-            <h2 className="text-xl md:text-2xl font-semibold">Lead Management</h2>
-          </div>
-
-          <div className="mb-4">
-            <Input.Search
-              placeholder="Search by name, email, phone, project type, or status..."
-              value={leadsSearchText}
-              onChange={(e) => {
-                setLeadsSearchText(e.target.value);
-                setLeadsCurrentPage(1);
-              }}
-              allowClear
-              style={{ maxWidth: isMobile ? '100%' : 500 }}
-            />
-          </div>
-
-          <Table
-            columns={leadColumns}
-            dataSource={filteredLeads}
-            loading={loading}
-            rowKey="id"
-            scroll={{ x: 'max-content' }}
-            pagination={{
-              current: leadsCurrentPage,
-              pageSize: leadsPageSize,
-              total: filteredLeads.length,
-              onChange: (page, pageSize) => {
-                setLeadsCurrentPage(page);
-                setLeadsPageSize(pageSize);
-              },
-              showSizeChanger: true,
-              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} leads`,
-              pageSizeOptions: ['10', '20', '50', '100'],
-            }}
-          />
-        </TabPane>
+       
       </Tabs>
 
       <Modal

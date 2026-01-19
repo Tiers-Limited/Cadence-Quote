@@ -129,6 +129,25 @@ class ApiService {
     }
   }
 
+  async patch(endpoint, data = {}, options = {}) {
+    try {
+      const { headers: customHeaders, ...restOptions } = options;
+      const response = await fetch(`${this.baseURL}${endpoint}`, {
+        method: "PATCH",
+        headers: {
+          ...this.getHeaders(),
+          ...customHeaders
+        },
+        body: JSON.stringify(data),
+        ...restOptions,
+      })
+
+      return this.handleResponse(response)
+    } catch (error) {
+      throw new Error(`PATCH request failed: ${error.message}`)
+    }
+  }
+
   async delete(endpoint, options = {}) {
     try {
       const response = await fetch(`${this.baseURL}${endpoint}`, {

@@ -420,14 +420,18 @@ const ProductCatalog = () => {
       title: 'Created At',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: date => new Date(date).toLocaleDateString(),
+      render: date => new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }),
       sorter: (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
     },
     {
       title: 'Updated At',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      render: date => new Date(date).toLocaleDateString(),
+      render: date => new Date(date).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }),
       sorter: (a, b) => new Date(a.updatedAt) - new Date(b.updatedAt)
     },
     {

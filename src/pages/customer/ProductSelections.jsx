@@ -4,6 +4,7 @@ import { Card, Button, Select, Typography, Space, message, Spin, Alert, Tag, Mod
 import { FiCheckCircle, FiEdit, FiLock } from 'react-icons/fi';
 import { apiService } from '../../services/apiService';
 import PortalStatusIndicator from '../../components/PortalStatusIndicator';
+import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -45,7 +46,7 @@ function ProductSelections() {
   const fetchProposal = async () => {
     try {
       setLoading(true);
-      const response = await apiService.get(`/customer/proposals/${proposalId}`);
+      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`);
       if (response.success) {
         setProposal(response.data);
         setAreas(response.data.areas || []);
@@ -64,7 +65,7 @@ function ProductSelections() {
 
   const fetchBrands = async () => {
     try {
-      const response = await apiService.get('/customer/brands');
+      const response = await magicLinkApiService.get('/api/customer-portal/brands');
       if (response.success) {
         setBrands(response.data || []);
       }
@@ -76,7 +77,7 @@ function ProductSelections() {
 
   const fetchAllProducts = async () => {
     try {
-      const response = await apiService.get('/customer/products?limit=1000');
+      const response = await magicLinkApiService.get('/api/customer-portal/products?limit=1000');
       if (response.success) {
         setAllProducts(response.data || []);
       }
@@ -88,7 +89,7 @@ function ProductSelections() {
 
   const fetchAllColors = async () => {
     try {
-      const response = await apiService.get('/customer/colors?limit=1000');
+      const response = await magicLinkApiService.get('/api/customer-portal/colors?limit=1000');
       if (response.success) {
         setAllColors(response.data || []);
       }
@@ -100,7 +101,7 @@ function ProductSelections() {
 
   const fetchSheens = async () => {
     try {
-      const response = await apiService.get('/customer/sheens');
+      const response = await magicLinkApiService.get('/api/customer-portal/sheens');
       if (response.success) {
         setSheens(response.data || []);
       }
@@ -224,7 +225,7 @@ function ProductSelections() {
 
     try {
       setSaving(true);
-      const response = await apiService.post(`/customer/proposals/${proposalId}/areas/${editingArea.id}/selections`, {
+      const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/areas/${editingArea.id}/selections`, {
         brandId: editForm.brand,
         productId: editForm.product,
         colorId: editForm.color,
@@ -359,14 +360,18 @@ function ProductSelections() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Spin size="large" tip="Loading selections..." />
+      <div>
+        
+        <div className="flex items-center justify-center min-h-screen">
+          <Spin size="large" tip="Loading selections..." />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+   
+      <div className="p-6 max-w-7xl mx-auto">
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Header */}
         <Card>

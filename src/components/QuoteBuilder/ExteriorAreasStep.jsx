@@ -1,9 +1,10 @@
 // src/components/QuoteBuilder/ExteriorAreasStep.jsx
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Alert, Row, Col, Typography, Input, InputNumber, Space, Modal, Select, Tag } from 'antd';
-import { PlusOutlined, DeleteOutlined, CalculatorOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 import DimensionCalculator from './DimensionCalculator';
+import * as pricingUtils from '../../utils/pricingUtils';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -40,34 +41,64 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   const [laborRates, setLaborRates] = useState([]);
   const [dimensionCalc, setDimensionCalc] = useState({ visible: false, areaId: null, categoryName: null });
 
-  // Determine pricing model type for conditional rendering
-  const modelType = formData.pricingModelType || 'rate_based_sqft';
-  const isFlatRate = modelType === 'flat_rate_unit';
-  const isProduction = modelType === 'production_based';
-  const isDetailed = modelType === 'rate_based_sqft' || modelType === 'sqft_labor_paint' || isProduction;
+  // Determine pricing model mode using centralized util
+  const mode = pricingUtils.getPricingMode(formData.pricingModelType);
+  const jobType = 'exterior';
 
   useEffect(() => {
     // Check if current pricing model needs labor categories/rates
     const needsLaborData = formData.pricingModelType === 'rate_based_sqft' || 
                           formData.pricingModelType === 'production_based';
     
-    if (needsLaborData) {
-      fetchLaborCategories();
-      fetchLaborRates();
-    } else {
+    if (!needsLaborData) {
       // Clear labor data if not needed for flat rate pricing
       setLaborCategories([]);
       setLaborRates({});
+      return;
     }
-  }, [formData.pricingModelType]);
+    
+    // Use synced settings from parent (QuoteBuilderPage)
+    if (formData.contractorSettings?.laborCategories && formData.contractorSettings.laborCategories.length > 0) {
+      console.log('[ExteriorAreasStep] Using labor data from contractorSettings:', {
+        categories: formData.contractorSettings.laborCategories.length,
+        rates: Object.keys(formData.contractorSettings.laborRates || {}).length
+      });
+      
+      setLaborCategories(formData.contractorSettings.laborCategories);
+      
+      // laborRates in contractorSettings is already a map object {categoryId: rate}
+      if (formData.contractorSettings.laborRates && typeof formData.contractorSettings.laborRates === 'object') {
+        setLaborRates(formData.contractorSettings.laborRates);
+      }
+    } else if (laborCategories.length === 0) {
+      // Fallback: Only fetch if we don't already have data and parent hasn't provided it
+      console.log('[ExteriorAreasStep] No labor data from parent, fetching with jobType:', jobType);
+      fetchLaborCategories();
+      fetchLaborRates();
+    }
+  }, [formData.contractorSettings, formData.pricingModelType, formData._laborDataUpdated]);
 
   useEffect(() => {
     onUpdate({ areas });
   }, [areas]);
 
+  // Update labor rates when pricing model or contractor settings change
+  useEffect(() => {
+    if (areas.length > 0) {
+      const updatedAreas = areas.map(area => ({
+        ...area,
+        laborItems: area.laborItems.map(item => ({
+          ...item,
+          laborRate: getLaborRate(item.categoryName)
+        }))
+      }));
+      setAreas(updatedAreas);
+    }
+  }, [formData.pricingModelType, formData.contractorSettings]);
+
   const fetchLaborCategories = async () => {
     try {
-      const response = await apiService.get('/labor-categories');
+      const response = await apiService.get(`/labor-categories?jobType=${jobType}`);
       if (response.success) {
         setLaborCategories(response.data || []);
       }
@@ -78,7 +109,7 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
 
   const fetchLaborRates = async () => {
     try {
-      const response = await apiService.get('/labor-categories/rates');
+      const response = await apiService.get(`/labor-categories/rates?jobType=${jobType}`);
       if (response.success && Array.isArray(response.data)) {
         // Create a map of laborCategoryId to rate for easier lookup
         const ratesMap = {};
@@ -92,61 +123,129 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     }
   };
 
+  // Map area types to their relevant labor categories
+  const getRelevantLaborCategories = (areaName) => {
+    // Define which labor categories are relevant for each area type
+    const areaToLabor = {
+      'Exterior Siding': ['Exterior Walls', 'Exterior Trim', 'Prep Work'],
+      'Garage': ['Exterior Walls', 'Exterior Trim', 'Exterior Doors', 'Prep Work'],
+      'Deck': ['Decks & Railings', 'Prep Work'],
+      'Fence': ['Exterior Walls', 'Prep Work'],
+      'Shutters': ['Shutters']
+    };
+
+    // For custom areas, provide all options
+    const relevantCategories = areaToLabor[areaName] || EXTERIOR_LABOR_CATEGORIES.map(cat => cat.name);
+    
+    // Filter EXTERIOR_LABOR_CATEGORIES to only include relevant ones
+    return EXTERIOR_LABOR_CATEGORIES.filter(cat => relevantCategories.includes(cat.name));
+  };
+
   const addArea = (areaName, isCustom = false) => {
+    const relevantCategories = getRelevantLaborCategories(areaName);
+    
+    // For flat rate unit pricing, filter out categories that use linear_foot or hour
+    // since those don't make sense in a per-unit pricing model
+    const isFlatRateUnit = formData.pricingModelType === 'flat_rate_unit';
+    const categoriesForArea = isFlatRateUnit 
+      ? relevantCategories.filter(cat => cat.unit !== 'linear_foot' && cat.unit !== 'hour')
+      : relevantCategories;
+    
     const newArea = {
       id: Date.now(),
       name: areaName,
       jobType: 'exterior',
       isCustom,
-      laborItems: EXTERIOR_LABOR_CATEGORIES.map(cat => ({
-        categoryName: cat.name,
-        measurementUnit: cat.unit,
-        selected: false,
-        quantity: null,
-        numberOfCoats: cat.defaultCoats,
-        dimensions: null,
-        laborRate: getLaborRate(cat.name),
-        gallons: null,
-        allowManualGallons: false
-      }))
+      laborItems: categoriesForArea.map(cat => {
+        const rate = getLaborRate(cat.name);
+        return {
+          categoryName: cat.name,
+          // Override measurement unit to 'unit' for flat rate pricing
+          measurementUnit: isFlatRateUnit ? 'unit' : cat.unit,
+          selected: false,
+          quantity: null,
+          numberOfCoats: cat.defaultCoats,
+          dimensions: null,
+          laborRate: rate,
+          gallons: null,
+          allowManualGallons: false
+        };
+      })
     };
     setAreas([...areas, newArea]);
   };
 
-  const getLaborRate = (categoryName) => {
-    // Preferred: use synced contractor settings from Pricing Engine
-    if (formData.contractorSettings?.laborRates) {
-      const category = formData.contractorSettings.laborCategories?.find(c => c.categoryName === categoryName);
-      if (category) {
-        return formData.contractorSettings.laborRates[category.id] || 0;
-      }
-    }
-    
-    // Fallback: use locally fetched data (temporary compatibility)
-    const category = laborCategories.find(c => c.categoryName === categoryName);
-    if (!category) return 0;
-    return laborRates[category.id] || 0;
+  // Helper function to map category names to flat rate keys
+  const mapCategoryToFlatRateKey = (categoryName) => {
+    const mapping = {
+      // Exterior surfaces
+      'Exterior Walls': 'siding',
+      'Siding': 'siding',
+      'Exterior Siding': 'siding',
+      'Exterior Trim': 'exterior_trim',
+      'Trim': 'exterior_trim',
+      'Exterior Doors': 'door',
+      'Doors': 'door',
+      'Shutters': 'door',
+      'Decks & Railings': 'deck',
+      'Soffit & Fascia': 'soffit_fascia',
+      'Gutters': 'gutters',
+      'Prep Work': 'hour'
+    };
+    return mapping[categoryName] || categoryName.toLowerCase().replace(/\s+/g, '_');
   };
 
+  const getLaborRate = (categoryName) => {
+    return pricingUtils.getLaborRate(categoryName, jobType, formData);
+  };
+
+  // Format labor rate display based on pricing model
+  const formatLaborRateDisplay = (categoryName, measurementUnit) => {
+    const rate = getLaborRate(categoryName);
+    const isFlatRateUnit = formData.pricingModelType === 'flat_rate_unit';
+    
+    if (isFlatRateUnit) {
+      // For flat rate, always show as "$X/unit" regardless of original measurement
+      return `$${rate}/unit`;
+    }
+    
+    // For other models, show with appropriate unit label
+    return `$${rate}/${getUnitLabel(measurementUnit)}`;
+  };
+
+  // Get production rate for a category (for time estimates)
+  const getProductionRate = (categoryName) => {
+    const settings = formData.contractorSettings || {};
+    const key = pricingUtils.mapCategoryToKey(categoryName, jobType, false, true);
+    return settings.productionRates?.[key] || 50;
+  };
+
+  // Calculate estimated hours for production-based model
   const calculateEstimatedHours = (quantity, categoryName) => {
-    if (!quantity || !isProduction) return 0;
-    
-    // Get production rate from contractor settings (sqft/hr or units/hr)
-    const productionRates = formData.contractorSettings?.productionRates || {};
-    
-    // Map category names to production rate keys
-    const rateMap = {
-      'Exterior Walls': productionRates.productionExteriorWalls || 100,
-      'Exterior Trim': productionRates.productionExteriorTrim || 50,
-      'Exterior Doors': productionRates.productionDoors || 2,
-      'Shutters': productionRates.productionShutters || 4,
-      'Decks & Railings': productionRates.productionDecks || 80,
-      'Soffit & Fascia': productionRates.productionSoffit || 60,
-      'Prep Work': productionRates.productionPrep || 1
-    };
-    
-    const rate = rateMap[categoryName] || 50;
-    return quantity / rate;
+    return pricingUtils.calculateEstimatedHours(quantity, categoryName, jobType, formData);
+  };
+
+  // Check if using unit counts (Flat Rate model)
+  const isUnitCountMode = () => {
+    return mode === 'flat_unit';
+  };
+
+  // Check if using detailed measurements (Rate-Based/Production)
+  const isDetailedMeasurement = () => {
+    return ['rate_sqft', 'production'].includes(mode);
+  };
+
+  // Get placeholder text based on pricing model
+  const getQuantityPlaceholder = (unit) => {
+    return pricingUtils.getQuantityPlaceholder(mode, unit);
+  };
+
+  // Get input label based on pricing model
+  const getQuantityLabel = (unit) => {
+    if (isUnitCountMode()) {
+      return 'Quantity';
+    }
+    return unit === 'sqft' ? 'Square Feet' : unit === 'linear_foot' ? 'Linear Feet' : unit === 'unit' ? 'Count' : 'Quantity';
   };
 
   const removeArea = (areaId) => {
@@ -180,12 +279,39 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
 
               // Auto-calculate gallons when quantity or coats change
               if ((field === 'quantity' || field === 'numberOfCoats') && !item.allowManualGallons) {
-                const qty = field === 'quantity' ? value : item.quantity;
-                const coats = field === 'numberOfCoats' ? value : item.numberOfCoats;
+                const qty = parseFloat(field === 'quantity' ? value : item.quantity) || 0;
+                const coats = parseInt(field === 'numberOfCoats' ? value : item.numberOfCoats) || 2;
+                const coverage = 350; // Standard coverage rate
 
-                if (qty && coats && item.measurementUnit === 'sqft') {
-                  const totalSqft = parseFloat(qty) * parseInt(coats);
-                  const calculatedGallons = totalSqft / COVERAGE_RATE;
+                if (qty > 0 && coats > 0) {
+                  let calculatedGallons = 0;
+                  
+                  if (item.measurementUnit === 'sqft') {
+                    // For square footage items
+                    const totalSqft = qty * coats;
+                    calculatedGallons = totalSqft / coverage;
+                  } else if (item.measurementUnit === 'linear_foot') {
+                    // For linear footage (trim, etc.) - assume 6" width
+                    const sqft = qty * 0.5; // 6 inches = 0.5 feet width
+                    calculatedGallons = (sqft * coats) / coverage;
+                  } else if (item.measurementUnit === 'unit') {
+                    // For units (doors, cabinets) - estimate surface area
+                    let estimatedSqft = 0;
+                    const category = item.categoryName.toLowerCase();
+                    if (category.includes('door')) {
+                      estimatedSqft = qty * 21; // Standard door ~21 sq ft per side
+                    } else if (category.includes('cabinet')) {
+                      estimatedSqft = qty * 30; // Cabinet ~30 sq ft per unit
+                    } else if (category.includes('window')) {
+                      estimatedSqft = qty * 15; // Window ~15 sq ft
+                    } else if (category.includes('shutter')) {
+                      estimatedSqft = qty * 10; // Shutter ~10 sq ft per pair
+                    } else {
+                      estimatedSqft = qty * 20; // Generic estimate
+                    }
+                    calculatedGallons = (estimatedSqft * coats) / coverage;
+                  }
+                  
                   // Round up to nearest 0.5 gallon
                   updatedItem.gallons = Math.ceil(calculatedGallons * 2) / 2;
                 }
@@ -234,9 +360,38 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
     );
 
     if (!hasAreas || !hasSelectedItems) {
+      const modelType = formData.pricingModelType || 'rate_based_sqft';
+      let message = 'Please select at least one area and labor category before continuing.';
+      
+      if (modelType === 'flat_rate_unit') {
+        message = 'Please add areas and count the number of units (doors, shutters, etc.) before continuing.';
+      } else if (modelType === 'production_based') {
+        message = 'Please add areas with measurements. We\'ll calculate estimated hours based on your productivity rates.';
+      }
+      
       Modal.warning({
         title: 'No Areas Selected',
-        content: 'Please select at least one area and labor category before continuing.',
+        content: message,
+      });
+      return;
+    }
+
+    // Check if selected items have quantities
+    const missingQuantities = areas.some(area =>
+      area.laborItems.some(item => item.selected && (!item.quantity || item.quantity <= 0))
+    );
+
+    if (missingQuantities) {
+      const modelType = formData.pricingModelType || 'rate_based_sqft';
+      let message = 'Please enter measurements for all selected surfaces.';
+      
+      if (modelType === 'flat_rate_unit') {
+        message = 'Please enter quantities for all selected items.';
+      }
+      
+      Modal.warning({
+        title: 'Missing Measurements',
+        content: message,
       });
       return;
     }
@@ -259,21 +414,43 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       {/* Model-specific guidance */}
       <Alert
         message={`Step 3: Exterior Areas & Labor – ${
-          isFlatRate ? 'Flat Rate Unit Mode' : 
-          isProduction ? 'Production (Time) Mode' : 
+          mode === 'flat_unit' ? 'Flat Rate Unit Mode' : 
+          mode === 'production' ? 'Production (Time) Mode' : 
           'Detailed SqFt Mode'
         }`}
-        description={
-          isFlatRate 
-            ? "Just count items (doors, shutters, etc.). No sq ft, coats or gallons needed – pricing is per unit." 
-            : isProduction 
-            ? "Enter measurements → we'll estimate hours based on your productivity rates." 
-            : "Enter sq ft / linear ft / units + coats for accurate material and labor pricing."
-        }
+        description={pricingUtils.getModelGuidanceMessage(mode)}
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
       />
+
+      {/* Pricing Model Guidance Banner */}
+      {formData.pricingSchemeId && (
+        <Card 
+          size="small" 
+          style={{ marginBottom: 16, backgroundColor: '#f0f5ff', borderColor: '#1890ff' }}
+        >
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <InfoCircleOutlined style={{ color: '#1890ff', fontSize: 18 }} />
+              <Text strong style={{ color: '#1890ff' }}>
+                {formData.pricingModelFriendlyName || 'Rate-Based Pricing'}
+              </Text>
+            </div>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {formData.pricingModelDescription || 'Enter detailed measurements for each surface to calculate labor and materials.'}
+            </Text>
+            <Alert
+              message={pricingUtils.getModelGuidanceMessage(mode)}
+              type="info"
+              showIcon
+              banner
+              closable
+              style={{ marginTop: 8 }}
+            />
+          </Space>
+        </Card>
+      )}
 
       <Card size="small" style={{ marginBottom: 16 }}>
         <Text strong>Select Exterior Areas:</Text>
@@ -369,13 +546,13 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                               size="small"
                               style={{ width: '100%' }}
                               min={0}
-                              step={isFlatRate ? 1 : (item.measurementUnit === 'sqft' ? 10 : 1)}
+                              step={mode === 'flat_unit' ? 1 : (item.measurementUnit === 'sqft' ? 10 : 1)}
                               value={item.quantity}
                               onChange={(value) => updateLaborItem(area.id, item.categoryName, 'quantity', value)}
-                              placeholder={isFlatRate ? 'Count (e.g. 12)' : getUnitLabel(item.measurementUnit)}
+                              placeholder={pricingUtils.getQuantityPlaceholder(mode, item.measurementUnit)}
                             />
-                            {/* Hide calculator in flat-rate mode - not needed for simple counts */}
-                            {!isFlatRate && (item.measurementUnit === 'sqft' || item.measurementUnit === 'linear_foot') && (
+                            {/* Show calculator for detailed measurement modes only */}
+                            {pricingUtils.shouldShowDimensionsCalculator(mode, item.measurementUnit) && (
                               <Button
                                 size="small"
                                 icon={<CalculatorOutlined />}
@@ -400,7 +577,7 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                         </Col>
 
                         {/* Number of Coats (only in detailed modes - not needed for flat-rate) */}
-                        {!isFlatRate && item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
+                        {pricingUtils.shouldShowCoats(mode) && item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
                           <Col xs={12} sm={3}>
                             <Select
                               size="small"
@@ -416,7 +593,7 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                         )}
 
                         {/* Auto-calculated Gallons (only in detailed modes - not needed for flat-rate) */}
-                        {!isFlatRate && item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
+                        {pricingUtils.shouldShowGallons(mode) && item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
                           <Col xs={12} sm={4}>
                             <Space.Compact style={{ width: '100%' }}>
                               <InputNumber
@@ -427,20 +604,13 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                                 value={item.gallons}
                                 onChange={(value) => updateLaborItem(area.id, item.categoryName, 'gallons', value)}
                                 placeholder="Gallons"
-                                disabled={!item.allowManualGallons}
-                                addonAfter="gal"
                               />
                             </Space.Compact>
-                            {item.quantity && item.numberOfCoats && (
-                              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                                {item.quantity} × {item.numberOfCoats} ÷ {COVERAGE_RATE} = {item.gallons} gal
-                              </Text>
-                            )}
                           </Col>
                         )}
 
-                        {/* Production Hours Preview (for production-based model) */}
-                        {isProduction && item.quantity > 0 && (
+                        {/* Time Preview (for production-based model) */}
+                        {pricingUtils.shouldShowEstimatedHours(mode) && item.quantity > 0 && (
                           <Col xs={12} sm={4}>
                             <Text type="secondary" style={{ fontSize: 12 }}>
                               Est. {calculateEstimatedHours(item.quantity, item.categoryName).toFixed(1)} hrs
@@ -451,12 +621,12 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                         {/* Labor Rate Display */}
                         <Col xs={12} sm={3}>
                           <Text type="secondary" style={{ fontSize: 11 }}>
-                            ${item.laborRate}/{getUnitLabel(item.measurementUnit)}
+                            {formatLaborRateDisplay(item.categoryName, item.measurementUnit)}
                           </Text>
                         </Col>
 
                         {/* Allow Manual Override Toggle (only in detailed modes) */}
-                        {!isFlatRate && item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
+                        {pricingUtils.shouldShowGallons(mode) && item.measurementUnit === 'sqft' && item.categoryName !== 'Prep Work' && (
                           <Col xs={12} sm={4}>
                             <label style={{ fontSize: 11, cursor: 'pointer' }}>
                               <input

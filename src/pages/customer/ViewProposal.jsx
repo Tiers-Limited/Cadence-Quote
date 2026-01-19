@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Radio, Typography, Space, message, Spin, Alert, Tag, Modal } from 'antd';
 import { FiCheckCircle, FiDollarSign, FiEdit } from 'react-icons/fi';
-import { apiService } from '../../services/apiService';
+import { magicLinkApiService } from '../../services/magicLinkApiService';
 import PortalStatusIndicator from '../../components/PortalStatusIndicator';
+import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader';
 import TierChangeModal from '../../components/TierChangeModal';
 
 const { Title, Text, Paragraph } = Typography;
@@ -17,15 +18,45 @@ function ViewProposal() {
   const [selectedTier, setSelectedTier] = useState(null);
   const [acceptModalVisible, setAcceptModalVisible] = useState(false);
   const [tierChangeModalVisible, setTierChangeModalVisible] = useState(false);
+  const [productsMap, setProductsMap] = useState({});
 
   useEffect(() => {
     fetchProposal();
+    fetchProducts();
   }, [proposalId]);
+
+  const fetchProducts = async () => {
+    try {
+      const response = await magicLinkApiService.get('/api/customer-portal/product-configs');
+      if (response.success) {
+        const productMap = {};
+        (response.data || []).forEach(config => {
+          // Map by config ID
+          productMap[config.id] = {
+            brandName: config.globalProduct?.brand?.name || 'Unknown',
+            productName: config.globalProduct?.name || 'Unknown',
+            fullName: `${config.globalProduct?.brand?.name || ''} ${config.globalProduct?.name || ''}`.trim()
+          };
+          // Also map by globalProductId
+          if (config.globalProductId) {
+            productMap[config.globalProductId] = {
+              brandName: config.globalProduct?.brand?.name || 'Unknown',
+              productName: config.globalProduct?.name || 'Unknown',
+              fullName: `${config.globalProduct?.brand?.name || ''} ${config.globalProduct?.name || ''}`.trim()
+            };
+          }
+        });
+        setProductsMap(productMap);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
+  };
 
   const fetchProposal = async () => {
     try {
       setLoading(true);
-      const response = await apiService.get(`/customer/proposals/${proposalId}`);
+      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`);
       if (response.success) {
         setProposal(response.data);
         setSelectedTier(response.data.selectedTier || null);
@@ -36,6 +67,13 @@ function ViewProposal() {
       setLoading(false);
     }
   };
+
+  // If deposit is paid but finish-standards not acknowledged, redirect customer
+  useEffect(() => {
+    if (!loading && proposal && proposal.depositVerified && !proposal.finishStandardsAcknowledged) {
+      navigate(`/portal/finish-standards/${proposalId}`);
+    }
+  }, [loading, proposal, navigate, proposalId]);
 
   const handleTierChange = (e) => {
     if (proposal.depositVerified) {
@@ -56,7 +94,7 @@ function ViewProposal() {
   const handleConfirmAccept = async () => {
     try {
       setSubmitting(true);
-      const response = await apiService.post(`/customer/proposals/${proposalId}/accept`, {
+      const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/accept`, {
         selectedTier
       });
       
@@ -84,7 +122,7 @@ function ViewProposal() {
       okType: 'danger',
       onOk: async () => {
         try {
-          const response = await apiService.post(`/customer/proposals/${proposalId}/decline`);
+          const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/decline`);
           if (response.success) {
             message.success('Proposal declined');
             navigate('/portal/dashboard');
@@ -115,7 +153,7 @@ function ViewProposal() {
     try {
       if (change.isUpgrade) {
         // For upgrades, redirect to payment page with additional amount
-        const response = await apiService.post(`/customer/proposals/${proposalId}/upgrade-tier`, {
+        const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/upgrade-tier`, {
           newTier,
           additionalAmount: change.depositDiff
         });
@@ -127,7 +165,7 @@ function ViewProposal() {
         }
       } else if (change.isDowngrade) {
         // For downgrades, send request to contractor
-        const response = await apiService.post(`/customer/proposals/${proposalId}/request-tier-change`, {
+        const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/request-tier-change`, {
           newTier,
           reason: 'Customer requested downgrade'
         });
@@ -159,7 +197,8 @@ function ViewProposal() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+   
+      <div className="p-6 max-w-5xl mx-auto">
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Header */}
         <Card>
@@ -167,7 +206,9 @@ function ViewProposal() {
             <div>
               <Title level={2}>{proposal.projectName || 'Painting Project Proposal'}</Title>
               <Text type="secondary">
-                Proposal #{proposal.id} • Created {new Date(proposal.createdAt).toLocaleDateString()}
+                Proposal #{proposal.id} • Created {new Date(proposal.createdAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}
               </Text>
             </div>
             <Tag color={proposal.status === 'accepted' ? 'green' : 'orange'}>
@@ -343,6 +384,159 @@ function ViewProposal() {
             <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
               {proposal.scope}
             </Paragraph>
+          </Card>
+        )}
+
+        {/* Detailed Project Breakdown */}
+        {proposal.areas && proposal.areas.length > 0 && (
+          <Card title="Detailed Project Breakdown">
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+              {proposal.areas.map((area, areaIdx) => {
+                const items = area.laborItems || area.items || [];
+                const selectedItems = items.filter(item => item.selected);
+                
+                if (selectedItems.length === 0) return null;
+                
+                return (
+                  <div key={areaIdx} style={{ borderLeft: '3px solid #1890ff', paddingLeft: 16 }}>
+                    <Title level={5} style={{ marginBottom: 12 }}>{area.name || `Area ${areaIdx + 1}`}</Title>
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      {selectedItems.map((item, itemIdx) => {
+                        // Properly format unit display
+                        let unit = 'items';
+                        if (item.measurementUnit === 'sqft') {
+                          unit = 'sq ft';
+                        } else if (item.measurementUnit === 'linear_foot') {
+                          unit = 'linear feet';
+                        } else if (item.measurementUnit === 'unit') {
+                          unit = 'units';
+                        } else if (item.measurementUnit === 'hour') {
+                          unit = 'hours';
+                        } else if (item.unit) {
+                          // Fallback to item.unit if measurementUnit is not set
+                          unit = item.unit === 'sqft' ? 'sq ft' : 
+                                item.unit === 'linear_foot' ? 'linear feet' : 
+                                item.unit === 'unit' ? 'units' : 
+                                item.unit;
+                        }
+                        
+                        const coats = item.numberOfCoats > 0 ? ` • ${item.numberOfCoats} coat${item.numberOfCoats > 1 ? 's' : ''}` : '';
+                        const gallons = item.gallons > 0 ? ` • ${Math.ceil(item.gallons)} gallon${Math.ceil(item.gallons) > 1 ? 's' : ''}` : '';
+                        
+                        return (
+                          <div key={itemIdx} style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                            <Text strong>{item.categoryName}</Text>
+                            <br />
+                            <Text type="secondary">
+                              {item.quantity} {unit}{coats}{gallons}
+                            </Text>
+                          </div>
+                        );
+                      })}
+                    </Space>
+                  </div>
+                );
+              })}
+            </Space>
+          </Card>
+        )}
+
+        {/* Product Information by Tier */}
+        {proposal.productSets && proposal.productSets.length > 0 && (
+          <Card title="Paint Products by Quality Tier">
+            <Alert
+              message="Product Selection"
+              description="The products listed below correspond to each quality tier. Your selected tier determines which products will be used for your project."
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+              {/* GOOD Tier Products */}
+              <div>
+                <Title level={5} style={{ color: '#52c41a', marginBottom: 12 }}>GOOD Tier Products</Title>
+                {proposal.productSets.map((set, idx) => {
+                  const goodProduct = set.products?.good || set.goodProduct || 
+                                     (Array.isArray(set.products) ? set.products.find(p => p.tier === 'Good') : null);
+                  
+                  let productName = 'Product not selected';
+                  if (goodProduct) {
+                    const productId = goodProduct.productId || goodProduct.globalProductId || goodProduct.id;
+                    if (productId && productsMap[productId]) {
+                      productName = productsMap[productId].fullName;
+                    } else if (goodProduct.name) {
+                      productName = goodProduct.name;
+                    } else if (goodProduct.productName) {
+                      productName = goodProduct.productName;
+                    }
+                  }
+                  
+                  return (
+                    <div key={`good-${idx}`} style={{ padding: '8px 12px', background: '#f6ffed', borderRadius: 4, marginBottom: 8 }}>
+                      <Text strong>{set.surfaceType}: </Text>
+                      <Text>{productName}</Text>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* BETTER Tier Products */}
+              <div>
+                <Title level={5} style={{ color: '#1890ff', marginBottom: 12 }}>BETTER Tier Products</Title>
+                {proposal.productSets.map((set, idx) => {
+                  const betterProduct = set.products?.better || set.betterProduct || 
+                                       (Array.isArray(set.products) ? set.products.find(p => p.tier === 'Better') : null);
+                  
+                  let productName = 'Product not selected';
+                  if (betterProduct) {
+                    const productId = betterProduct.productId || betterProduct.globalProductId || betterProduct.id;
+                    if (productId && productsMap[productId]) {
+                      productName = productsMap[productId].fullName;
+                    } else if (betterProduct.name) {
+                      productName = betterProduct.name;
+                    } else if (betterProduct.productName) {
+                      productName = betterProduct.productName;
+                    }
+                  }
+                  
+                  return (
+                    <div key={`better-${idx}`} style={{ padding: '8px 12px', background: '#e6f7ff', borderRadius: 4, marginBottom: 8 }}>
+                      <Text strong>{set.surfaceType}: </Text>
+                      <Text>{productName}</Text>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* BEST Tier Products */}
+              <div>
+                <Title level={5} style={{ color: '#faad14', marginBottom: 12 }}>BEST Tier Products</Title>
+                {proposal.productSets.map((set, idx) => {
+                  const bestProduct = set.products?.best || set.bestProduct || 
+                                     (Array.isArray(set.products) ? set.products.find(p => p.tier === 'Best') : null);
+                  
+                  let productName = 'Product not selected';
+                  if (bestProduct) {
+                    const productId = bestProduct.productId || bestProduct.globalProductId || bestProduct.id;
+                    if (productId && productsMap[productId]) {
+                      productName = productsMap[productId].fullName;
+                    } else if (bestProduct.name) {
+                      productName = bestProduct.name;
+                    } else if (bestProduct.productName) {
+                      productName = bestProduct.productName;
+                    }
+                  }
+                  
+                  return (
+                    <div key={`best-${idx}`} style={{ padding: '8px 12px', background: '#fffbe6', borderRadius: 4, marginBottom: 8 }}>
+                      <Text strong>{set.surfaceType}: </Text>
+                      <Text>{productName}</Text>
+                    </div>
+                  );
+                })}
+              </div>
+            </Space>
           </Card>
         )}
 

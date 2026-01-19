@@ -128,8 +128,8 @@ function ProposalDefaultsPage() {
             <Card>
               <Form.Item
                 label="Company Introduction"
-                name="companyIntroduction"
-                tooltip="Combined welcome message and about us - shown at top of every proposal"
+                name="defaultWelcomeMessage"
+                tooltip="Welcome message shown at the top of every proposal and customer portal"
               >
                 <TextArea 
                   rows={10} 
@@ -154,7 +154,7 @@ function ProposalDefaultsPage() {
                 <TextArea rows={5} placeholder="1. Power washing...&#10;2. Surface prep...&#10;3. Priming..." />
               </Form.Item>
 
-              <Form.Item label="Drywall Process" name="drywallProcess">
+              <Form.Item label="Drywall Repair Process" name="drywallRepairProcess">
                 <TextArea rows={5} placeholder="1. Assessment of damage...&#10;2. Repair work...&#10;3. Finishing..." />
               </Form.Item>
 
@@ -164,10 +164,6 @@ function ProposalDefaultsPage() {
 
               <Form.Item label="Trim Process" name="trimProcess">
                 <TextArea rows={5} placeholder="1. Surface cleaning...&#10;2. Sanding...&#10;3. Priming..." />
-              </Form.Item>
-
-              <Form.Item label="Ceiling Process" name="ceilingProcess">
-                <TextArea rows={5} placeholder="1. Surface preparation...&#10;2. Priming...&#10;3. Painting..." />
               </Form.Item>
 
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
@@ -196,7 +192,7 @@ function ProposalDefaultsPage() {
           {/* 4. Payments */}
           <TabPane tab="Payments" key="payments">
             <Card>
-              <Form.Item label="Payment Terms & Schedule" name="paymentTermsSchedule">
+              <Form.Item label="Payment Terms & Schedule" name="paymentTermsText">
                 <TextArea 
                   rows={8} 
                   placeholder="Payment Schedule:&#10;- 50% deposit required to begin work&#10;- 25% at project midpoint&#10;- 25% upon completion&#10;&#10;Terms:&#10;- Payment due within 3 business days of invoice&#10;- Late fees of 1.5% per month may apply" 
@@ -207,6 +203,13 @@ function ProposalDefaultsPage() {
                 <TextArea 
                   rows={5} 
                   placeholder="We accept the following payment methods:&#10;- Credit/Debit Cards (Visa, MasterCard, American Express)&#10;- ACH/Bank Transfer&#10;- Cash or Check&#10;- Financing options available" 
+                />
+              </Form.Item>
+
+              <Form.Item label="Late Payment Policy" name="latePaymentPolicy">
+                <TextArea 
+                  rows={5} 
+                  placeholder="- Payments are due as specified in the payment schedule&#10;- Late fees of 1.5% per month apply to overdue balances&#10;- Work may be paused if payment becomes 15+ days overdue" 
                 />
               </Form.Item>
 
@@ -356,13 +359,24 @@ function ProposalDefaultsPage() {
           <TabPane tab="Acceptance" key="acceptance">
             <Card>
               <Form.Item 
-                label="Acceptance & Signature Agreement" 
-                name="acceptanceSignatureAgreement"
-                tooltip="Combined legal acknowledgement and signature statement"
+                label="Legal Acknowledgement" 
+                name="legalAcknowledgement"
+                tooltip="Legal acknowledgement shown on proposals and customer portal"
               >
                 <TextArea 
-                  rows={8} 
-                  placeholder="ACCEPTANCE & SIGNATURE AGREEMENT&#10;&#10;By signing below, you acknowledge that you have read, understood, and agree to all terms and conditions outlined in this proposal.&#10;&#10;Legal Acknowledgement:&#10;This agreement constitutes a binding contract between the parties...&#10;&#10;Digital Signature Statement:&#10;Digital signatures are legally binding and carry the same weight as handwritten signatures..." 
+                  rows={6} 
+                  placeholder="By signing below, you acknowledge that you have read, understood, and agree to all terms and conditions outlined in this proposal, including payment terms, warranties, and disclaimers." 
+                />
+              </Form.Item>
+
+              <Form.Item 
+                label="Digital Signature Statement" 
+                name="signatureStatement"
+                tooltip="Signature statement shown on proposals and customer portal"
+              >
+                <TextArea 
+                  rows={4} 
+                  placeholder="Digital signatures are legally binding and constitute acceptance of this proposal as a binding contract." 
                 />
               </Form.Item>
 

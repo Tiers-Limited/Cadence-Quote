@@ -1,10 +1,11 @@
 // src/components/QuoteBuilder/SummaryStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Descriptions, Divider, Input, Modal, Table, Tag, Space, Statistic } from 'antd';
+import { Card, Button, Alert, Row, Col, Typography, Descriptions, Divider, Input, Modal, Table, Tag, Space, Statistic, Collapse } from 'antd';
 import { EditOutlined, SendOutlined, SaveOutlined, CheckCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { quoteBuilderApi } from '../../services/quoteBuilderApi';
 import { apiService } from '../../services/apiService';
 import ProposalPreviewModal from './ProposalPreviewModal';
+import SendQuoteEmailModal from './SendQuoteEmailModal';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -30,6 +31,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [showProposalPreview, setShowProposalPreview] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
   const [totalEstimatedHours, setTotalEstimatedHours] = useState(0);
   const [productsMap, setProductsMap] = useState({});
 
@@ -86,7 +88,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
     formData.pricingSchemeId, 
     formData.jobType,
     formData.homeSqft,
-    formData.jobScope,
+    formData.jobType,
     formData.numberOfStories,
     formData.conditionModifier
   ]);
@@ -138,7 +140,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         {
           distance: 0, // TODO: Calculate from customer address
           homeSqft: formData.homeSqft,
-          jobScope: formData.jobScope,
+          jobType: formData.jobType,
           numberOfStories: formData.numberOfStories,
           conditionModifier: formData.conditionModifier,
           // Material calculation settings
@@ -149,7 +151,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         }
       );
       console.log('Calculate Quote Response:', response);
-      console.log('Turnkey values - homeSqft:', formData.homeSqft, 'jobScope:', formData.jobScope, 'isTurnkey:', isTurnkey);
+      console.log('Turnkey values - homeSqft:', formData.homeSqft, 'jobType:', formData.jobType, 'isTurnkey:', isTurnkey);
       if (response.success) {
         console.log('Setting calculatedQuote:', response.calculation);
         setCalculatedQuote(response.calculation);
@@ -184,9 +186,41 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         throw new Error('Failed to save quote');
       }
 
-      // Then send it
-      const response = await quoteBuilderApi.sendQuote(quoteId);
+      // Open email modal instead of sending directly
+      setShowEmailModal(true);
+    } catch (error) {
+      console.error('Error preparing quote for send:', error);
+      Modal.error({
+        title: 'Send Failed',
+        content: error.message || 'Failed to prepare quote for sending. Please try again.',
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSendEmail = async (emailData) => {
+    try {
+      // Save quote with email content before sending
+      const quoteData = {
+        ...formData,
+        notes,
+        status: 'sent',
+        emailSubject: emailData.emailSubject,
+        emailBody: emailData.emailBody
+      };
+
+      const saveResponse = await quoteBuilderApi.saveDraft(quoteData);
+      const quoteId = formData?.quoteId || saveResponse?.quote?.id;
+
+      // Send the quote email
+      const response = await quoteBuilderApi.sendQuote(quoteId, {
+        emailSubject: emailData.emailSubject,
+        emailBody: emailData.emailBody
+      });
       
+      setShowEmailModal(false);
+
       Modal.success({
         title: 'Quote Sent Successfully!',
         content: (
@@ -201,13 +235,8 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         }
       });
     } catch (error) {
-      console.error('Error sending quote:', error);
-      Modal.error({
-        title: 'Send Failed',
-        content: error.message || 'Failed to send quote. Please try again.',
-      });
-    } finally {
-      setSending(false);
+      console.error('Error sending quote email:', error);
+      throw error;
     }
   };
 
@@ -247,19 +276,60 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
       // New structure: laborItems
       if (area.laborItems) {
         const selectedItems = area.laborItems.filter(i => i.selected);
-        items = selectedItems.map(item => ({
-          type: item.categoryName,
-          quantity: item.quantity,
-          unit: item.measurementUnit,
-          coats: item.numberOfCoats,
-          gallons: item.gallons,
-          laborRate: item.laborRate,
-          dimensions: item.dimensions ? `${item.dimensions.length}' x ${item.dimensions.width}'${item.dimensions.height ? ` x ${item.dimensions.height}'` : ''}` : null
-        }));
+        items = selectedItems.map(item => {
+          // Calculate gallons for each item based on its type
+          let itemGallons = item.gallons || 0;
+          
+          // If gallons not already calculated, calculate it
+          if (!itemGallons && item.numberOfCoats > 0) {
+            const qty = parseFloat(item.quantity) || 0;
+            const coats = parseInt(item.numberOfCoats) || 2;
+            const coverage = 350; // Standard coverage rate
+            
+            if (item.measurementUnit === 'sqft') {
+              // For square footage items
+              itemGallons = (qty * coats) / coverage;
+            } else if (item.measurementUnit === 'linear_foot') {
+              // For linear footage (trim, etc.) - assume 6" width
+              const sqft = qty * 0.5; // 6 inches = 0.5 feet width
+              itemGallons = (sqft * coats) / coverage;
+            } else if (item.measurementUnit === 'unit') {
+              // For units (doors, cabinets) - estimate surface area
+              let estimatedSqft = 0;
+              const category = item.categoryName.toLowerCase();
+              if (category.includes('door')) {
+                estimatedSqft = qty * 21; // Standard door ~21 sq ft per side
+              } else if (category.includes('cabinet')) {
+                estimatedSqft = qty * 30; // Cabinet ~30 sq ft per unit
+              } else if (category.includes('window')) {
+                estimatedSqft = qty * 15; // Window ~15 sq ft
+              } else if (category.includes('shutter')) {
+                estimatedSqft = qty * 10; // Shutter ~10 sq ft per pair
+              } else {
+                estimatedSqft = qty * 20; // Generic estimate
+              }
+              itemGallons = (estimatedSqft * coats) / coverage;
+            }
+          }
+          
+          return {
+            type: item.categoryName,
+            quantity: item.quantity,
+            unit: item.measurementUnit,
+            coats: item.numberOfCoats,
+            gallons: itemGallons,
+            laborRate: item.laborRate,
+            dimensions: item.dimensions ? `${item.dimensions.length}' x ${item.dimensions.width}'${item.dimensions.height ? ` x ${item.dimensions.height}'` : ''}` : null
+          };
+        });
+        
+        // Calculate total square footage - only for sqft items
         totalSqft = selectedItems
           .filter(i => i.measurementUnit === 'sqft')
           .reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0);
-        totalGallons = selectedItems.reduce((sum, i) => sum + (parseFloat(i.gallons) || 0), 0);
+        
+        // Calculate total gallons from all items
+        totalGallons = items.reduce((sum, i) => sum + (parseFloat(i.gallons) || 0), 0);
       }
       // Old structure: surfaces
       else if (area.surfaces) {
@@ -284,54 +354,301 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
   };
 
   // Prepare product details for display
-  const getProductDetails = () => {
-    if (!formData.productSets || formData.productSets.length === 0) {
-      return [];
+  const areaDetails = getAreaDetails();
+
+  /**
+   * Get product summary by surface type
+   * Groups products selected for each surface type with tier and gallons
+   */
+  /**
+   * Get product summary organized by area and surface type
+   * Dynamically routes to global or area-wise summary based on pricing scheme
+   */
+  const getSurfaceProductSummary = () => {
+    console.log('🔍 getSurfaceProductSummary called');
+    console.log('📦 formData.productSets:', formData.productSets);
+    console.log('📋 isFlatRate:', isFlatRate, 'currentScheme?.type:', currentScheme?.type);
+    console.log('🎯 productStrategy:', formData.productStrategy);
+    
+    // Check if we have any product sets with areaId (area-wise selection)
+    const hasAreaWiseProducts = formData.productSets?.some(set => set.areaId);
+    console.log('🏠 hasAreaWiseProducts:', hasAreaWiseProducts);
+    
+    // If we have area-wise products, always use area-wise display
+    if (hasAreaWiseProducts) {
+      console.log('✅ Using area-wise display (products have areaId)');
+      return getAreaWiseProductSummary();
     }
     
-    return (formData.productSets || []).map(set => {
-      const products = [];
-      
-      // Handle Good-Better-Best strategy
-      if (formData.productStrategy === 'GBB' && set.products) {
-        if (set.products.good) products.push({ tier: 'Good', productId: set.products.good });
-        if (set.products.better) products.push({ tier: 'Better', productId: set.products.better });
-        if (set.products.best) products.push({ tier: 'Best', productId: set.products.best });
-      }
-      // Handle Single Product strategy
-      else if (set.products && set.products.single) {
-        products.push({ tier: 'Selected', productId: set.products.single });
-      }
-
-      return {
-        surfaceType: set.surfaceType,
-        products,
-        gallons: set.gallons,
-        materialCost: set.materialCost,
-        hasProducts: products.length > 0
-      };
-    }).filter(detail => detail.hasProducts || detail.surfaceType); // Show all surface types, even if no products yet
-  };
-
-  const areaDetails = getAreaDetails();
-  const productDetails = getProductDetails();
-
-  const getRunningProductTotals = () => {
-    const totals = {};
+    // For area-wise pricing schemes, use area-organized display
+    if (isFlatRate || currentScheme?.type === 'production_based' || currentScheme?.type === 'rate_based') {
+      console.log('✅ Using area-wise display (pricing scheme)');
+      return getAreaWiseProductSummary();
+    }
+    
+    // For turnkey schemes, use global surface-type organization
+    console.log('✅ Using global surface-type display');
+    const summary = {};
+    
     (formData.productSets || []).forEach(set => {
-      const tier = set.activeTier || 'good';
-      const productId = set.products?.[tier];
-      if (productId && set.gallons) {
-        if (!totals[productId]) {
-          totals[productId] = { gallons: 0, surfaceTypes: new Set(), retail: 0, material: 0 };
-        }
-        totals[productId].gallons += Number(set.gallons || 0);
-        totals[productId].surfaceTypes.add(set.surfaceType);
-        const retailPerGal = set.retailPrices?.[tier];
-        if (retailPerGal) totals[productId].retail += Number(set.gallons) * Number(retailPerGal);
-        if (set.materialCost) totals[productId].material += Number(set.materialCost);
+      // Skip area-specific entries for global display
+      if (set.areaId) return;
+      if (!set.surfaceType) return;
+      
+      if (!summary[set.surfaceType]) {
+        summary[set.surfaceType] = {
+          surfaceType: set.surfaceType,
+          tiers: {},
+          totalGallons: 0,
+          totalCost: 0
+        };
+      }
+      
+      // Add products for each tier (Good, Better, Best)
+      if (formData.productStrategy === 'GBB' && set.products) {
+        ['good', 'better', 'best'].forEach(tier => {
+          const productId = set.products[tier];
+          if (productId) {
+            const productInfo = productsMap[productId] || {};
+            
+            // Calculate gallons for this surface type
+            const gallons = calculateGallonsForSurface(set.surfaceType);
+            
+            if (!summary[set.surfaceType].tiers[tier]) {
+              summary[set.surfaceType].tiers[tier] = {
+                tier: tier.charAt(0).toUpperCase() + tier.slice(1),
+                productId,
+                productName: `${productInfo.brandName || ''} ${productInfo.productName || ''}`.trim(),
+                pricePerGallon: productInfo.pricePerGallon || 0,
+                gallons
+              };
+            }
+            
+            summary[set.surfaceType].totalGallons += gallons;
+            summary[set.surfaceType].totalCost += (gallons * (productInfo.pricePerGallon || 0));
+          }
+        });
+      }
+      // Single product strategy
+      else if (set.products?.single) {
+        const productId = set.products.single;
+        const productInfo = productsMap[productId] || {};
+        const gallons = calculateGallonsForSurface(set.surfaceType);
+        
+        summary[set.surfaceType].tiers['single'] = {
+          tier: 'Selected',
+          productId,
+          productName: `${productInfo.brandName || ''} ${productInfo.productName || ''}`.trim(),
+          pricePerGallon: productInfo.pricePerGallon || 0,
+          gallons
+        };
+        
+        summary[set.surfaceType].totalGallons += gallons;
+        summary[set.surfaceType].totalCost += (gallons * (productInfo.pricePerGallon || 0));
       }
     });
+    
+    return Object.values(summary);
+  };
+
+  /**
+   * Get product summary organized by area and surface type
+   * Used for area-wise pricing schemes (flat rate, production-based, rate-based)
+   */
+  const getAreaWiseProductSummary = () => {
+    console.log('🏘️ getAreaWiseProductSummary called');
+    console.log('📍 formData.areas:', formData.areas);
+    console.log('📦 formData.productSets:', formData.productSets);
+    console.log('🗺️ productsMap:', productsMap);
+    
+    const areasMap = {};
+    
+    // Build area structure from labor items
+    (formData.areas || []).forEach(area => {
+      console.log(`🏠 Processing area: ${area.name} (id: ${area.id})`);
+      
+      if (!areasMap[area.id]) {
+        areasMap[area.id] = {
+          areaId: area.id,
+          areaName: area.name,
+          surfaces: {}
+        };
+      }
+      
+      // Process labor items for this area
+      if (area.laborItems) {
+        area.laborItems.forEach(item => {
+          if (item.selected) {
+            const surfaceType = item.categoryName;
+            console.log(`  📋 Processing surface: ${surfaceType} (selected: ${item.selected})`);
+            
+            if (!areasMap[area.id].surfaces[surfaceType]) {
+              areasMap[area.id].surfaces[surfaceType] = {
+                surfaceType,
+                tiers: {},
+                quantity: item.quantity,
+                unit: item.measurementUnit,
+                totalGallons: 0,
+                totalCost: 0
+              };
+            }
+            
+            // Find product set for this area+surface combination
+            const productSet = formData.productSets?.find(ps => 
+              ps.areaId === area.id && ps.surfaceType === surfaceType
+            );
+            console.log(`  🔍 Looking for productSet with areaId=${area.id}, surfaceType=${surfaceType}`);
+            console.log(`  ✅ Found productSet:`, productSet);
+            
+            // GBB strategy - multiple tiers
+            if (productSet && formData.productStrategy === 'GBB' && productSet.products) {
+              console.log(`  🎯 Processing GBB tiers:`, productSet.products);
+              ['good', 'better', 'best'].forEach(tier => {
+                const productId = productSet.products[tier];
+                if (productId) {
+                  console.log(`    ✓ ${tier}: ${productId}`);
+                  const productInfo = productsMap[productId] || {};
+                  console.log(`    📦 Product info:`, productInfo);
+                  const gallons = calculateGallonsForAreaSurface(area.id, surfaceType);
+                  
+                  if (!areasMap[area.id].surfaces[surfaceType].tiers[tier]) {
+                    areasMap[area.id].surfaces[surfaceType].tiers[tier] = {
+                      tier: tier.charAt(0).toUpperCase() + tier.slice(1),
+                      productId,
+                      productName: `${productInfo.brandName || ''} ${productInfo.productName || ''}`.trim(),
+                      pricePerGallon: productInfo.pricePerGallon || 0,
+                      gallons
+                    };
+                  }
+                  
+                  areasMap[area.id].surfaces[surfaceType].totalGallons += gallons;
+                  areasMap[area.id].surfaces[surfaceType].totalCost += (gallons * (productInfo.pricePerGallon || 0));
+                }
+              });
+            }
+            // Single product strategy
+            else if (productSet && productSet.products?.single) {
+              const productId = productSet.products.single;
+              const productInfo = productsMap[productId] || {};
+              const gallons = calculateGallonsForAreaSurface(area.id, surfaceType);
+              
+              areasMap[area.id].surfaces[surfaceType].tiers['single'] = {
+                tier: 'Selected',
+                productId,
+                productName: `${productInfo.brandName || ''} ${productInfo.productName || ''}`.trim(),
+                pricePerGallon: productInfo.pricePerGallon || 0,
+                gallons
+              };
+              
+              areasMap[area.id].surfaces[surfaceType].totalGallons += gallons;
+              areasMap[area.id].surfaces[surfaceType].totalCost += (gallons * (productInfo.pricePerGallon || 0));
+            }
+          }
+        });
+      }
+    });
+    
+    const result = Object.values(areasMap);
+    console.log('🎁 getAreaWiseProductSummary result:', result);
+    console.log('📊 Result length:', result.length);
+    
+    return result;
+  };
+
+  /**
+   * Calculate gallons needed for a specific area and surface combination
+   * Used in area-wise pricing schemes
+   */
+  const calculateGallonsForAreaSurface = (areaId, surfaceType) => {
+    const area = formData.areas?.find(a => a.id === areaId);
+    if (!area || !area.laborItems) return 0;
+    
+    let totalSqft = 0;
+    const COVERAGE_PER_GALLON = 400;
+    
+    area.laborItems.forEach(item => {
+      if (item.selected && item.categoryName === surfaceType) {
+        const quantity = parseFloat(item.quantity) || 0;
+        const coats = parseInt(item.numberOfCoats) || 1;
+        
+        // Convert different measurement units to sqft
+        if (item.measurementUnit === 'sqft') {
+          totalSqft += quantity * coats;
+        } else if (item.measurementUnit === 'linear_foot') {
+          // Assume 6 inches (0.5 ft) height for trim/linear
+          totalSqft += (quantity * 0.5) * coats;
+        } else if (item.measurementUnit === 'unit') {
+          // Estimate sqft per unit based on surface type
+          let sqftPerUnit = 20; // default for doors
+          if (surfaceType.toLowerCase().includes('cabinet')) {
+            sqftPerUnit = 15;
+          } else if (surfaceType.toLowerCase().includes('window')) {
+            sqftPerUnit = 10;
+          }
+          totalSqft += (quantity * sqftPerUnit) * coats;
+        }
+      }
+    });
+    
+    // Calculate gallons with waste factor (10%)
+    const gallons = (totalSqft / COVERAGE_PER_GALLON) * 1.1;
+    return Math.ceil(gallons * 4) / 4; // Round to nearest 0.25
+  };
+
+  /**
+   * Calculate total gallons needed for a specific surface type
+   * Sums up all areas with that surface type based on coverage
+   */
+  const calculateGallonsForSurface = (surfaceType) => {
+    let totalSqft = 0;
+    
+    // Sum square footage for all areas with this surface type
+    (formData.areas || []).forEach(area => {
+      if (area.laborItems) {
+        area.laborItems.forEach(item => {
+          if (item.selected && item.categoryName === surfaceType && item.quantity) {
+            // For paint, quantity is in sqft
+            totalSqft += Number(item.quantity) || 0;
+          }
+        });
+      }
+    });
+    
+    if (totalSqft === 0) return 0;
+    
+    // Calculate gallons needed based on coverage and coats
+    const coverage = formData.coverage || 350; // sq ft per gallon
+    const coats = formData.coats || 2; // number of coats
+    const gallons = (totalSqft / coverage) * coats;
+    
+    return Math.max(gallons, 0);
+  };
+
+  /**
+   * Get running product totals by product ID
+   * Shows which products are used and in how many gallons
+   */
+  const getRunningProductTotals = () => {
+    const totals = {};
+    const surfaceSummary = getSurfaceProductSummary();
+    
+    surfaceSummary.forEach(surface => {
+      Object.values(surface.tiers || {}).forEach(tierInfo => {
+        if (tierInfo.productId) {
+          if (!totals[tierInfo.productId]) {
+            totals[tierInfo.productId] = {
+              productName: tierInfo.productName,
+              pricePerGallon: tierInfo.pricePerGallon,
+              gallons: 0,
+              surfaceTypes: new Set()
+            };
+          }
+          totals[tierInfo.productId].gallons += tierInfo.gallons;
+          totals[tierInfo.productId].surfaceTypes.add(surface.surfaceType);
+        }
+      });
+    });
+    
     return totals;
   };
 
@@ -457,9 +774,9 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         >
           <Descriptions column={2}>
             <Descriptions.Item label="Home Square Footage">{parseFloat(formData.homeSqft).toLocaleString()} sq ft</Descriptions.Item>
-            <Descriptions.Item label="Job Scope">
-              <Tag color={formData.jobScope === 'interior' ? 'blue' : formData.jobScope === 'exterior' ? 'green' : 'purple'}>
-                {formData.jobScope === 'interior' ? 'Interior Only' : formData.jobScope === 'exterior' ? 'Exterior Only' : 'Both Interior & Exterior'}
+            <Descriptions.Item label="Job Type">
+              <Tag color={formData.jobType === 'interior' ? 'blue' : formData.jobType === 'exterior' ? 'green' : 'purple'}>
+                {formData.jobType === 'interior' ? 'Interior Only' : formData.jobType === 'exterior' ? 'Exterior Only' : 'Both Interior & Exterior'}
               </Tag>
             </Descriptions.Item>
             {formData.numberOfStories && (
@@ -511,17 +828,16 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                 columns={[
                   { title: 'Category', dataIndex: 'type', key: 'type' },
                   { 
-                    title: isFlatRate ? 'Quantity (Count)' : 'Quantity', 
+                    title: 'Quantity', 
+                    dataIndex: 'quantity',
                     key: 'quantity', 
-                    render: (_, record) => {
-                      if (!record.quantity) return 'N/A';
-                      if (isFlatRate) {
-                        // Flat-rate: show simple count without measurement units
-                        return `${record.quantity} ${record.unit === 'unit' ? 'items' : 'count'}`;
-                      }
-                      // Detailed: show with measurement units
-                      return `${record.quantity} ${record.unit === 'sqft' ? 'sq ft' : record.unit === 'linear_foot' ? 'LF' : record.unit === 'unit' ? 'units' : 'hrs'}`;
-                    }
+                    render: (val) => val || 'N/A'
+                  },
+                  {
+                    title: 'Unit',
+                    dataIndex: 'unit',
+                    key: 'unit',
+                    render: (val) => val === 'sqft' ? 'sq ft' : val === 'linear_foot' ? 'LF' : val === 'unit' ? 'units' : val === 'hour' ? 'hrs' : val || '-'
                   },
                   ...(!isFlatRate ? [
                     { 
@@ -534,7 +850,10 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                       title: 'Gallons', 
                       dataIndex: 'gallons', 
                       key: 'gallons',
-                      render: (val) => val ? `${val} gal` : '-'
+                      render: (val) => {
+                        if (!val || val === 0) return '-';
+                        return val < 1 ? `${val.toFixed(2)} gal` : `${Math.ceil(val)} gal`;
+                      }
                     }
                   ] : []),
                   { 
@@ -558,7 +877,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
               {!isFlatRate && (
                 <Space style={{ marginTop: 8 }}>
                   {area.totalSqft > 0 && <Text type="secondary">Total Area: {area.totalSqft.toFixed(0)} sq ft</Text>}
-                  {area.totalGallons > 0 && <Text type="secondary">• Total Gallons: {area.totalGallons} gal</Text>}
+                  {area.totalGallons > 0 && <Text type="secondary">• Total Gallons: {Math.ceil(area.totalGallons)} gal</Text>}
                 </Space>
               )}
               {isFlatRate && (
@@ -571,11 +890,11 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         </Card>
       )}
 
-      {/* Products */}
+      {/* Products by Surface Type */}
       <Card 
         title={
           <Space>
-            <span>Product Selections</span>
+            <span>{isFlatRate || currentScheme?.type === 'production_based' ? 'Products by Area & Surface' : 'Product Selections by Surface Type'}</span>
             <Button 
               type="link" 
               icon={<EditOutlined />}
@@ -591,98 +910,405 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
           <strong>Strategy:</strong> {formData.productStrategy === 'GBB' ? 'Good-Better-Best' : 'Single Product'}
         </Paragraph>
         
-        {productDetails.length === 0 ? (
-          <Alert 
-            message="No products selected" 
-            description="Products will appear here after you select them in Step 4." 
-            type="info" 
-            showIcon 
-          />
-        ) : (
-          productDetails.map(detail => (
-            <div key={detail.surfaceType} style={{ marginBottom: 16 }}>
-              <Title level={5}>{detail.surfaceType}</Title>
-              {detail.products.length === 0 ? (
-                <Text type="secondary" italic>No products selected for this surface type</Text>
-              ) : (
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {detail.products.map((product, idx) => {
-                    const productInfo = productsMap[product.productId];
-                    return (
-                      <div key={idx} style={{ padding: '8px', background: '#f5f5f5', borderRadius: '4px' }}>
-                        <Space>
-                          <Tag color={
-                            product.tier === 'Good' ? 'blue' :
-                            product.tier === 'Better' ? 'cyan' :
-                            product.tier === 'Best' ? 'green' : 'default'
-                          }>
-                            {product.tier}
-                          </Tag>
-                          {productInfo ? (
-                            <Text strong>{productInfo.brandName} - {productInfo.productName}</Text>
-                          ) : (
-                            <Text type="secondary">Product ID: {product.productId}</Text>
-                          )}
-                          {productInfo && <Text type="secondary">(${productInfo.pricePerGallon}/gal)</Text>}
-                        </Space>
+        {(() => {
+          const surfaceSummary = getSurfaceProductSummary();
+          
+          console.log('🎨 Rendering products - surfaceSummary:', surfaceSummary);
+          
+          if (surfaceSummary.length === 0) {
+            return (
+              <Alert 
+                message="No products selected" 
+                description="Products will appear here after you select them in Step 4." 
+                type="info" 
+                showIcon 
+              />
+            );
+          }
+          
+          // Check if we have area-wise data (has areaId field)
+          const hasAreaWiseData = surfaceSummary[0]?.areaId !== undefined;
+          console.log('🔍 hasAreaWiseData:', hasAreaWiseData, 'First item:', surfaceSummary[0]);
+          
+          // Area-wise display (when products are organized by area + surface)
+          if (hasAreaWiseData) {
+            // Calculate product totals across all areas and surfaces
+            const productTotals = {};
+            surfaceSummary.forEach(area => {
+              Object.values(area.surfaces || {}).forEach(surface => {
+                Object.values(surface.tiers || {}).forEach(tierInfo => {
+                  if (tierInfo.productId) {
+                    const key = tierInfo.productId;
+                    if (!productTotals[key]) {
+                      productTotals[key] = {
+                        productName: tierInfo.productName,
+                        pricePerGallon: tierInfo.pricePerGallon,
+                        totalGallons: 0,
+                        totalCost: 0,
+                        usedIn: []
+                      };
+                    }
+                    productTotals[key].totalGallons += tierInfo.gallons || 0;
+                    productTotals[key].totalCost += (tierInfo.gallons || 0) * (tierInfo.pricePerGallon || 0);
+                    productTotals[key].usedIn.push(`${area.areaName} - ${surface.surfaceType}`);
+                  }
+                });
+              });
+            });
+
+            const collapseItems = surfaceSummary.map(area => {
+              // Calculate area totals
+              const areaTotalGallons = Object.values(area.surfaces || {}).reduce((sum, surface) => sum + (surface.totalGallons || 0), 0);
+              const areaTotalCost = Object.values(area.surfaces || {}).reduce((sum, surface) => sum + (surface.totalCost || 0), 0);
+              const surfaceCount = Object.keys(area.surfaces || {}).length;
+              
+              // Create nested collapse items for surfaces
+              const surfaceCollapseItems = Object.entries(area.surfaces || {}).map(([surfaceKey, surface]) => ({
+                key: surfaceKey,
+                label: (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 16 }}>
+                    <Space>
+                      <Text strong>{surface.surfaceType}</Text>
+                      <Tag color="geekblue" style={{ fontSize: 11 }}>
+                        {surface.quantity} {surface.unit === 'sqft' ? 'sq ft' : surface.unit}
+                      </Tag>
+                    </Space>
+                    <Text strong style={{ color: '#1890ff', fontSize: 13 }}>
+                      ${surface.totalCost.toFixed(2)}
+                    </Text>
+                  </div>
+                ),
+                children: (
+                  <Space direction="vertical" style={{ width: '100%' }} size="small">
+                    {Object.entries(surface.tiers || {}).length === 0 ? (
+                      <Text type="secondary">No product selected</Text>
+                    ) : (
+                      Object.entries(surface.tiers || {}).map(([tierKey, tierInfo]) => (
+                        <div key={tierKey} style={{ padding: '10px 12px', background: '#fafafa', borderRadius: '4px', border: '1px solid #e8e8e8' }}>
+                          <Row gutter={[8, 8]} align="middle">
+                            <Col flex="auto">
+                              <Space direction="vertical" size={0}>
+                                <Space>
+                                  <Tag color={
+                                    tierInfo.tier === 'Good' ? 'blue' :
+                                    tierInfo.tier === 'Better' ? 'cyan' :
+                                    tierInfo.tier === 'Best' ? 'green' : 'default'
+                                  } style={{ fontSize: 11 }}>
+                                    {tierInfo.tier}
+                                  </Tag>
+                                  <Text strong style={{ fontSize: 13 }}>{tierInfo.productName || 'Unknown'}</Text>
+                                </Space>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  ${tierInfo.pricePerGallon || 0}/gallon
+                                </Text>
+                              </Space>
+                            </Col>
+                          </Row>
+                        </div>
+                      ))
+                    )}
+                  </Space>
+                )
+              }));
+              
+              return {
+                key: area.areaId,
+                label: (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 16 }}>
+                    <Space>
+                      <Text strong style={{ fontSize: 15 }}>{area.areaName}</Text>
+                      <Tag color="blue">{surfaceCount} surface{surfaceCount !== 1 ? 's' : ''}</Tag>
+                    </Space>
+                    <Space>
+                      <Text type="secondary" style={{ fontSize: 13 }}>
+                        {Math.ceil(areaTotalGallons)} gal
+                      </Text>
+                      <Text strong style={{ fontSize: 14, color: '#1890ff' }}>
+                        ${areaTotalCost.toFixed(2)}
+                      </Text>
+                    </Space>
+                  </div>
+                ),
+                children: (
+                  <Collapse 
+                    items={surfaceCollapseItems}
+                    ghost
+                    size="small"
+                  />
+                )
+              };
+            });
+            
+            return (
+              <>
+                <Collapse 
+                  items={collapseItems}
+                  defaultActiveKey={surfaceSummary.length === 1 ? [surfaceSummary[0].areaId] : []}
+                  style={{ backgroundColor: '#fafafa', marginBottom: 24 }}
+                />
+                
+                {/* Product Totals Summary */}
+                {Object.keys(productTotals).length > 0 && (
+                  <Card 
+                    title="Product Summary (Total Gallons Required)" 
+                    size="small"
+                    style={{ marginTop: 16, backgroundColor: '#f0f5ff', borderColor: '#adc6ff' }}
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      {Object.entries(productTotals).map(([productId, totals]) => (
+                        <div key={productId} style={{ padding: '12px', background: '#fff', borderRadius: '4px', border: '1px solid #d9d9d9' }}>
+                          <Row gutter={16} align="middle">
+                            <Col flex="auto">
+                              <Space direction="vertical" size={2}>
+                                <Text strong style={{ fontSize: 14 }}>{totals.productName}</Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  ${totals.pricePerGallon}/gallon • Used in {totals.usedIn.length} location{totals.usedIn.length !== 1 ? 's' : ''}
+                                </Text>
+                              </Space>
+                            </Col>
+                            <Col>
+                              <div style={{ textAlign: 'right' }}>
+                                <div>
+                                  <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                                    {Math.ceil(totals.totalGallons)} gallons
+                                  </Text>
+                                </div>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  Total: ${totals.totalCost.toFixed(2)}
+                                </Text>
+                              </div>
+                            </Col>
+                          </Row>
+                        </div>
+                      ))}
+                    </Space>
+                  </Card>
+                )}
+              </>
+            );
+          }
+          
+          // Global surface-type display (for turnkey)
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {surfaceSummary.map(surface => (
+                <Card key={surface.surfaceType} size="small" style={{ backgroundColor: '#fafafa', borderRadius: '4px' }}>
+                  <Row gutter={16} align="middle">
+                    <Col xs={24} md={6}>
+                      <div>
+                        <Text strong style={{ fontSize: 16 }}>{surface.surfaceType}</Text>
+                        <br />
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {Math.ceil(surface.totalGallons)} gallons needed
+                        </Text>
                       </div>
-                    );
-                  })}
-                </Space>
-              )}
-            {detail.gallons > 0 && (
-              <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                Estimated: {detail.gallons.toFixed(2)} gallons
-              </Text>
-            )}
-            {detail.materialCost && (
-              <Text strong style={{ display: 'block', marginTop: 4, color: '#1890ff' }}>
-                Material Cost: ${detail.materialCost}
-              </Text>
-            )}
-          </div>
-        )))}
+                    </Col>
+                    <Col xs={24} md={18}>
+                      <Space direction="vertical" style={{ width: '100%' }} size="small">
+                        {Object.entries(surface.tiers || {}).map(([tierKey, tierInfo]) => (
+                          <div key={tierKey} style={{ padding: '8px', background: '#fff', borderRadius: '4px', border: '1px solid #e8e8e8' }}>
+                            <Row gutter={[8, 8]} align="middle">
+                              <Col flex="auto">
+                                <Space direction="vertical" size={0}>
+                                  <Space>
+                                    <Tag color={
+                                      tierInfo.tier === 'Good' ? 'blue' :
+                                      tierInfo.tier === 'Better' ? 'cyan' :
+                                      tierInfo.tier === 'Best' ? 'green' : 'default'
+                                    }>
+                                      {tierInfo.tier}
+                                    </Tag>
+                                    <Text strong>{tierInfo.productName || 'Unknown Product'}</Text>
+                                  </Space>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    ${tierInfo.pricePerGallon || 0}/gallon
+                                  </Text>
+                                </Space>
+                              </Col>
+                              <Col>
+                                <div style={{ textAlign: 'right' }}>
+                                  <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                                    {Math.ceil(tierInfo.gallons)} gal
+                                  </Text>
+                                  <br />
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    ${(tierInfo.gallons * tierInfo.pricePerGallon).toFixed(2)}
+                                  </Text>
+                                </div>
+                              </Col>
+                            </Row>
+                          </div>
+                        ))}
+                      </Space>
+                    </Col>
+                  </Row>
+                </Card>
+              ))}
+            </div>
+          );
+        })()}
         
       </Card>
 
-      {/* Running Product Totals */}
-      {Object.keys(runningTotals).length > 0 && (
-        <Card title="Running Product Totals (gallons)" style={{ marginBottom: 16 }}>
-          {Object.entries(runningTotals).map(([productId, info]) => {
-            const product = productsMap[productId] || {};
-            return (
-              <div key={productId} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
-                <div>
-                  <Text strong>{product.brandName} - {product.productName}</Text>
-                  <Text type="secondary" style={{ marginLeft: 8 }}>
-                    ({Array.from(info.surfaceTypes).join(', ')})
+      {/* Running Product Totals - Aggregated Across Surfaces */}
+      {(() => {
+        const runningTotals = getRunningProductTotals();
+        const totalProducts = Object.keys(runningTotals).length;
+        
+        if (totalProducts === 0) return null;
+        
+        return (
+          <Card 
+            title={
+              <Space>
+                <span>Selected Products Summary</span>
+                <Tag color="blue">{totalProducts} unique product{totalProducts > 1 ? 's' : ''}</Tag>
+              </Space>
+            }
+            style={{ marginBottom: 16, borderColor: '#1890ff', borderWidth: 1 }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {Object.entries(runningTotals).map(([productId, info]) => (
+                <div 
+                  key={productId} 
+                  style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    padding: '12px', 
+                    background: '#f5f7fa',
+                    borderRadius: '4px',
+                    border: '1px solid #d9d9d9'
+                  }}
+                >
+                  <div>
+                    <Text strong style={{ fontSize: 14 }}>{info.productName}</Text>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Used on: {Array.from(info.surfaceTypes).join(', ')}
+                    </Text>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 18, fontWeight: 'bold', color: '#1890ff' }}>
+                      {Math.ceil(info.gallons)} gal
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      @ ${info.pricePerGallon}/gal
+                    </Text>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <Divider style={{ margin: '16px 0' }} />
+            
+            <div style={{ textAlign: 'right' }}>
+              <Text strong style={{ display: 'block', fontSize: 14 }}>
+                Total Gallons: {Math.ceil(Object.values(runningTotals).reduce((sum, p) => sum + p.gallons, 0))} gal
+              </Text>
+              <Text strong style={{ display: 'block', fontSize: 14, marginTop: 8, color: '#3f8600' }}>
+                Est. Material Cost: ${Object.values(runningTotals).reduce((sum, p) => sum + (p.gallons * p.pricePerGallon), 0).toFixed(2)}
+              </Text>
+            </div>
+          </Card>
+        );
+      })()}
+      
+
+      {/* PRICING SCHEME-SPECIFIC KEY METRICS */}
+      {calculatedQuote && (
+        <>
+          {/* Production-Based: Emphasize Hours & Time */}
+          {isProductionBased && (
+            <Card 
+              title={
+                <Space>
+                  <span style={{ fontSize: 18, fontWeight: 600, color: '#1890ff' }}>
+                    ⏱️ Production-Based Time Estimate
+                  </span>
+                </Space>
+              }
+              style={{ marginBottom: 16, borderColor: '#1890ff', borderWidth: 2 }}
+            >
+              <Row gutter={16}>
+                <Col xs={24} md={8}>
+                  <Statistic 
+                    title="Total Estimated Hours" 
+                    value={totalEstimatedHours} 
+                    precision={1}
+                    suffix="hrs"
+                    valueStyle={{ color: '#1890ff', fontSize: 32 }}
+                  />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Based on production rates & crew size
                   </Text>
-                </div>
-                <div>
-                  <Text>{info.gallons.toFixed(2)} gal</Text>
-                </div>
-              </div>
-            );
-          })}
-          <Divider />
-          {(() => {
-            const materialSubtotal = (formData.productSets || []).reduce((sum, s) => sum + (Number(s.materialCost) || 0), 0);
-            const retailSubtotal = (formData.productSets || []).reduce((sum, s) => {
-              const tier = s.activeTier || 'good';
-              const retail = s.retailPrices?.[tier];
-              return sum + ((Number(s.gallons) || 0) * (Number(retail) || 0));
-            }, 0);
-            const savings = Math.max(retailSubtotal - materialSubtotal, 0);
-            const pct = retailSubtotal > 0 ? (savings / retailSubtotal) * 100 : 0;
-            return (
-              <div style={{ textAlign: 'right' }}>
-                <Text type="secondary" style={{ display: 'block' }}>Materials Subtotal: ${materialSubtotal.toFixed(2)}</Text>
-                <Text type="secondary" style={{ display: 'block' }}>Retail Total (ref): ${retailSubtotal.toFixed(2)}</Text>
-                <Text strong style={{ display: 'block', marginTop: 4 }}>Your Savings: ${savings.toFixed(2)} ({pct.toFixed(1)}%)</Text>
-              </div>
-            );
-          })()}
-        </Card>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Statistic 
+                    title="Crew Size" 
+                    value={formData.contractorSettings?.other?.crewSize || 2} 
+                    suffix="workers"
+                  />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Standard crew configuration
+                  </Text>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Statistic 
+                    title="Est. Days to Complete" 
+                    value={(totalEstimatedHours / ((formData.contractorSettings?.other?.crewSize || 2) * 8)).toFixed(1)} 
+                    suffix="days"
+                  />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Based on 8-hour work days
+                  </Text>
+                </Col>
+              </Row>
+              <Divider style={{ margin: '16px 0' }} />
+              <Row gutter={16}>
+                <Col xs={12} md={6}>
+                  <Statistic 
+                    title="Hourly Labor Rate" 
+                    value={formData.contractorSettings?.productionRates?.hourlyLaborRate || 0} 
+                    prefix="$"
+                    precision={2}
+                    suffix="/hr"
+                  />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Statistic 
+                    title="Labor Cost" 
+                    value={calculatedQuote.laborTotal || 0} 
+                    prefix="$"
+                    precision={2}
+                  />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Statistic 
+                    title="Materials" 
+                    value={calculatedQuote.materialTotal || 0} 
+                    prefix="$"
+                    precision={2}
+                  />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Statistic 
+                    title="Total Price" 
+                    value={calculatedQuote.total || 0} 
+                    prefix="$"
+                    precision={2}
+                    valueStyle={{ color: '#3f8600', fontWeight: 'bold' }}
+                  />
+                </Col>
+              </Row>
+            </Card>
+          )}
+
+        
+
+         
+
+        </>
       )}
 
       {/* Cost Breakdown */}
@@ -754,7 +1380,9 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
           {calculatedQuote.quoteValidityDays && (
             <Alert
               message={`Quote Valid for ${calculatedQuote.quoteValidityDays} Days`}
-              description={`This quote is valid until ${new Date(Date.now() + calculatedQuote.quoteValidityDays * 24 * 60 * 60 * 1000).toLocaleDateString()}`}
+              description={`This quote is valid until ${new Date(Date.now() + calculatedQuote.quoteValidityDays * 24 * 60 * 60 * 1000).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}`}
               type="warning"
               showIcon
               style={{ marginBottom: 16 }}
@@ -865,12 +1493,18 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                         key: 'quantity',
                         render: (_, record) => {
                           const qty = record.quantity || record.sqft || 0;
+                          return qty?.toFixed(0);
+                        }
+                      },
+                      {
+                        title: 'Unit',
+                        key: 'unit',
+                        render: (_, record) => {
                           const unit = record.measurementUnit || 'sqft';
-                          const unitLabel = unit === 'sqft' ? 'sq ft' : 
-                                          unit === 'linear_foot' ? 'LF' : 
-                                          unit === 'unit' ? 'units' : 
-                                          unit === 'hour' ? 'hrs' : unit;
-                          return `${qty?.toFixed(0)} ${unitLabel}`;
+                          return unit === 'sqft' ? 'sq ft' : 
+                                 unit === 'linear_foot' ? 'LF' : 
+                                 unit === 'unit' ? 'units' : 
+                                 unit === 'hour' ? 'hrs' : unit;
                         }
                       },
                       { 
@@ -883,7 +1517,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                         title: 'Gallons', 
                         dataIndex: 'gallons', 
                         key: 'gallons',
-                        render: (val) => val ? val?.toFixed(2) : '-'
+                        render: (val) => val ? Math.ceil(val) : '-'
                       },
                       { 
                         title: 'Labor Cost', 
@@ -897,18 +1531,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
                         key: 'materialCost',
                         render: (val) => `$${val?.toFixed(2) || '0.00'}`
                       },
-                      { 
-                        title: 'Prep', 
-                        dataIndex: 'prepCost', 
-                        key: 'prepCost',
-                        render: (val) => val > 0 ? `$${val?.toFixed(2)}` : '-'
-                      },
-                      { 
-                        title: 'Add-Ons', 
-                        dataIndex: 'addOnCost', 
-                        key: 'addOnCost',
-                        render: (val) => val > 0 ? `$${val?.toFixed(2)}` : '-'
-                      }
+                     
                     ]}
                   />
                   <div style={{ marginTop: 8, textAlign: 'right' }}>
@@ -994,6 +1617,17 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes })
         quoteData={formData}
         calculatedQuote={calculatedQuote}
         pricingSchemes={pricingSchemes}
+      />
+
+      {/* Send Quote Email Modal */}
+      <SendQuoteEmailModal
+        visible={showEmailModal}
+        loading={sending}
+        customerEmail={formData.customerEmail}
+        customerName={formData.customerName}
+        quoteId={formData?.quoteId}
+        onSend={handleSendEmail}
+        onCancel={() => setShowEmailModal(false)}
       />
     </div>
   );

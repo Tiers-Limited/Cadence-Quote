@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Checkbox, Typography, Space, Divider, message, Spin, Alert } from 'antd';
 import { FiArrowRight } from 'react-icons/fi';
 import { apiService } from '../../services/apiService';
+import { magicLinkApiService } from '../../services/magicLinkApiService';
+import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -21,13 +23,13 @@ function FinishStandardsAcknowledgement() {
   const fetchProposal = async () => {
     try {
       setLoading(true);
-      const response = await apiService.get(`/customer/proposals/${proposalId}`);
+      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`);
       if (response.success) {
         setProposal(response.data);
         
         // If already acknowledged, redirect to color selections
         if (response.data.finishStandardsAcknowledged) {
-          navigate(`/portal/colors/${proposalId}`);
+          navigate(`/portal/proposals/${proposalId}/selections/`);
         }
       }
     } catch (error) {
@@ -45,11 +47,11 @@ function FinishStandardsAcknowledgement() {
 
     try {
       setSubmitting(true);
-      const response = await apiService.post(`/customer/proposals/${proposalId}/acknowledge-finish-standards`);
+      const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/acknowledge-standards`);
       
       if (response.success) {
         message.success('Finish standards acknowledged successfully');
-        navigate(`/portal/colors/${proposalId}`);
+        navigate(`/portal/proposals/${proposalId}/selections/`);
       }
     } catch (error) {
       message.error('Failed to acknowledge: ' + error.message);
@@ -60,14 +62,17 @@ function FinishStandardsAcknowledgement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Spin size="large" tip="Loading..." />
-      </div>
+    
+        <div className="flex items-center justify-center min-h-screen">
+          <Spin size="large" tip="Loading..." />
+        </div>
+      
     );
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+   
+      <div className="p-6 max-w-4xl mx-auto">
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div className="text-center">
@@ -162,7 +167,7 @@ function FinishStandardsAcknowledgement() {
 
           <div className="flex gap-3 justify-end">
             <Button
-              onClick={() => navigate(`/portal/proposal/${proposalId}`)}
+              onClick={() => navigate(`/portal/dashboard`)}
             >
               Back to Proposal
             </Button>

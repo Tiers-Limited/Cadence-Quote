@@ -13,15 +13,21 @@ import {
   Switch,
   Tabs,
   Select,
-  Alert
+  Alert,
+  Upload,
+  Tooltip
 } from 'antd'
 import '../styles/cards.css'
 import {
   FiSave,
   FiSettings,
-  FiLock
+  FiLock,
+  FiUpload
 } from 'react-icons/fi'
 import { apiService } from '../services/apiService'
+import { uploadImageToCloudinary } from '../utils/cloudinaryUpload'
+import ReactQuill from 'react-quill'
+import 'react-quill/dist/quill.snow.css'
 
 const { TextArea } = Input
 const { TabPane } = Tabs
@@ -38,6 +44,10 @@ function SettingsPage () {
   // Form instances
   const [companyForm] = Form.useForm()
   const [portalForm] = Form.useForm()
+  const [emailForm] = Form.useForm()
+  const [logoUrl, setLogoUrl] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [emailBodyHtml, setEmailBodyHtml] = useState('')
 
 
 
@@ -54,20 +64,39 @@ function SettingsPage () {
         const { data } = settingsData
 
         // Populate company form
-        if (data.tenant) {
+        if (data.Tenant) {
           companyForm.setFieldsValue({
-            companyName: data.tenant.companyName,
-            email: data.tenant.email,
-            phone: data.tenant.phoneNumber,
-            businessAddress: data.tenant.businessAddress,
-            tradeType: data.tenant.tradeType
+            companyName: data.Tenant.companyName,
+            email: data.Tenant.email,
+            phone: data.Tenant.phoneNumber,
+            businessAddress: data.Tenant.businessAddress,
+            tradeType: data.Tenant.tradeType
           })
+          // Set logo if exists
+          if (data.Tenant.companyLogoUrl) {
+            setLogoUrl(data.Tenant.companyLogoUrl)
+          }
+        }
+
+        // Populate email message form from tenant defaults
+        if (data.Tenant?.defaultEmailMessage) {
+          const { subject, body } = data.Tenant.defaultEmailMessage
+          emailForm.setFieldsValue({
+            emailSubject: subject || 'Your Quote is Ready',
+            emailBody: body || ''
+          })
+          setEmailBodyHtml(body || '')
         }
 
         // Populate portal settings form
         portalForm.setFieldsValue({
           portalDurationDays: data.portalDurationDays || 14,
-          portalAutoLock: data.portalAutoLock !== false // Default to true
+          portalAutoLock: data.portalAutoLock !== false, // Default to true
+          portalLinkExpiryDays: data.portalLinkExpiryDays || 7,
+          portalLinkMaxExpiryDays: data.portalLinkMaxExpiryDays || 30,
+          portalAutoCleanup: data.portalAutoCleanup !== false, // Default to true
+          portalAutoCleanupDays: data.portalAutoCleanupDays || 30,
+          portalRequireOTPForMultiJob: data.portalRequireOTPForMultiJob !== false, // Default to true
         })
       }
 
@@ -91,7 +120,8 @@ function SettingsPage () {
         email: values.email,
         phoneNumber: values.phone,
         businessAddress: values.businessAddress,
-        tradeType: values.tradeType
+        tradeType: values.tradeType,
+        companyLogoUrl: logoUrl
       }
 
       const response = await apiService.put('/settings/company', payload)
@@ -100,6 +130,42 @@ function SettingsPage () {
       }
     } catch (error) {
       message.error('Failed to update company info: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleLogoUpload = async (file) => {
+    setUploading(true)
+    try {
+      const url = await uploadImageToCloudinary(file)
+      setLogoUrl(url)
+      message.success('Logo uploaded successfully')
+      return false // Prevent automatic upload
+    } catch (error) {
+      message.error('Failed to upload logo: ' + error.message)
+    } finally {
+      setUploading(false)
+    }
+    return false
+  }
+
+  const handleSaveEmailSettings = async values => {
+    setSaving(true)
+    try {
+      const payload = {
+        defaultEmailMessage: {
+          subject: values.emailSubject,
+          body: values.emailBody || emailBodyHtml
+        }
+      }
+
+      const response = await apiService.put('/settings', payload)
+      if (response.success) {
+        message.success('Email settings updated successfully')
+      }
+    } catch (error) {
+      message.error('Failed to update email settings: ' + error.message)
     } finally {
       setSaving(false)
     }
@@ -170,6 +236,7 @@ function SettingsPage () {
               onChange={val => setActiveTab(val)}
               options={[
                 { label: 'Company', value: 'company' },
+                { label: 'Email', value: 'email' },
                 { label: 'Customer Portal', value: 'portal' },
                 { label: 'Account', value: 'account' }
               ]}
@@ -203,7 +270,7 @@ function SettingsPage () {
                   form={companyForm}
                   layout='vertical'
                   onFinish={handleSaveCompanyInfo}
-                  className='max-w-2xl'
+                  className='max-w-2xl space-y-8'
                 >
                   <Form.Item
                     label='Company Name'
@@ -218,12 +285,13 @@ function SettingsPage () {
                   <Form.Item
                     label='Email'
                     name='email'
+                    
                     rules={[
                       { required: true, message: 'Please enter email' },
                       { type: 'email', message: 'Please enter a valid email' }
                     ]}
                   >
-                    <Input size='large' placeholder='company@example.com' />
+                    <Input size='large' placeholder='company@example.com' readOnly disabled />
                   </Form.Item>
 
                   <Form.Item label='Phone' name='phone'>
@@ -257,6 +325,43 @@ function SettingsPage () {
                     </Select>
                   </Form.Item>
 
+                  <Form.Item label='Company Logo' help='Upload your company logo to display in emails and proposals'>
+                    <div className='flex items-center gap-4'>
+                      {logoUrl && (
+                        <div className='flex flex-col items-center gap-2'>
+                          <img
+                            src={logoUrl}
+                            alt='Company Logo'
+                            className='h-20 w-auto border border-gray-300 rounded'
+                          />
+                          <Button
+                            type='text'
+                            danger
+                            size='small'
+                            onClick={() => setLogoUrl(null)}
+                          >
+                            Remove Logo
+                          </Button>
+                        </div>
+                      )}
+                      <Upload
+                        maxCount={1}
+                        accept='image/*'
+                        beforeUpload={handleLogoUpload}
+                        showUploadList={false}
+                        disabled={uploading}
+                      >
+                        <Button
+                          icon={<FiUpload />}
+                          loading={uploading}
+                          disabled={uploading}
+                        >
+                          {logoUrl ? 'Change Logo' : 'Upload Logo'}
+                        </Button>
+                      </Upload>
+                    </div>
+                  </Form.Item>
+
                   <Form.Item>
                     <Button
                       type='primary'
@@ -272,7 +377,98 @@ function SettingsPage () {
               </div>
             </TabPane>
 
-            {/* Customer Portal Tab */}
+            {/* Email Settings Tab */}
+            <TabPane
+              tab={
+                <span className='flex items-center gap-2'>
+                  <FiSettings />
+                  Email
+                </span>
+              }
+              key='email'
+            >
+              <div className='py-4'>
+                <h3 className='text-lg font-semibold mb-4'>Default Email Message</h3>
+                <p className='text-gray-600 mb-6'>
+                  Set the default email subject and message body that will be sent with quotes. 
+                  Your company signature with logo will be automatically appended.
+                </p>
+                <Form
+                  form={emailForm}
+                  layout='vertical'
+                  onFinish={handleSaveEmailSettings}
+                  className='max-w-3xl space-y-12'
+                >
+                  <Form.Item
+                    label='Email Subject'
+                    name='emailSubject'
+                    rules={[
+                      { required: true, message: 'Please enter email subject' },
+                      { max: 100, message: 'Subject must be 100 characters or less' }
+                    ]}
+                    help='The subject line of the email. Keep it professional and concise.'
+                  >
+                    <Input 
+                      size='large' 
+                      placeholder='Your Quote is Ready'
+                      maxLength={100}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label='Email Body'
+                    name='emailBody'
+                    rules={[
+                      { required: true, message: 'Please enter email body' }
+                    ]}
+                    help='Write your message with headings, lists, and emphasis. Your signature will be added automatically. Do not include pricing, CTAs, or promotional content.'
+                  >
+                    <ReactQuill
+                      theme='snow'
+                      value={emailForm.getFieldValue('emailBody') ?? emailBodyHtml}
+                      
+                      onChange={(val) => {
+                        setEmailBodyHtml(val)
+                        emailForm.setFieldsValue({ emailBody: val })
+                      }}
+                      placeholder='Write your email message...'
+                      modules={{
+                        toolbar: [
+                          [{ header: [1, 2, 3, false] }],
+                          ['bold', 'italic', 'underline', 'strike'],
+                          [{ list: 'ordered' }, { list: 'bullet' }],
+                          [{ align: [] }],
+                          ['blockquote', 'code-block'],
+                          ['clean']
+                        ]
+                      }}
+                    />
+                  </Form.Item>
+
+                  <Alert
+                    message='Preview'
+                    description='This message will be sent to customers with your company logo and contact information appended as your signature.'
+                    type='info'
+                    showIcon
+                    className='mb-6'
+                  />
+
+                  <Form.Item>
+                    <Button
+                      type='primary'
+                      htmlType='submit'
+                      icon={<FiSave />}
+                      loading={saving}
+                      size='large'
+                    >
+                      Save Email Settings
+                    </Button>
+                  </Form.Item>
+                </Form>
+              </div>
+            </TabPane>
+
+            {/* Customer Portal Tab - Magic Link Configuration */}
             <TabPane
               tab={
                 <span className='flex items-center gap-2'>
@@ -283,70 +479,169 @@ function SettingsPage () {
               key='portal'
             >
               <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Customer Portal Settings</h3>
+                <h3 className='text-lg font-semibold mb-4'>Magic Link Portal Settings</h3>
                 <p className='text-gray-600 mb-6'>
-                  Configure how long customer portals remain open after deposit payment
+                  Configure magic link expiry, authentication, and automatic maintenance for customer portals
                 </p>
                 <Form
                   form={portalForm}
                   layout='vertical'
-                  className='max-w-2xl'
+                  className='max-w-2xl space-y-6'
                   onFinish={async (values) => {
                     setSaving(true);
                     try {
-                      const response = await apiService.put('/settings', {
-                        portalDurationDays: values.portalDurationDays,
-                        portalAutoLock: values.portalAutoLock
-                      });
+                      const response = await apiService.put('/settings', values);
                       if (response.success) {
-                        message.success('Portal settings updated successfully');
+                        message.success('Portal settings saved successfully');
+                        // Reload settings to get updated values
+                        fetchAllSettings();
                       }
                     } catch (error) {
-                      message.error('Failed to update settings: ' + error.message);
+                      message.error(error.message || 'Failed to save portal settings');
                     } finally {
                       setSaving(false);
                     }
                   }}
                 >
-                  <Form.Item
-                    label='Portal Duration (Days)'
-                    name='portalDurationDays'
-                    rules={[
-                      { required: true, message: 'Please enter portal duration' },
-                      { type: 'number', min: 1, max: 365, message: 'Duration must be between 1 and 365 days' }
-                    ]}
-                    help='Number of days the customer portal remains open after deposit payment'
-                  >
-                    <InputNumber 
-                      size='large' 
-                      min={1} 
-                      max={365}
-                      style={{ width: '100%' }}
-                      addonAfter='days'
-                    />
-                  </Form.Item>
+                  <Card>
+                    <h4 className='font-semibold mb-4'>Link Expiry Configuration</h4>
+                    <div className='space-y-4'>
+                      <Form.Item
+                        label='Default Link Expiry (Days)'
+                        name='portalLinkExpiryDays'
+                        rules={[
+                          { required: true, message: 'Please enter default expiry' },
+                          { type: 'number', min: 1, max: 365, message: 'Must be between 1 and 365 days' }
+                        ]}
+                        help='Default number of days before customer magic links expire'
+                      >
+                        <InputNumber 
+                          size='large' 
+                          min={1} 
+                          max={365}
+                          style={{ width: '100%' }}
+                          addonAfter='days'
+                        />
+                      </Form.Item>
 
-                  <Form.Item
-                    label='Auto-Lock Portal'
-                    name='portalAutoLock'
-                    valuePropName='checked'
-                    help='Automatically lock portal when duration expires. If disabled, portal stays open until manually closed.'
-                  >
-                    <Switch 
-                      checkedChildren='Enabled' 
-                      unCheckedChildren='Disabled'
-                    />
-                  </Form.Item>
+                      <Form.Item
+                        label='Maximum Link Expiry (Days)'
+                        name='portalLinkMaxExpiryDays'
+                        rules={[
+                          { required: true, message: 'Please enter maximum expiry' },
+                          { type: 'number', min: 1, max: 365, message: 'Must be between 1 and 365 days' }
+                        ]}
+                        help='Maximum number of days when sending magic links to customers'
+                      >
+                        <InputNumber 
+                          size='large' 
+                          min={1} 
+                          max={365}
+                          style={{ width: '100%' }}
+                          addonAfter='days'
+                        />
+                      </Form.Item>
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <h4 className='font-semibold mb-4'>Automatic Cleanup</h4>
+                    <div className='space-y-4'>
+                      <Form.Item
+                        label='Enable Auto-Cleanup'
+                        name='portalAutoCleanup'
+                        valuePropName='checked'
+                        help='Automatically delete expired links and sessions (runs daily at 2 AM)'
+                      >
+                        <Switch 
+                          checkedChildren='Enabled' 
+                          unCheckedChildren='Disabled'
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        label='Cleanup Retention Period (Days)'
+                        name='portalAutoCleanupDays'
+                        rules={[
+                          { type: 'number', min: 1, max: 365, message: 'Must be between 1 and 365 days' }
+                        ]}
+                        help='Keep expired data for this many days before deletion'
+                      >
+                        <InputNumber 
+                          size='large' 
+                          min={1} 
+                          max={365}
+                          style={{ width: '100%' }}
+                          addonAfter='days'
+                        />
+                      </Form.Item>
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <h4 className='font-semibold mb-4'>Portal Authentication</h4>
+                    <div className='space-y-4'>
+                      <Form.Item
+                        label='Require OTP for Multi-Project Access'
+                        name='portalRequireOTPForMultiJob'
+                        valuePropName='checked'
+                        help='Require email verification (OTP) when accessing multiple projects'
+                      >
+                        <Switch 
+                          checkedChildren='Required' 
+                          unCheckedChildren='Optional'
+                        />
+                      </Form.Item>
+                    </div>
+                  </Card>
+
+                  <Card className='bg-gray-50'>
+                    <h4 className='font-semibold mb-4'>Legacy Portal Settings</h4>
+                    <p className='text-gray-600 text-sm mb-4'>
+                      For traditional portals opened after deposit payment
+                    </p>
+                    <div className='space-y-4'>
+                      <Form.Item
+                        label='Portal Duration (Days)'
+                        name='portalDurationDays'
+                        rules={[
+                          { required: true, message: 'Please enter portal duration' },
+                          { type: 'number', min: 1, max: 365, message: 'Duration must be between 1 and 365 days' }
+                        ]}
+                        help='How long customers can access the portal after deposit payment'
+                      >
+                        <InputNumber 
+                          size='large' 
+                          min={1} 
+                          max={365}
+                          style={{ width: '100%' }}
+                          addonAfter='days'
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        label='Auto-Lock Portal'
+                        name='portalAutoLock'
+                        valuePropName='checked'
+                        help='Automatically lock portal when duration expires'
+                      >
+                        <Switch 
+                          checkedChildren='Enabled' 
+                          unCheckedChildren='Disabled'
+                        />
+                      </Form.Item>
+                    </div>
+                  </Card>
 
                   <Alert
-                    message='Portal Access Rules'
+                    message='Magic Link Portal Features'
                     description={
                       <ul className='list-disc pl-5 mt-2 space-y-1'>
-                        <li>Portal opens automatically after deposit payment is verified</li>
-                        <li>Customer can make product selections during the portal duration</li>
-                        <li>Portal locks automatically when customer submits all selections</li>
-                        <li>Contractors can manually reopen portal if changes are needed</li>
-                        <li>If auto-lock is disabled, contractors must manually close portals</li>
+                        <li>Customers access via secure magic link (no password required)</li>
+                        <li>Links automatically expire after configured days</li>
+                        <li>Multi-project access requires OTP verification</li>
+                        <li>Expired data automatically cleaned up based on retention period</li>
+                        <li>3-day warning emails sent before expiry</li>
                       </ul>
                     }
                     type='info'

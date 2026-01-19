@@ -1,8 +1,7 @@
 // src/components/QuoteBuilder/JobTypeStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Select, Form, Divider } from 'antd';
+import { Card, Button, Alert, Row, Col, Typography, Select, Form } from 'antd';
 import { HomeOutlined, BuildOutlined, DollarOutlined } from '@ant-design/icons';
-import DynamicPricingFields from './DynamicPricingFields';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -43,17 +42,9 @@ const JobTypeStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes = 
 
   const handleNext = () => {
     if (selectedType && formData.pricingSchemeId) {
-      // For turnkey, validate that homeSqft is provided
-      const isTurnkey = selectedScheme?.type === 'turnkey' || selectedScheme?.type === 'sqft_turnkey';
-      if (isTurnkey && !formData.homeSqft) {
-        alert('Please enter the total home size for turnkey pricing');
-        return;
-      }
       onNext();
     }
   };
-
-  const isTurnkey = selectedScheme?.type === 'turnkey' || selectedScheme?.type === 'sqft_turnkey';
 
   return (
     <div className="job-type-step">
@@ -176,24 +167,6 @@ const JobTypeStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes = 
         </Col>
       </Row>
 
-      {/* Dynamic Pricing Fields - shown after job type is selected */}
-      {selectedType && selectedScheme && (
-        <>
-          <Divider />
-          <Card style={{ marginTop: 24 }}>
-            <Title level={4} style={{ marginBottom: 16 }}>
-              {isTurnkey ? 'Home Size Details' : 'Model Overview'}
-            </Title>
-            <DynamicPricingFields
-              pricingScheme={selectedScheme}
-              formData={formData}
-              onChange={handleDynamicFieldChange}
-              showMaterialControls={!isTurnkey}
-            />
-          </Card>
-        </>
-      )}
-
       {!selectedType && (
         <Alert
           message="Please select a job type to continue"
@@ -211,9 +184,9 @@ const JobTypeStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes = 
           type="primary" 
           size="large" 
           onClick={handleNext}
-          disabled={!selectedType || !formData.pricingSchemeId || (isTurnkey && !formData.homeSqft)}
+          disabled={!selectedType || !formData.pricingSchemeId}
         >
-          Next: {isTurnkey ? 'Products & Summary' : 'Areas & Surfaces'}
+          Next
         </Button>
       </div>
 

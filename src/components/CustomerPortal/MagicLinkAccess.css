@@ -1,0 +1,305 @@
+/* Magic Link Access Component Styles */
+
+.magic-link-access {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.magic-link-background {
+  width: 100%;
+  max-width: 600px;
+}
+
+.magic-link-container {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  padding: 60px 40px;
+  text-align: center;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.magic-link-container.validating {
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+.magic-link-container.success {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+}
+
+.magic-link-container.error {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+/* Spinner Animation */
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #e5e7eb;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Validating State */
+.magic-link-container.validating h2 {
+  color: #1f2937;
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+.magic-link-container.validating p {
+  color: #6b7280;
+  font-size: 16px;
+  margin-top: 20px;
+}
+
+/* Success State */
+.magic-link-container.success .success-icon {
+  width: 80px;
+  height: 80px;
+  background: #22c55e;
+  color: white;
+  font-size: 48px;
+  font-weight: bold;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 30px;
+  box-shadow: 0 10px 30px rgba(34, 197, 94, 0.3);
+}
+
+.magic-link-container.success h2 {
+  color: #16a34a;
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.magic-link-container.success p {
+  color: #4b5563;
+  font-size: 16px;
+  margin-top: 10px;
+}
+
+.expiry-info {
+  background: #f0fdf4;
+  border: 2px solid #86efac;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 30px 0;
+  border-radius: 8px;
+}
+
+.expiry-info .expiry-label {
+  color: #166534;
+  font-size: 14px;
+  margin: 0;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.expiry-info .expiry-days {
+  color: #16a34a;
+  font-size: 36px;
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+.expiry-info .expiry-date {
+  color: #4b5563;
+  font-size: 14px;
+  margin: 0;
+}
+
+.success-message {
+  color: #6b7280;
+  font-size: 14px;
+  font-style: italic;
+  margin-top: 20px;
+}
+
+/* Error State */
+.magic-link-container.error .error-icon {
+  width: 80px;
+  height: 80px;
+  background: #ef4444;
+  color: white;
+  font-size: 48px;
+  font-weight: bold;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 30px;
+  box-shadow: 0 10px 30px rgba(239, 68, 68, 0.3);
+}
+
+.magic-link-container.error h2 {
+  color: #991b1b;
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.error-message {
+  color: #7f1d1d;
+  font-size: 16px;
+  margin: 20px 0;
+  padding: 15px;
+  background: #fee2e2;
+  border-radius: 6px;
+  border-left: 4px solid #ef4444;
+}
+
+.error-actions {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  text-align: left;
+}
+
+.error-actions p {
+  color: #1f2937;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  font-size: 14px;
+}
+
+.error-actions ul {
+  margin: 0;
+  padding-left: 20px;
+  list-style-type: disc;
+}
+
+.error-actions li {
+  color: #4b5563;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+/* Buttons */
+.btn-primary,
+.btn-secondary,
+.btn-continue,
+.btn-logout {
+  padding: 12px 30px;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 20px;
+}
+
+.btn-primary,
+.btn-continue {
+  background: #667eea;
+  color: white;
+}
+
+.btn-primary:hover,
+.btn-continue:hover {
+  background: #5568d3;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.btn-secondary:hover {
+  background: #d1d5db;
+}
+
+.btn-logout {
+  background: #ef4444;
+  color: white;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.btn-logout:hover {
+  background: #dc2626;
+}
+
+/* Contractor Logo */
+.contractor-logo {
+  max-width: 150px;
+  max-height: 60px;
+  margin-bottom: 30px;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+  .magic-link-container {
+    padding: 40px 20px;
+  }
+
+  .magic-link-container.success h2,
+  .magic-link-container.error h2 {
+    font-size: 24px;
+  }
+
+  .expiry-info .expiry-days {
+    font-size: 28px;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-continue {
+    width: 100%;
+    padding: 14px 20px;
+  }
+}
+
+/* Alerts */
+.alert {
+  padding: 16px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  border-left: 4px solid;
+}
+
+.alert-warning {
+  background: #fffbeb;
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.alert-danger {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #991b1b;
+}
+
+.alert h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+}
+
+.alert p {
+  margin: 0;
+  font-size: 14px;
+}

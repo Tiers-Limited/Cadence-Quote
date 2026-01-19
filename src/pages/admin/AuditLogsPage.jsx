@@ -121,7 +121,9 @@ const AuditLogsPage = () => {
       width: isMobile ? 120 : 180,
       render: (date) => {
         const d = new Date(date);
-        return isMobile ? d.toLocaleDateString() : d.toLocaleString();
+        return isMobile ? d.toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }) : d.toLocaleString();
       },
       sorter: (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
     },

@@ -10,7 +10,6 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
     // Initialize form with existing data
     form.setFieldsValue({
       homeSqft: formData.homeSqft || '',
-      jobScope: formData.jobScope || 'both',
       numberOfStories: formData.numberOfStories || 1,
       conditionModifier: formData.conditionModifier || 'average',
     });
@@ -34,7 +33,8 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
   };
 
   const calculateEstimate = (values) => {
-    const { homeSqft, jobScope, conditionModifier } = values;
+    const { homeSqft, conditionModifier } = values;
+    const jobType = formData.jobType || 'interior'; // Use jobType from parent formData
     
     // Get turnkey rate from selected pricing scheme
     const selectedScheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
@@ -42,10 +42,10 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
     
     let baseRate = rules.turnkeyRate || 3.50;
     
-    // Adjust for scope
-    if (jobScope === 'interior' && rules.interiorRate) {
+    // Adjust for scope based on jobType
+    if (jobType === 'interior' && rules.interiorRate) {
       baseRate = rules.interiorRate;
-    } else if (jobScope === 'exterior' && rules.exteriorRate) {
+    } else if (jobType === 'exterior' && rules.exteriorRate) {
       baseRate = rules.exteriorRate;
     }
     
@@ -105,18 +105,6 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
               min={0}
               addonAfter="sq ft"
             />
-          </Form.Item>
-
-          <Form.Item
-            label="Job Scope"
-            name="jobScope"
-            extra="What areas will be painted?"
-          >
-            <Radio.Group size="large" buttonStyle="solid">
-              <Radio.Button value="interior">Interior Only</Radio.Button>
-              <Radio.Button value="exterior">Exterior Only</Radio.Button>
-              <Radio.Button value="both">Both</Radio.Button>
-            </Radio.Group>
           </Form.Item>
 
           <Form.Item

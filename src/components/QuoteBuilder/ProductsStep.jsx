@@ -1,6 +1,6 @@
 // src/components/QuoteBuilder/ProductsStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Select, Radio, Checkbox, Space, Modal, Divider, Tag } from 'antd';
+import { Card, Button, Alert, Row, Col, Typography, Select, Radio, Checkbox, Space, Modal, Divider, Tag, Collapse, Empty } from 'antd';
 import { CopyOutlined } from '@ant-design/icons';
 import PropTypes from 'prop-types';
 import { apiService } from '../../services/apiService';
@@ -17,6 +17,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
   const [loading, setLoading] = useState(false);
 
   const pricingSchemeId = formData.pricingSchemeId;
+  const isFlatRate = formData.pricingModelType === 'flat_rate_unit';
   
   // Check if current pricing scheme is turnkey
   const currentScheme = pricingSchemes?.find(s => s.id === pricingSchemeId);
@@ -105,7 +106,63 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
     return Array.from(surfaces);
   };
 
+  // Get areas with their selected surfaces - for area-wise grouping
+  const getAreasWithSurfaces = () => {
+    return (formData.areas || []).map(area => {
+      let selectedSurfaces = [];
+      
+      // New structure: laborItems
+      if (area.laborItems) {
+        selectedSurfaces = area.laborItems
+          .filter(item => item.selected)
+          .map(item => ({
+            id: item.categoryName,
+            name: item.categoryName,
+            quantity: item.quantity,
+            unit: item.measurementUnit,
+            coats: item.numberOfCoats
+          }));
+      }
+      // Old structure: surfaces
+      else if (area.surfaces) {
+        selectedSurfaces = area.surfaces
+          .filter(surface => surface.selected)
+          .map(surface => ({
+            id: surface.type,
+            name: surface.type,
+            sqft: surface.sqft
+          }));
+      }
+
+      return {
+        id: area.id,
+        name: area.name,
+        surfaces: selectedSurfaces
+      };
+    }).filter(area => area.surfaces.length > 0);
+  };
+
+  // Check if all areas have products selected for all surfaces
+  const areAllProductsSelected = () => {
+    const areasWithSurfaces = getAreasWithSurfaces();
+    return areasWithSurfaces.every(area => {
+      return area.surfaces.every(surface => {
+        const areaProducts = productSets.find(ps => ps.areaId === area.id || ps.surfaceType === surface.name);
+        if (!areaProducts) return false;
+        
+        if (productStrategy === 'GBB') {
+          return areaProducts.products.good || areaProducts.products.better || areaProducts.products.best;
+        } else {
+          return areaProducts.products.single;
+        }
+      });
+    });
+  };
+
   const surfaceTypes = getSurfaceTypes();
+
+  // For flat-rate per-area flow, target list is areas instead of surface types
+  const flatRateAreas = isFlatRate ? (formData.areas || []).map(a => ({ id: a.id, name: a.name })) : [];
 
   // Map surface label to API default surface key
   const mapSurfaceToDefaultKey = (surfaceType) => {
@@ -137,9 +194,64 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
     return gbbDefaults.find(d => d.surfaceType === key);
   };
 
-  // Initialize product sets if empty - auto-populate from GBB defaults
+  // Initialize product sets if empty - auto-populate
   useEffect(() => {
-    if (productSets.length === 0 && surfaceTypes.length > 0 && gbbDefaults.length > 0) {
+    // For ALL non-turnkey pricing models, use per-area-per-surface structure
+    if (!isTurnkey && productSets.length === 0) {
+      const areasWithSurfaces = getAreasWithSurfaces();
+      
+      if (areasWithSurfaces.length > 0) {
+        console.log('🚀 Initializing productSets for area-based pricing');
+        console.log('🏘️ areasWithSurfaces:', areasWithSurfaces);
+        
+        const initialSets = [];
+        areasWithSurfaces.forEach(area => {
+          area.surfaces.forEach(surface => {
+            // Get GBB defaults for this surface type
+            const defaults = getDefaultsForSurface(surface.name);
+            const getConfigIdFromGlobalId = (globalId) => {
+              if (!globalId) return null;
+              const config = availableProducts.find(p => p.globalProductId === globalId);
+              return config?.id || null;
+            };
+            
+            const newSet = {
+              areaId: area.id,
+              areaName: area.name,
+              surfaceType: surface.name,
+              surfaceName: surface.name,
+              quantity: surface.quantity,
+              unit: surface.unit,
+              products: productStrategy === 'GBB' 
+                ? { 
+                    good: getConfigIdFromGlobalId(defaults?.goodProductId), 
+                    better: getConfigIdFromGlobalId(defaults?.betterProductId), 
+                    best: getConfigIdFromGlobalId(defaults?.bestProductId) 
+                  }
+                : { single: null },
+              prices: productStrategy === 'GBB' && defaults
+                ? {
+                    good: defaults.goodPricePerGallon,
+                    better: defaults.betterPricePerGallon,
+                    best: defaults.bestPricePerGallon
+                  }
+                : null,
+              overridden: false,
+              gallons: null
+            };
+            console.log('➕ Adding productSet:', newSet);
+            initialSets.push(newSet);
+          });
+        });
+        
+        console.log('✅ Final initialSets:', initialSets);
+        setProductSets(initialSets);
+      }
+      return;
+    }
+    
+    // Legacy: Old surface-based initialization (for backward compatibility with old data)
+    if (productSets.length === 0 && surfaceTypes.length > 0 && gbbDefaults.length > 0 && isTurnkey) {
       const initialSets = surfaceTypes.map(surfaceType => {
         // Map surface type name to GBB defaults surface type enum
         // Supports both old surface names and new labor category names
@@ -169,13 +281,20 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
         const mappedType = surfaceTypeMap[surfaceType] || 'interior_walls';
         const defaults = gbbDefaults.find(d => d.surfaceType === mappedType);
 
+        // Find product config IDs by matching global product IDs from GBB defaults
+        const getConfigIdFromGlobalId = (globalId) => {
+          if (!globalId) return null;
+          const config = availableProducts.find(p => p.globalProductId === globalId);
+          return config?.id || null;
+        };
+
         return {
           surfaceType,
           products: productStrategy === 'GBB' 
             ? { 
-                good: defaults?.goodProductId || null, 
-                better: defaults?.betterProductId || null, 
-                best: defaults?.bestProductId || null 
+                good: getConfigIdFromGlobalId(defaults?.goodProductId), 
+                better: getConfigIdFromGlobalId(defaults?.betterProductId), 
+                best: getConfigIdFromGlobalId(defaults?.bestProductId) 
               }
             : { single: null },
           prices: productStrategy === 'GBB' && defaults
@@ -190,36 +309,96 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
       });
       setProductSets(initialSets);
     }
-  }, [surfaceTypes, gbbDefaults]);
+  }, [surfaceTypes, gbbDefaults, isFlatRate, flatRateAreas, productStrategy]);
 
-  // CRITICAL: Sync productSets when surfaceTypes from areas change
-  // This ensures productSets stay aligned with selected surface types
+  // Sync productSets when the underlying selection changes
   useEffect(() => {
-    if (surfaceTypes.length === 0 || gbbDefaults.length === 0) return;
-    
+    // For non-turnkey pricing, sync area+surface changes
+    if (!isTurnkey && productSets.length > 0) {
+      const areasWithSurfaces = getAreasWithSurfaces();
+      
+      // Get current area+surface combinations
+      const currentCombos = productSets.map(ps => `${ps.areaId}-${ps.surfaceType}`);
+      const expectedCombos = areasWithSurfaces.flatMap(area => 
+        area.surfaces.map(surface => `${area.id}-${surface.name}`)
+      );
+      
+      // Find added and removed combinations
+      const added = expectedCombos.filter(combo => !currentCombos.includes(combo));
+      const removed = currentCombos.filter(combo => !expectedCombos.includes(combo));
+      
+      if (added.length > 0 || removed.length > 0) {
+        console.log('🔄 Syncing productSets - added:', added, 'removed:', removed);
+        
+        // Keep existing products, but remove deleted combinations
+        const kept = productSets.filter(ps => {
+          const combo = `${ps.areaId}-${ps.surfaceType}`;
+          return !removed.includes(combo);
+        });
+        
+        // Add new combinations
+        const newSets = [];
+        areasWithSurfaces.forEach(area => {
+          area.surfaces.forEach(surface => {
+            const combo = `${area.id}-${surface.name}`;
+            if (added.includes(combo)) {
+              const defaults = getDefaultsForSurface(surface.name);
+              const getConfigIdFromGlobalId = (globalId) => {
+                if (!globalId) return null;
+                const config = availableProducts.find(p => p.globalProductId === globalId);
+                return config?.id || null;
+              };
+              
+              newSets.push({
+                areaId: area.id,
+                areaName: area.name,
+                surfaceType: surface.name,
+                surfaceName: surface.name,
+                quantity: surface.quantity,
+                unit: surface.unit,
+                products: productStrategy === 'GBB' 
+                  ? { 
+                      good: getConfigIdFromGlobalId(defaults?.goodProductId), 
+                      better: getConfigIdFromGlobalId(defaults?.betterProductId), 
+                      best: getConfigIdFromGlobalId(defaults?.bestProductId) 
+                    }
+                  : { single: null },
+                prices: productStrategy === 'GBB' && defaults
+                  ? {
+                      good: defaults.goodPricePerGallon,
+                      better: defaults.betterPricePerGallon,
+                      best: defaults.bestPricePerGallon
+                    }
+                  : null,
+                overridden: false,
+                gallons: null
+              });
+            }
+          });
+        });
+        
+        setProductSets([...kept, ...newSets]);
+      }
+      return;
+    }
+
+    // Legacy sync for old surface-based structure (turnkey only)
+    if (surfaceTypes.length === 0 || gbbDefaults.length === 0 || !isTurnkey) return;
+
     // Get current surface types in productSets
     const currentSurfaceTypes = productSets.map(set => set.surfaceType);
-    
+
     // Check if surfaceTypes have changed
     const surfaceTypesAdded = surfaceTypes.filter(st => !currentSurfaceTypes.includes(st));
     const surfaceTypesRemoved = currentSurfaceTypes.filter(st => !surfaceTypes.includes(st));
-    
+
     // If there are changes, rebuild productSets
     if (surfaceTypesAdded.length > 0 || surfaceTypesRemoved.length > 0) {
-      console.log('🔄 Surface types changed, rebuilding productSets:', {
-        added: surfaceTypesAdded,
-        removed: surfaceTypesRemoved,
-        current: surfaceTypes
-      });
-      
       const updatedSets = surfaceTypes.map(surfaceType => {
         // Try to find existing set to preserve selections
         const existingSet = productSets.find(set => set.surfaceType === surfaceType);
-        if (existingSet) {
-          return existingSet;
-        }
-        
-        // Create new set for added surface type
+        if (existingSet) return existingSet;
+
         const surfaceTypeMap = {
           'Walls': 'interior_walls',
           'Ceiling': 'interior_ceilings',
@@ -240,17 +419,20 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
           'Decks & Railings': 'exterior_siding',
           'Prep Work': 'exterior_siding'
         };
-        
         const mappedType = surfaceTypeMap[surfaceType] || 'interior_walls';
         const defaults = gbbDefaults.find(d => d.surfaceType === mappedType);
-        
+        const getConfigIdFromGlobalId = (globalId) => {
+          if (!globalId) return null;
+          const config = availableProducts.find(p => p.globalProductId === globalId);
+          return config?.id || null;
+        };
         return {
           surfaceType,
           products: productStrategy === 'GBB' 
             ? { 
-                good: defaults?.goodProductId || null, 
-                better: defaults?.betterProductId || null, 
-                best: defaults?.bestProductId || null 
+                good: getConfigIdFromGlobalId(defaults?.goodProductId), 
+                better: getConfigIdFromGlobalId(defaults?.betterProductId), 
+                best: getConfigIdFromGlobalId(defaults?.bestProductId) 
               }
             : { single: null },
           prices: productStrategy === 'GBB' && defaults
@@ -263,29 +445,89 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
           gallons: null
         };
       });
-      
       setProductSets(updatedSets);
     }
-  }, [surfaceTypes, gbbDefaults, productStrategy]);
+  }, [isFlatRate, flatRateAreas, surfaceTypes, gbbDefaults, productStrategy, availableProducts]);
 
-  const updateProductSet = (surfaceType, tier, productId) => {
-    setProductSets(productSets.map(set => {
-      if (set.surfaceType === surfaceType) {
+  /**
+   * Update product selection for a specific area and/or surface
+   * @param {number|string} areaId - The area ID
+   * @param {string} surfaceType - The surface type (categoryName) - optional for area-wide updates
+   * @param {string} tier - The tier (good/better/best/single)
+   * @param {string} productId - The product ID to select
+   */
+  const updateProductSet = (areaId, tier, productId, surfaceType = null) => {
+    console.log('🔧 updateProductSet called:', { 
+      areaId, 
+      tier, 
+      productId, 
+      surfaceType,
+      isFlatRate,
+      isTurnkey
+    });
+    console.log('📦 Current productSets:', JSON.parse(JSON.stringify(productSets)));
+    
+    // Find existing set
+    let found = false;
+    const updated = productSets.map(set => {
+      // For non-turnkey pricing, ALWAYS require both areaId and surfaceType
+      const shouldMatch = !isTurnkey 
+        ? (set.areaId === areaId && set.surfaceType === surfaceType)
+        : (set.surfaceType === areaId); // Legacy: turnkey uses surfaceType only
+      
+      console.log('🔍 Checking set:', {
+        setAreaId: set.areaId,
+        setSurfaceType: set.surfaceType,
+        areaId,
+        surfaceType,
+        isTurnkey,
+        shouldMatch
+      });
+      
+      if (shouldMatch) {
+        found = true;
         const updatedSet = {
           ...set,
           products: {
             ...set.products,
             [tier]: productId
-          }
+          },
+          overridden: true
         };
-        // Auto-calculate material cost when product is selected
-        if (productId) {
-          calculateMaterialCost(surfaceType, tier, productId, updatedSet);
-        }
+        console.log('✅ Found matching set, updated:', updatedSet);
         return updatedSet;
       }
       return set;
-    }));
+    });
+    
+    // If no matching set found and we're in non-turnkey mode, create new entry
+    if (!found && !isTurnkey && areaId && surfaceType) {
+      console.log('⚠️ No matching set found, creating new entry');
+      const area = formData.areas?.find(a => a.id === areaId);
+      const areasWithSurfaces = getAreasWithSurfaces();
+      const areaData = areasWithSurfaces.find(a => a.id === areaId);
+      const surface = areaData?.surfaces?.find(s => s.name === surfaceType || s.id === surfaceType);
+      
+      const newSet = {
+        areaId,
+        areaName: area?.name || 'Unknown Area',
+        surfaceType,
+        surfaceName: surfaceType,
+        quantity: surface?.quantity,
+        unit: surface?.unit,
+        products: productStrategy === 'GBB' 
+          ? { good: null, better: null, best: null, [tier]: productId }
+          : { single: productId },
+        overridden: true,
+        gallons: null
+      };
+      
+      console.log('✨ Created new set:', newSet);
+      setProductSets([...updated, newSet]);
+    } else {
+      console.log('📋 Updated productSets:', updated);
+      setProductSets(updated);
+    }
   };
 
   // Auto-calculate material cost based on gallons and product price
@@ -403,6 +645,24 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
     return availableProducts.filter(product => !selectedInOtherTiers.includes(product.id));
   };
 
+  const getAvailableProductsForAreaTier = (areaId, currentTier) => {
+    const currentSet = productSets.find(set => set.areaId === areaId);
+    if (!currentSet) return availableProducts;
+
+    const selectedInOtherTiers = [];
+    if (currentTier !== 'good' && currentSet.products.good) {
+      selectedInOtherTiers.push(currentSet.products.good);
+    }
+    if (currentTier !== 'better' && currentSet.products.better) {
+      selectedInOtherTiers.push(currentSet.products.better);
+    }
+    if (currentTier !== 'best' && currentSet.products.best) {
+      selectedInOtherTiers.push(currentSet.products.best);
+    }
+
+    return availableProducts.filter(product => !selectedInOtherTiers.includes(product.id));
+  };
+
   const quickApplyToAll = (tier, productId) => {
     setProductSets(productSets.map(set => ({
       ...set,
@@ -411,6 +671,32 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
         [tier]: productId
       }
     })));
+  };
+
+  // Copy a product selection to all surfaces (for area-wise pricing)
+  const copyProductToAllSurfaces = (tier, productId, sourceSurfaceType) => {
+    Modal.confirm({
+      title: 'Apply to All Surfaces?',
+      content: `Do you want to apply this ${tier.toUpperCase()} product to all ${sourceSurfaceType} surfaces across all areas?`,
+      onOk: () => {
+        console.log(`📋 Copying ${tier} product ${productId} to all ${sourceSurfaceType} surfaces`);
+        const updated = productSets.map(set => {
+          // Only update sets with matching surface type
+          if (set.surfaceType === sourceSurfaceType) {
+            return {
+              ...set,
+              products: {
+                ...set.products,
+                [tier]: productId
+              },
+              overridden: true
+            };
+          }
+          return set;
+        });
+        setProductSets(updated);
+      }
+    });
   };
 
   const handleStrategyChange = (value) => {
@@ -552,11 +838,13 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                       loading={loading}
                       showSearch
                       filterOption={(input, option) =>
-                        option.children.toLowerCase().includes(input.toLowerCase())
+                        option.label && typeof option.label === 'string'
+                          ? option.label.toLowerCase().includes(input.toLowerCase())
+                          : true
                       }
                     >
                       {availableProducts.map(product => (
-                        <Option key={product.id} value={product.id}>
+                        <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
                           {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
                         </Option>
                       ))}
@@ -600,11 +888,13 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                       loading={loading}
                       showSearch
                       filterOption={(input, option) =>
-                        option.children.toLowerCase().includes(input.toLowerCase())
+                        option.label && typeof option.label === 'string'
+                          ? option.label.toLowerCase().includes(input.toLowerCase())
+                          : true
                       }
                     >
                       {availableProducts.map(product => (
-                        <Option key={product.id} value={product.id}>
+                        <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
                           {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
                         </Option>
                       ))}
@@ -648,11 +938,13 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                       loading={loading}
                       showSearch
                       filterOption={(input, option) =>
-                        option.children.toLowerCase().includes(input.toLowerCase())
+                        option.label && typeof option.label === 'string'
+                          ? option.label.toLowerCase().includes(input.toLowerCase())
+                          : true
                       }
                     >
                       {availableProducts.map(product => (
-                        <Option key={product.id} value={product.id}>
+                        <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
                           {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
                         </Option>
                       ))}
@@ -725,263 +1017,407 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
         </div>
       )}
 
-      {/* Regular Product Selection by Surface Type */}
-      {!isTurnkey && productSets.length > 0 && (
+      {/* Flat-rate: Product Selection by Area - DEPRECATED: Use per-surface section below */}
+      {false && isFlatRate && productSets.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <Title level={4}>Select Products by Surface Type</Title>
+          <Title level={4}>Select Products by Area</Title>
 
-          {productSets.map(set => (
-            <Card 
-              key={set.surfaceType}
-              title={set.surfaceType}
-              style={{ marginBottom: 16 }}
-            >
-              {productStrategy === 'GBB' ? (
-                <Row gutter={[16, 16]}>
-                  {/* Good Tier */}
-                  <Col xs={24} md={8}>
-                    <div style={{ padding: 12, background: '#f0f0f0', borderRadius: 4, height: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Tag color="blue">GOOD</Tag>
-                        {set.products.good && (
-                          <Button 
-                            type="link" 
-                            size="small"
-                            icon={<CopyOutlined />}
-                            onClick={() => quickApplyToAll('good', set.products.good)}
-                          >
-                            Apply to All
-                          </Button>
-                        )}
+          {(formData.areas || []).map(area => {
+            const set = productSets.find(s => s.areaId === area.id) || { products: productStrategy === 'GBB' ? { good: null, better: null, best: null } : { single: null } };
+            return (
+              <Card key={area.id} title={area.name} style={{ marginBottom: 16 }}>
+                {productStrategy === 'GBB' ? (
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} md={8}>
+                      <div style={{ padding: 12, background: '#f0f0f0', borderRadius: 4, height: '100%' }}>
+                        <Tag color="blue" style={{ marginBottom: 8 }}>GOOD</Tag>
+                        <Select
+                          placeholder="Select Good Option"
+                          style={{ width: '100%' }}
+                          value={set.products.good}
+                          onChange={(value) => updateProductSet(area.id, 'good', value)}
+                          loading={loading}
+                          showSearch
+                          filterOption={(input, option) =>
+                            option.label && typeof option.label === 'string'
+                              ? option.label.toLowerCase().includes(input.toLowerCase())
+                              : true
+                          }
+                        >
+                          {getAvailableProductsForAreaTier(area.id, 'good').map(product => (
+                            <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
+                              {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                            </Option>
+                          ))}
+                        </Select>
                       </div>
-                      <Select
-                        placeholder="Select Good Option"
-                        style={{ width: '100%' }}
-                        value={set.products.good}
-                        onChange={(value) => updateProductSet(set.surfaceType, 'good', value)}
-                        loading={loading}
-                        showSearch
-                        filterOption={(input, option) =>
-                          option.children.toLowerCase().includes(input.toLowerCase())
-                        }
-                      >
-                        {getAvailableProductsForTier(set.surfaceType, 'good').map(product => (
-                          <Option key={product.id} value={product.id}>
-                            {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
-                            {set.products.good === product.id && ' ✓'}
-                          </Option>
-                        ))}
-                      </Select>
-                      {set.products.good && (
-                        <div style={{ marginTop: 8 }}>
-                          {(() => {
-                            const product = getProductById(set.products.good);
-                            return product ? (
-                              <>
-                                <Text strong>${product.pricePerGallon}/gal</Text>
-                                <br />
-                                <Text type="secondary">{product.description}</Text>
-                              </>
-                            ) : null;
-                          })()}
-                        </div>
-                      )}
-                      {!set.products.good && (() => {
-                        const d = getDefaultsForSurface(set.surfaceType);
-                        const p = d?.goodProductId ? getProductById(d.goodProductId) : null;
-                        return p ? (
-                          <div style={{ marginTop: 8 }}>
-                            <Divider style={{ margin: '8px 0' }} />
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              Recommended: {p.brandName} — {p.productName} (${p.pricePerGallon}/gal)
-                            </Text>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  </Col>
-
-                  {/* Better Tier */}
-                  <Col xs={24} md={8}>
-                    <div style={{ padding: 12, background: '#e6f7ff', borderRadius: 4, height: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Tag color="cyan">BETTER</Tag>
-                        {set.products.better && (
-                          <Button 
-                            type="link" 
-                            size="small"
-                            icon={<CopyOutlined />}
-                            onClick={() => quickApplyToAll('better', set.products.better)}
-                          >
-                            Apply to All
-                          </Button>
-                        )}
-                      </div>
-                      <Select
-                        placeholder="Select Better Option"
-                        style={{ width: '100%' }}
-                        value={set.products.better}
-                        onChange={(value) => updateProductSet(set.surfaceType, 'better', value)}
-                        loading={loading}
-                        showSearch
-                        filterOption={(input, option) =>
-                          option.children.toLowerCase().includes(input.toLowerCase())
-                        }
-                      >
-                        {getAvailableProductsForTier(set.surfaceType, 'better').map(product => (
-                          <Option key={product.id} value={product.id}>
-                            {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
-                            {set.products.better === product.id && ' ✓'}
-                          </Option>
-                        ))}
-                      </Select>
-                      {set.products.better && (
-                        <div style={{ marginTop: 8 }}>
-                          {(() => {
-                            const product = getProductById(set.products.better);
-                            return product ? (
-                              <>
-                                <Text strong>${product.pricePerGallon}/gal</Text>
-                                <br />
-                                <Text type="secondary">{product.description}</Text>
-                              </>
-                            ) : null;
-                          })()}
-                        </div>
-                      )}
-                      {!set.products.better && (() => {
-                        const d = getDefaultsForSurface(set.surfaceType);
-                        const p = d?.betterProductId ? getProductById(d.betterProductId) : null;
-                        return p ? (
-                          <div style={{ marginTop: 8 }}>
-                            <Divider style={{ margin: '8px 0' }} />
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              Recommended: {p.brandName} — {p.productName} (${p.pricePerGallon}/gal)
-                            </Text>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  </Col>
-
-                  {/* Best Tier */}
-                  <Col xs={24} md={8}>
-                    <div style={{ padding: 12, background: '#f6ffed', borderRadius: 4, height: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Tag color="green">BEST</Tag>
-                        {set.products.best && (
-                          <Button 
-                            type="link" 
-                            size="small"
-                            icon={<CopyOutlined />}
-                            onClick={() => quickApplyToAll('best', set.products.best)}
-                          >
-                            Apply to All
-                          </Button>
-                        )}
-                      </div>
-                      <Select
-                        placeholder="Select Best Option"
-                        style={{ width: '100%' }}
-                        value={set.products.best}
-                        onChange={(value) => updateProductSet(set.surfaceType, 'best', value)}
-                        loading={loading}
-                        showSearch
-                        filterOption={(input, option) =>
-                          option.children.toLowerCase().includes(input.toLowerCase())
-                        }
-                      >
-                        {getAvailableProductsForTier(set.surfaceType, 'best').map(product => (
-                          <Option key={product.id} value={product.id}>
-                            {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
-                            {set.products.best === product.id && ' ✓'}
-                          </Option>
-                        ))}
-                      </Select>
-                      {set.products.best && (
-                        <div style={{ marginTop: 8 }}>
-                          {(() => {
-                            const product = getProductById(set.products.best);
-                            return product ? (
-                              <>
-                                <Text strong>${product.pricePerGallon}/gal</Text>
-                                <br />
-                                <Text type="secondary">{product.description}</Text>
-                              </>
-                            ) : null;
-                          })()}
-                        </div>
-                      )}
-                      {!set.products.best && (() => {
-                        const d = getDefaultsForSurface(set.surfaceType);
-                        const p = d?.bestProductId ? getProductById(d.bestProductId) : null;
-                        return p ? (
-                          <div style={{ marginTop: 8 }}>
-                            <Divider style={{ margin: '8px 0' }} />
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              Recommended: {p.brandName} — {p.productName} (${p.pricePerGallon}/gal)
-                            </Text>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  </Col>
-                </Row>
-              ) : (
-                <Row gutter={16}>
-                  <Col xs={24} md={16}>
-                    <Select
-                      placeholder="Select Product"
-                      style={{ width: '100%' }}
-                      value={set.products.single}
-                      onChange={(value) => updateProductSet(set.surfaceType, 'single', value)}
-                      loading={loading}
-                      size="large"
-                    >
-                      {availableProducts.map(product => (
-                        <Option key={product.id} value={product.id}>
-                          {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
-                        </Option>
-                      ))}
-                    </Select>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    {set.products.single && (
-                      <Button 
-                        type="primary"
-                        icon={<CopyOutlined />}
-                        onClick={() => quickApplyToAll('single', set.products.single)}
-                      >
-                        Apply to All Surfaces
-                      </Button>
-                    )}
-                  </Col>
-                </Row>
-              )}
-
-              {set.gallons > 0 && (
-                <div style={{ marginTop: 16, padding: 12, background: '#f0f9ff', borderRadius: 4, border: '1px solid #91d5ff' }}>
-                  <Row gutter={16}>
-                    <Col span={8}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>Raw Gallons:</Text>
-                      <div><Text strong>{set.rawGallons || '0.00'}</Text></div>
                     </Col>
-                    <Col span={8}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>+ Waste (10%):</Text>
-                      <div><Text strong>{set.gallons?.toFixed(2)} gal</Text></div>
+                    <Col xs={24} md={8}>
+                      <div style={{ padding: 12, background: '#e6f7ff', borderRadius: 4, height: '100%' }}>
+                        <Tag color="cyan" style={{ marginBottom: 8 }}>BETTER</Tag>
+                        <Select
+                          placeholder="Select Better Option"
+                          style={{ width: '100%' }}
+                          value={set.products.better}
+                          onChange={(value) => updateProductSet(area.id, 'better', value)}
+                          loading={loading}
+                          showSearch
+                          filterOption={(input, option) =>
+                            option.label && typeof option.label === 'string'
+                              ? option.label.toLowerCase().includes(input.toLowerCase())
+                              : true
+                          }
+                        >
+                          {getAvailableProductsForAreaTier(area.id, 'better').map(product => (
+                            <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
+                              {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                            </Option>
+                          ))}
+                        </Select>
+                      </div>
                     </Col>
-                    <Col span={8}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>Material Cost:</Text>
-                      <div><Text strong style={{ fontSize: 16, color: '#1890ff' }}>${set.materialCost || '0.00'}</Text></div>
+                    <Col xs={24} md={8}>
+                      <div style={{ padding: 12, background: '#f6ffed', borderRadius: 4, height: '100%' }}>
+                        <Tag color="green" style={{ marginBottom: 8 }}>BEST</Tag>
+                        <Select
+                          placeholder="Select Best Option"
+                          style={{ width: '100%' }}
+                          value={set.products.best}
+                          onChange={(value) => updateProductSet(area.id, 'best', value)}
+                          loading={loading}
+                          showSearch
+                          filterOption={(input, option) =>
+                            option.label && typeof option.label === 'string'
+                              ? option.label.toLowerCase().includes(input.toLowerCase())
+                              : true
+                          }
+                        >
+                          {getAvailableProductsForAreaTier(area.id, 'best').map(product => (
+                            <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
+                              {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                            </Option>
+                          ))}
+                        </Select>
+                      </div>
                     </Col>
                   </Row>
-                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
-                    Formula: ({set.rawGallons} × {set.wasteFactor}) = {set.gallons?.toFixed(2)} gal × ${getProductById(set.products.good || set.products.better || set.products.best)?.pricePerGallon || 0}/gal
-                  </Text>
-                </div>
-              )}
-            </Card>
-          ))}
+                ) : (
+                  <Row gutter={16} align="middle">
+                    <Col xs={24} md={16}>
+                      <Select
+                        placeholder="Select Product"
+                        style={{ width: '100%' }}
+                        value={set.products.single}
+                        onChange={(value) => updateProductSet(area.id, 'single', value)}
+                        loading={loading}
+                        size="large"
+                        showSearch
+                        filterOption={(input, option) =>
+                          option.label && typeof option.label === 'string'
+                            ? option.label.toLowerCase().includes(input.toLowerCase())
+                            : true
+                        }
+                      >
+                        {availableProducts.map(product => (
+                          <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
+                            {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                          </Option>
+                        ))}
+                      </Select>
+                    </Col>
+                  </Row>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Area-Wise Product Selection with Surfaces (All Non-Turnkey Pricing Models) */}
+      {!isTurnkey && productSets.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <Title level={4}>Select Products by Area</Title>
+          
+          {(() => {
+            const areasWithSurfaces = getAreasWithSurfaces();
+            
+            if (areasWithSurfaces.length === 0) {
+              return (
+                <Alert 
+                  message="No areas with surfaces selected"
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+              );
+            }
+
+            // Build collapse items for each area
+            const collapseItems = areasWithSurfaces.map((area) => {
+              // Get all product sets for this area (by areaId or by surfaceType for backward compat)
+              const areaProductSets = productSets.filter(ps => ps.areaId === area.id);
+              
+              // Check if this area has all surfaces with products selected
+              const allSurfacesHaveProducts = area.surfaces.every(surface => {
+                // Find the specific product set for THIS surface
+                const set = productSets.find(ps => 
+                  ps.areaId === area.id && 
+                  (ps.surfaceType === surface.name || ps.surfaceType === surface.id)
+                );
+                
+                if (!set) return false;
+                if (productStrategy === 'GBB') {
+                  return set.products.good || set.products.better || set.products.best;
+                } else {
+                  return set.products.single;
+                }
+              });
+
+              return {
+                key: area.id,
+                label: (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <span>{area.name}</span>
+                    {allSurfacesHaveProducts && (
+                      <Tag color="green" style={{ marginRight: 8 }}>Complete</Tag>
+                    )}
+                  </div>
+                ),
+                children: (
+                  <div>
+                    {area.surfaces.length === 0 ? (
+                      <Text type="secondary">No surfaces selected for this area</Text>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        {area.surfaces.map((surface, surfaceIdx) => {
+                          // Find the product set for this specific area and surface
+                          let set = productSets.find(ps => 
+                            ps.areaId === area.id && 
+                            (ps.surfaceType === surface.name || ps.surfaceType === surface.id)
+                          );
+                          
+                          // If not found, this is an error - log it
+                          if (!set) {
+                            console.error(`❌ No productSet found for area ${area.id} (${area.name}), surface ${surface.name}`);
+                            console.log('📦 Available productSets:', productSets);
+                            // Create placeholder to prevent crash
+                            set = {
+                              areaId: area.id,
+                              surfaceType: surface.name || surface.id,
+                              products: productStrategy === 'GBB' 
+                                ? { good: null, better: null, best: null } 
+                                : { single: null },
+                              overridden: false
+                            };
+                          }
+
+                          return (
+                            <Card 
+                              key={surface.id || surfaceIdx}
+                              size="small"
+                              title={
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span>{surface.name || surface.id}</span>
+                                  {set.overridden && (
+                                    <Tag color="orange" style={{ marginRight: 8 }}>Overridden</Tag>
+                                  )}
+                                  {surface.quantity && (
+                                    <Tag color="blue">
+                                      {surface.quantity} {surface.unit || surface.sqft ? 'sqft' : ''}
+                                    </Tag>
+                                  )}
+                                </div>
+                              }
+                              style={{ marginBottom: 12 }}
+                            >
+                              {productStrategy === 'GBB' ? (
+                                <Row gutter={[12, 12]}>
+                                  {/* Good Tier */}
+                                  <Col xs={24} md={8}>
+                                    <div style={{ padding: 10, background: '#f0f0f0', borderRadius: 4 }}>
+                                      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Tag color="blue">GOOD</Tag>
+                                        {set.products.good && (
+                                          <Button 
+                                            size="small" 
+                                            type="link" 
+                                            icon={<CopyOutlined />}
+                                            onClick={() => copyProductToAllSurfaces('good', set.products.good, surface.name)}
+                                            style={{ padding: 0, height: 'auto' }}
+                                          >
+                                            Copy to All
+                                          </Button>
+                                        )}
+                                      </div>
+                                      <Select
+                                        placeholder="Select Good"
+                                        style={{ width: '100%' }}
+                                        value={set.products.good}
+                                        onChange={(value) => updateProductSet(area.id, 'good', value, surface.name || surface.id)}
+                                        loading={loading}
+                                        size="small"
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                          option.label && typeof option.label === 'string'
+                                            ? option.label.toLowerCase().includes(input.toLowerCase())
+                                            : true
+                                        }
+                                      >
+                                        {getAvailableProductsForAreaTier(area.id, 'good').map(product => (
+                                          <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName}`}>
+                                            {product.brandName} - {product.productName}
+                                          </Option>
+                                        ))}
+                                      </Select>
+                                      {set.products.good && (
+                                        <div style={{ marginTop: 8, fontSize: 12 }}>
+                                          <Text strong>${getProductById(set.products.good)?.pricePerGallon}/gal</Text>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </Col>
+
+                                  {/* Better Tier */}
+                                  <Col xs={24} md={8}>
+                                    <div style={{ padding: 10, background: '#e6f7ff', borderRadius: 4 }}>
+                                      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Tag color="cyan">BETTER</Tag>
+                                        {set.products.better && (
+                                          <Button 
+                                            size="small" 
+                                            type="link" 
+                                            icon={<CopyOutlined />}
+                                            onClick={() => copyProductToAllSurfaces('better', set.products.better, surface.name)}
+                                            style={{ padding: 0, height: 'auto' }}
+                                          >
+                                            Copy to All
+                                          </Button>
+                                        )}
+                                      </div>
+                                      <Select
+                                        placeholder="Select Better"
+                                        style={{ width: '100%' }}
+                                        value={set.products.better}
+                                        onChange={(value) => updateProductSet(area.id, 'better', value, surface.name || surface.id)}
+                                        loading={loading}
+                                        size="small"
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                          option.label && typeof option.label === 'string'
+                                            ? option.label.toLowerCase().includes(input.toLowerCase())
+                                            : true
+                                        }
+                                      >
+                                        {getAvailableProductsForAreaTier(area.id, 'better').map(product => (
+                                          <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName}`}>
+                                            {product.brandName} - {product.productName}
+                                          </Option>
+                                        ))}
+                                      </Select>
+                                      {set.products.better && (
+                                        <div style={{ marginTop: 8, fontSize: 12 }}>
+                                          <Text strong>${getProductById(set.products.better)?.pricePerGallon}/gal</Text>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </Col>
+
+                                  {/* Best Tier */}
+                                  <Col xs={24} md={8}>
+                                    <div style={{ padding: 10, background: '#f6ffed', borderRadius: 4 }}>
+                                      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Tag color="green">BEST</Tag>
+                                        {set.products.best && (
+                                          <Button 
+                                            size="small" 
+                                            type="link" 
+                                            icon={<CopyOutlined />}
+                                            onClick={() => copyProductToAllSurfaces('best', set.products.best, surface.name)}
+                                            style={{ padding: 0, height: 'auto' }}
+                                          >
+                                            Copy to All
+                                          </Button>
+                                        )}
+                                      </div>
+                                      <Select
+                                        placeholder="Select Best"
+                                        style={{ width: '100%' }}
+                                        value={set.products.best}
+                                        onChange={(value) => updateProductSet(area.id, 'best', value, surface.name || surface.id)}
+                                        loading={loading}
+                                        size="small"
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                          option.label && typeof option.label === 'string'
+                                            ? option.label.toLowerCase().includes(input.toLowerCase())
+                                            : true
+                                        }
+                                      >
+                                        {getAvailableProductsForAreaTier(area.id, 'best').map(product => (
+                                          <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName}`}>
+                                            {product.brandName} - {product.productName}
+                                          </Option>
+                                        ))}
+                                      </Select>
+                                      {set.products.best && (
+                                        <div style={{ marginTop: 8, fontSize: 12 }}>
+                                          <Text strong>${getProductById(set.products.best)?.pricePerGallon}/gal</Text>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </Col>
+                                </Row>
+                              ) : (
+                                <Row gutter={16} align="middle">
+                                  <Col xs={24} md={18}>
+                                    <Select
+                                      placeholder="Select Product"
+                                      style={{ width: '100%' }}
+                                      value={set.products.single}
+                                      onChange={(value) => updateProductSet(area.id, 'single', value, surface.name || surface.id)}
+                                      loading={loading}
+                                      size="small"
+                                      showSearch
+                                      filterOption={(input, option) =>
+                                        option.label && typeof option.label === 'string'
+                                          ? option.label.toLowerCase().includes(input.toLowerCase())
+                                          : true
+                                      }
+                                    >
+                                      {availableProducts.map(product => (
+                                        <Option key={product.id} value={product.id} label={`${product.brandName} - ${product.productName} ($${product.pricePerGallon}/gal)`}>
+                                          {product.brandName} - {product.productName} (${product.pricePerGallon}/gal)
+                                        </Option>
+                                      ))}
+                                    </Select>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    {set.products.single && (
+                                      <Text type="secondary" style={{ fontSize: 12 }}>
+                                        ${getProductById(set.products.single)?.pricePerGallon}/gal
+                                      </Text>
+                                    )}
+                                  </Col>
+                                </Row>
+                              )}
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              };
+            });
+
+            return (
+              <Collapse
+                items={collapseItems}
+                defaultActiveKey={areasWithSurfaces.length === 1 ? [areasWithSurfaces[0].id] : []}
+                style={{ marginBottom: 24 }}
+              />
+            );
+          })()}
         </div>
       )}
 
@@ -1019,6 +1455,7 @@ ProductsStep.propTypes = {
     pricingSchemeId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     areas: PropTypes.array,
     jobType: PropTypes.string,
+    pricingModelType: PropTypes.string,
   }).isRequired,
   onUpdate: PropTypes.func.isRequired,
   onNext: PropTypes.func.isRequired,

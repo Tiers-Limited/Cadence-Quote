@@ -7,7 +7,8 @@ import {
 import { 
   FiCheckCircle, FiSearch, FiPlus, FiLock, FiInfo 
 } from 'react-icons/fi';
-import { apiService } from '../../services/apiService';
+import { magicLinkApiService } from '../../services/magicLinkApiService';
+import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -67,7 +68,7 @@ function ColorSelections() {
       setLoading(true);
       
       // Fetch proposal
-      const proposalResponse = await apiService.get(`/customer/proposals/${proposalId}`);
+      const proposalResponse = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`);
       if (proposalResponse.success) {
         setProposal(proposalResponse.data);
         
@@ -102,11 +103,11 @@ function ColorSelections() {
         : '';
       
       const [brandsRes, productsRes, colorsRes, sheensRes] = await Promise.all([
-        apiService.get('/customer/brands'),
+        magicLinkApiService.get('/api/customer-portal/brands'),
         // Filter products by selected tier (capitalize for enum match)
-        apiService.get(`/customer/products?limit=1000${tierParam}`),
-        apiService.get('/customer/colors?limit=1000'),
-        apiService.get('/customer/sheens')
+        magicLinkApiService.get(`/api/customer-portal/products?limit=1000${tierParam}`),
+        magicLinkApiService.get('/api/customer-portal/colors?limit=1000'),
+        magicLinkApiService.get('/api/customer-portal/sheens')
       ]);
 
       if (brandsRes.success) setBrands(brandsRes.data || []);
@@ -244,8 +245,8 @@ function ColorSelections() {
         return;
       }
 
-      const response = await apiService.post(
-        `/customer/proposals/${proposalId}/submit-selections`,
+      const response = await magicLinkApiService.post(
+        `/api/customer-portal/proposals/${proposalId}/submit-selections`,
         { selections }
       );
 
@@ -280,21 +281,27 @@ function ColorSelections() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-        <Spin size="large" tip="Loading color selection..." />
+      <div>
+        
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+          <Spin size="large" tip="Loading color selection..." />
+        </div>
       </div>
     );
   }
 
   if (!proposal || !proposal.portalOpen) {
     return (
-      <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
-        <Alert
-          message="Portal Closed"
-          description="The customer portal is currently closed. Please contact your contractor."
-          type="warning"
-          showIcon
-        />
+      <div>
+        
+        <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
+          <Alert
+            message="Portal Closed"
+            description="The customer portal is currently closed. Please contact your contractor."
+            type="warning"
+            showIcon
+          />
+        </div>
       </div>
     );
   }
@@ -302,7 +309,8 @@ function ColorSelections() {
   const status = getCompletionStatus();
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
+   
+      <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Header */}
         <Card>

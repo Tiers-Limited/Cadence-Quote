@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { Card, Steps, message, Progress, Button } from 'antd';
 import {
@@ -18,23 +18,30 @@ import ProductsStep from '../components/QuoteBuilder/ProductsStep';
 import SummaryStep from '../components/QuoteBuilder/SummaryStep';
 import { quoteBuilderApi } from '../services/quoteBuilderApi';
 import { apiService } from '../services/apiService';
+import * as pricingUtils from '../utils/pricingUtils';
 
-const steps = [
-  { id: 0, title: 'Customer Info', icon: UserOutlined },
-  { id: 1, title: 'Job Type', icon: HomeOutlined },
-  { id: 2, title: 'Areas', icon: UnorderedListOutlined },
-  { id: 3, title: 'Products', icon: BgColorsOutlined },
-  { id: 4, title: 'Summary', icon: FileTextOutlined }
-];
-
-function QuoteBuilderPage() {
-  const location = useLocation();
-  const [searchParams] = useSearchParams();
-  const quoteIdFromUrl = searchParams.get('id');
-  const editQuote = location.state?.editQuote;
-  const isEditMode = !!editQuote || !!quoteIdFromUrl;
-  const [loadingQuote, setLoadingQuote] = useState(false);
+// Helper function to get dynamic steps based on pricing model
+const getSteps = (isTurnkey) => {
+  if (isTurnkey) {
+    return [
+      { id: 0, title: 'Customer Info', icon: UserOutlined },
+      { id: 1, title: 'Job Type', icon: HomeOutlined },
+      { id: 2, title: 'Home Size', icon: HomeOutlined },
+      { id: 3, title: 'Products', icon: BgColorsOutlined },
+      { id: 4, title: 'Summary', icon: FileTextOutlined }
+    ];
+  } else {
+    return [
+      { id: 0, title: 'Customer Info', icon: UserOutlined },
+      { id: 1, title: 'Job Type', icon: HomeOutlined },
+      { id: 2, title: 'Areas', icon: UnorderedListOutlined },
+      { id: 3, title: 'Products', icon: BgColorsOutlined },
+      { id: 4, title: 'Summary', icon: FileTextOutlined }
+    ];
+  }
+};
   
+function QuoteBuilderPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({
     // Customer Info (Step 1)
@@ -58,13 +65,6 @@ function QuoteBuilderPage() {
     
     // Material calculation controls (global for all models)
     includeMaterials: true,
-    coverage: 350,
-    applicationMethod: 'roll',
-    coats: 2,
-    selectedTier: 'better', // GBB tier selection
-    
-    // Production-Based specific
-    hourlyLaborRate: null,
     crewSize: 2,
     productivityRate: null,
     
@@ -80,7 +80,6 @@ function QuoteBuilderPage() {
     notes: '',
     
     // Pricing defaults from settings
-    defaultMarkup: 30,
     defaultTax: 8.25,
     defaultDeposit: 50,
     
@@ -94,9 +93,91 @@ function QuoteBuilderPage() {
   const [detectedClient, setDetectedClient] = useState(null);
   const [loadingSchemes, setLoadingSchemes] = useState(true);
   const [contractorSettings, setContractorSettings] = useState({});
+  const [steps, setSteps] = useState(getSteps(false)); // Initialize with non-turnkey steps
 
   const autoSaveInterval = useRef(null);
   const lastSaveTime = useRef(Date.now());
+
+  // ============================================================================
+  // SINGLE SOURCE OF TRUTH: Consolidated labor data fetching
+  // This is the ONLY place where labor categories and rates should be fetched
+  // ============================================================================
+  const fetchLaborData = useCallback(async (jobType, schemeType) => {
+    // Safety checks
+    if (!jobType) {
+      console.log('[QuoteBuilder] No job type provided to fetchLaborData, clearing labor data');
+      setContractorSettings(prev => ({
+        ...prev,
+        laborCategories: [],
+        laborRates: {}
+      }));
+      return;
+    }
+
+    // Determine if this scheme type needs labor data
+    const mode = pricingUtils.getPricingMode(schemeType || '');
+    const needsLaborData = ['rate_sqft', 'production', 'flat_rate'].includes(mode);
+
+    console.log(`[QuoteBuilder] fetchLaborData called: jobType=${jobType}, schemeType=${schemeType}, mode=${mode}, needsLaborData=${needsLaborData}`);
+
+    if (!needsLaborData) {
+      console.log('[QuoteBuilder] Scheme does not need labor data, clearing it');
+      setContractorSettings(prev => ({
+        ...prev,
+        laborCategories: [],
+        laborRates: {}
+      }));
+      return;
+    }
+
+    try {
+      console.log(`[QuoteBuilder] Fetching labor data for jobType=${jobType}...`);
+      const [laborCategoriesRes, laborRatesRes] = await Promise.all([
+        apiService.get(`/labor-categories?jobType=${jobType}`),
+        apiService.get(`/labor-categories/rates?jobType=${jobType}`) // Add jobType filter
+      ]);
+
+      const laborRatesMap = {};
+      if (laborRatesRes.success && Array.isArray(laborRatesRes.data)) {
+        laborRatesRes.data.forEach((rateRecord) => {
+          laborRatesMap[rateRecord.laborCategoryId] = Number.parseFloat(rateRecord.rate) || 0;
+        });
+      }
+
+      const categories = laborCategoriesRes.success ? laborCategoriesRes.data : [];
+      console.log(`[QuoteBuilder] Labor data loaded: ${categories.length} categories, ${Object.keys(laborRatesMap).length} rates`);
+
+      // Update contractor settings (this is the canonical source)
+      setContractorSettings(prev => ({
+        ...prev,
+        laborCategories: categories,
+        laborRates: laborRatesMap
+      }));
+
+      // Mirror in formData for child components that need it
+      setFormData(prev => ({
+        ...prev,
+        contractorSettings: {
+          ...prev.contractorSettings,
+          laborCategories: categories,
+          laborRates: laborRatesMap
+        },
+        // Add timestamp to force component re-renders
+        _laborDataUpdated: Date.now()
+      }));
+    } catch (error) {
+      console.error('[QuoteBuilder] Failed to fetch labor data:', error);
+      message.error('Failed to load labor categories and rates');
+    }
+  }, []);
+  // ============================================================================
+
+  // Routing/context: detect edit mode via URL or navigation state
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const quoteIdFromUrl = searchParams.get('quoteId');
+  const editQuote = location?.state?.quote || location?.state?.editQuote || null;
+  const isEditMode = Boolean(quoteIdFromUrl || editQuote || formData.quoteId);
 
   // Auto-save every 30 seconds
   // useEffect(() => {
@@ -142,6 +223,8 @@ function QuoteBuilderPage() {
     const hasAreas = formData.areas && formData.areas.length > 0;
     const hasHomeSqft = formData.homeSqft && formData.homeSqft > 0;
     
+    console.log(`[QuoteBuilder] Pricing scheme change detected: isTurnkey=${isTurnkey}, hasAreas=${hasAreas}, hasHomeSqft=${hasHomeSqft}`);
+    
     // If switching from non-turnkey to turnkey and has areas data
     if (isTurnkey && hasAreas && !hasHomeSqft) {
       message.warning({
@@ -157,12 +240,12 @@ function QuoteBuilderPage() {
         homeSqft: prev.homeSqft || null,
         jobScope: prev.jobScope || 'both',
         numberOfStories: prev.numberOfStories || 1,
-        conditionModifier: prev.conditionModifier || 'average'
+        conditionModifier: prev.conditionModifier || 'average',
+        _lastPricingSchemeId: formData.pricingSchemeId
       }));
     }
-    
     // If switching from turnkey to non-turnkey and has home sqft
-    if (!isTurnkey && hasHomeSqft && !hasAreas) {
+    else if (!isTurnkey && hasHomeSqft && !hasAreas) {
       message.warning({
         content: 'Switched from Turnkey pricing. You will need to add room measurements.',
         duration: 5
@@ -175,76 +258,102 @@ function QuoteBuilderPage() {
         jobScope: 'both',
         numberOfStories: 1,
         conditionModifier: 'average',
-        productSets: [] // Force rebuild based on new areas
+        productSets: [], // Force rebuild based on new areas
+        _lastPricingSchemeId: formData.pricingSchemeId
       }));
+      
+      // Note: Labor data will be fetched when user navigates to Areas step
     }
-    
-    // If switching between non-turnkey types, clear productSets to force sync
-    // This handles switching from flat rate to sqft-based, etc.
-    if (!isTurnkey && hasAreas && formData.productSets && formData.productSets.length > 0) {
-      // Check if we need to rebuild productSets based on scheme type change
+    // If switching between non-turnkey types, clear productSets and areas to force sync
+    else if (!isTurnkey && hasAreas) {
       const prevSchemeId = formData._lastPricingSchemeId;
       if (prevSchemeId && prevSchemeId !== formData.pricingSchemeId) {
-        message.info({
-          content: 'Pricing scheme changed. Product selections will be updated.',
-          duration: 3
-        });
+        // message.info({
+        //   content: 'Pricing scheme changed. Areas cleared. Labor rates will load when you return to Areas step.',
+        //   duration: 4
+        // });
         
         setFormData(prev => ({
           ...prev,
-          productSets: [], // Force rebuild
-          _lastPricingSchemeId: formData.pricingSchemeId
+          areas: [], // Clear to force rebuild with correct categories
+          productSets: [], // Clear to force rebuild
+          _lastPricingSchemeId: formData.pricingSchemeId,
+          contractorSettings: {
+            ...prev.contractorSettings,
+            laborCategories: [],
+            laborRates: {}
+          }
         }));
       }
     }
-  }, [formData.pricingSchemeId, pricingSchemes]);
+    // Store the last pricing scheme ID for change detection
+    else if (!isTurnkey && !hasAreas) {
+      setFormData(prev => ({
+        ...prev,
+        _lastPricingSchemeId: formData.pricingSchemeId
+      }));
+    }
+  }, [formData.pricingSchemeId, pricingSchemes, fetchLaborData]);
 
   // Watch for job type changes and clear areas to prevent showing wrong surface types
   useEffect(() => {
-    // Skip on initial mount and when loading draft/edit
-    if (!formData.jobType) return;
+    // Skip on initial mount
+    if (!formData.jobType || !formData.pricingSchemeId) return;
     
-    // Only clear if we have areas from a different job type
-    const hasAreas = formData.areas && formData.areas.length > 0;
-    if (hasAreas) {
-      // Check if areas match current job type by looking at surface categories
-      const firstArea = formData.areas[0];
-      const firstItem = firstArea?.items?.[0] || firstArea?.laborItems?.[0];
-      const categoryName = firstItem?.categoryName?.toLowerCase() || '';
-      
-      // Interior categories: walls, ceilings, trim, doors, cabinets
-      // Exterior categories: siding, fascia, soffit, gutters, deck
-      const isInteriorCategory = categoryName.includes('wall') || 
-                                 categoryName.includes('ceiling') || 
-                                 categoryName.includes('trim') || 
-                                 categoryName.includes('door') || 
-                                 categoryName.includes('cabinet');
-      
-      const isExteriorCategory = categoryName.includes('siding') || 
-                                 categoryName.includes('fascia') || 
-                                 categoryName.includes('soffit') || 
-                                 categoryName.includes('gutter') || 
-                                 categoryName.includes('deck');
-      
-      // If job type doesn't match area categories, clear them
-      const shouldClearAreas = 
-        (formData.jobType === 'interior' && isExteriorCategory) ||
-        (formData.jobType === 'exterior' && isInteriorCategory);
-      
-      if (shouldClearAreas) {
-        message.info({
-          content: `Job type changed to ${formData.jobType}. Previous areas have been cleared.`,
-          duration: 4
-        });
-        
-        setFormData(prev => ({
-          ...prev,
-          areas: [],
-          productSets: []
-        }));
-      }
+    // Skip if this is the initial job type setting (no previous job type stored)
+    const prevJobType = formData._lastJobType;
+    if (!prevJobType) {
+      // Store the initial job type
+      setFormData(prev => ({
+        ...prev,
+        _lastJobType: formData.jobType
+      }));
+      return;
     }
-  }, [formData.jobType]);
+    
+    // Only proceed if job type actually changed
+    if (prevJobType === formData.jobType) return;
+    
+    // message.info({
+    //   content: `Job type changed to ${formData.jobType}. Areas cleared. Labor rates will load when you go to Areas step.`,
+    //   duration: 4
+    // });
+    
+    // Clear areas, products, and labor data when job type changes
+    setFormData(prev => ({
+      ...prev,
+      areas: [],
+      productSets: [],
+      _lastJobType: formData.jobType,
+      contractorSettings: {
+        ...prev.contractorSettings,
+        laborCategories: [],
+        laborRates: {}
+      }
+    }));
+  }, [formData.jobType, formData.pricingSchemeId, pricingSchemes, fetchLaborData]);
+
+  // Update steps based on pricing scheme (don't fetch labor data automatically)
+  useEffect(() => {
+    if (formData.pricingSchemeId && pricingSchemes.length > 0) {
+      const selectedScheme = pricingSchemes.find(s => s.id === formData.pricingSchemeId);
+      if (!selectedScheme) return;
+
+      // Update steps based on pricing model
+      const isTurnkey = selectedScheme.type === 'turnkey' || selectedScheme.type === 'sqft_turnkey';
+      const newSteps = getSteps(isTurnkey);
+      
+      // Force steps update
+      setSteps([...newSteps]);
+      
+      // Reset current step to 0 if we're beyond the new number of steps
+      if (currentStep >= newSteps.length) {
+        setCurrentStep(0);
+      }
+
+      // Note: Labor data will be fetched when transitioning to Areas step
+    }
+  }, [formData.pricingSchemeId, pricingSchemes, currentStep]);
 
   const fetchPricingSchemes = async () => {
     try {
@@ -291,18 +400,30 @@ function QuoteBuilderPage() {
         const needsLaborData = schemeType && 
           (schemeType === 'rate_based_sqft' || 
            schemeType === 'sqft_labor_paint' ||
-           schemeType === 'production_based' || 
+           schemeType === 'production_based' ||
+           schemeType === 'flat_rate_unit' ||
            schemeType === 'hourly_time_materials');
         
-        // Conditionally fetch labor categories and rates only when needed
+        // NOTE: Don't fetch labor categories/rates here without jobType
+        // They will be fetched by the fetchLaborData callback when jobType is set
         let laborCategoriesRes = { success: true, data: [] };
         let laborRatesRes = { success: true, data: [] };
         
-        if (needsLaborData) {
+        // Only fetch if we're in edit mode and have a jobType already
+        if (needsLaborData && formData.jobType) {
+          console.log(`[QuoteBuilder] Initial load: Fetching labor data for jobType=${formData.jobType}`);
           [laborCategoriesRes, laborRatesRes] = await Promise.all([
-            apiService.get('/labor-categories'),
+            apiService.get(`/labor-categories?jobType=${formData.jobType}`),
             apiService.get('/labor-categories/rates')
           ]);
+        }
+        
+        // Transform labor rates array into a map for easier lookup
+        const laborRatesMap = {};
+        if (laborRatesRes.success && Array.isArray(laborRatesRes.data)) {
+          laborRatesRes.data.forEach((rateRecord) => {
+            laborRatesMap[rateRecord.laborCategoryId] = parseFloat(rateRecord.rate) || 0;
+          });
         }
         
         // Build contractor settings object for child components
@@ -328,7 +449,7 @@ function QuoteBuilderPage() {
             cabinets: defaults.productionCabinets || 1.5
           },
           laborCategories: laborCategoriesRes.success ? laborCategoriesRes.data : [],
-          laborRates: laborRatesRes.success ? laborRatesRes.data : [],
+          laborRates: laborRatesMap,
           flatRateUnitPrices: defaults.flatRateUnitPrices || {},
           other: {
             taxRate: settings.taxRatePercentage || 8.25,
@@ -349,7 +470,6 @@ function QuoteBuilderPage() {
         setFormData(prev => ({
           ...prev,
           // Pricing settings
-          defaultMarkup: prev.defaultMarkup ?? settings.defaultMarkupPercentage ?? 30,
           defaultTax: prev.defaultTax ?? settings.taxRatePercentage ?? 8.25,
           defaultDeposit: prev.defaultDeposit ?? settings.depositPercentage ?? 50,
           
@@ -471,7 +591,9 @@ function QuoteBuilderPage() {
         // Show modal asking if user wants to continue the draft
         const latestDraft = drafts[0];
         message.info({
-          content: `Found draft quote from ${new Date(latestDraft.updatedAt).toLocaleDateString()}. Loading...`,
+          content: `Found draft quote from ${new Date(latestDraft.updatedAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}. Loading...`,
           duration: 3
         });
         
@@ -492,8 +614,7 @@ function QuoteBuilderPage() {
       const draftScheme = pricingSchemes.find(s => s.id === draft.pricingSchemeId);
       const isTurnkeyDraft = draftScheme && (draftScheme.type === 'turnkey' || draftScheme.type === 'sqft_turnkey');
       
-      // If it's a turnkey draft, don't load areas/productSets
-      // If it's a non-turnkey draft, don't load turnkey-specific fields
+      // Prepare base draft data
       const draftData = {
         ...formData,
         ...draft,
@@ -507,15 +628,33 @@ function QuoteBuilderPage() {
         // Preserve production settings
         hourlyLaborRate: draft.hourlyLaborRate || formData.hourlyLaborRate,
         crewSize: draft.crewSize || formData.crewSize,
-        productivityRate: draft.productivityRate || formData.productivityRate
+        productivityRate: draft.productivityRate || formData.productivityRate,
+        // Store tracking fields
+        _lastPricingSchemeId: draft.pricingSchemeId,
+        _lastJobType: draft.jobType
       };
       
-      if (isTurnkeyDraft) {
-        // Clear areas and productSets for turnkey
+      // If current pricing scheme differs from draft, clear incompatible data
+      if (formData.pricingSchemeId && formData.pricingSchemeId !== draft.pricingSchemeId) {
+        message.warning({
+          content: 'Draft uses different pricing scheme. Areas and products have been cleared. Please rebuild your quote.',
+          duration: 5
+        });
+        
+        // Clear areas and products since pricing scheme changed
+        draftData.areas = [];
+        draftData.productSets = [];
+        draftData.homeSqft = null;
+        
+        // Update to use current scheme selection instead of draft's scheme
+        draftData.pricingSchemeId = formData.pricingSchemeId;
+        draftData._lastPricingSchemeId = formData.pricingSchemeId;
+      } else if (isTurnkeyDraft) {
+        // Pricing scheme matches and it's turnkey - load turnkey data, clear non-turnkey fields
         draftData.areas = [];
         draftData.productSets = [];
       } else {
-        // Clear turnkey-specific fields for non-turnkey
+        // Pricing scheme matches and it's non-turnkey - load non-turnkey data, clear turnkey fields
         draftData.homeSqft = null;
         draftData.jobScope = 'both';
         draftData.numberOfStories = 1;
@@ -619,6 +758,33 @@ function QuoteBuilderPage() {
       }
     }
 
+    // Fetch labor data when transitioning FROM Job Type TO Areas step
+    if (currentStep === 1 && !isTurnkeyPricing()) {
+      const selectedScheme = pricingSchemes.find(s => s.id === formData.pricingSchemeId);
+      if (selectedScheme && formData.jobType) {
+        // Check if labor data is already loaded for this job type
+        const hasLaborData = contractorSettings.laborCategories?.length > 0;
+        const laborDataMatchesJobType = contractorSettings.laborCategories?.some(
+          cat => cat.categoryType === formData.jobType
+        );
+        
+        if (!hasLaborData || !laborDataMatchesJobType) {
+          console.log(`[QuoteBuilder] Transitioning to Areas step: Fetching labor data for jobType=${formData.jobType}`);
+          message.loading({ content: 'Loading labor categories...', key: 'laborData' });
+          
+          fetchLaborData(formData.jobType, selectedScheme.type).then(() => {
+            message.success({ content: 'Labor rates loaded', key: 'laborData', duration: 2 });
+            // Move to next step after data is loaded
+            setCurrentStep(currentStep + 1);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }).catch(() => {
+            message.error({ content: 'Failed to load labor rates', key: 'laborData' });
+          });
+          return; // Don't proceed until data is loaded
+        }
+      }
+    }
+
     // Large project alert
     if (currentStep === 2 && !isTurnkeyPricing()) {
       const totalSqft = (formData.areas || []).reduce((sum, area) => {
@@ -687,11 +853,23 @@ function QuoteBuilderPage() {
     setDetectedClient(null);
   };
 
-  // Determine pricing model type with normalization
+  // Determine pricing model type with normalization + robust logging
   const getPricingModelType = () => {
-    if (!formData.pricingSchemeId || !pricingSchemes.length) return null;
+    if (!formData.pricingSchemeId) {
+      console.debug('[QuoteBuilder] getPricingModelType: No scheme selected');
+      return null;
+    }
+
+    if (!pricingSchemes.length) {
+      console.debug('[QuoteBuilder] getPricingModelType: Pricing schemes not loaded yet');
+      return null;
+    }
+
     const scheme = pricingSchemes.find(s => s.id === formData.pricingSchemeId);
-    if (!scheme) return null;
+    if (!scheme) {
+      console.warn(`[QuoteBuilder] getPricingModelType: Scheme not found for id ${formData.pricingSchemeId}`);
+      return 'rate_based_sqft'; // Safe fallback
+    }
     
     // Normalize legacy types to new types
     const typeMap = {
@@ -706,7 +884,11 @@ function QuoteBuilderPage() {
       'room_flat_rate': 'flat_rate_unit',
     };
     
-    return typeMap[scheme.type] || 'rate_based_sqft'; // Default to rate-based
+    const normalized = scheme.type?.toLowerCase() || '';
+    const modelType = typeMap[normalized] || 'rate_based_sqft';
+    
+    console.debug(`[QuoteBuilder] getPricingModelType: scheme.type="${scheme.type}" → "${modelType}"`);
+    return modelType;
   };
 
   // Get friendly pricing model name for display
@@ -876,20 +1058,17 @@ function QuoteBuilderPage() {
 
   // Determine if current pricing scheme is turnkey
   const isTurnkeyPricing = () => {
-    return getPricingModelType() === 'turnkey';
+    const isT = getPricingModelType() === 'turnkey';
+    console.debug(`[QuoteBuilder] isTurnkeyPricing: ${isT}`);
+    return isT;
   };
 
-  // Dynamic steps based on pricing model
-  const dynamicSteps = isTurnkeyPricing() ? [
-    { id: 0, title: 'Customer Info', icon: UserOutlined },
-    { id: 1, title: 'Home Size & Scope', icon: HomeOutlined },
-    { id: 2, title: 'Products', icon: BgColorsOutlined },
-    { id: 3, title: 'Summary', icon: FileTextOutlined }
-  ] : steps;
 
-  const progress = ((currentStep + 1) / dynamicSteps.length) * 100;
+
+  const progress = ((currentStep + 1) / steps.length) * 100;
 
   const renderStepContent = () => {
+    console.log(`[QuoteBuilder] Rendering step ${currentStep}: ${steps[currentStep]?.title}`);
     switch (currentStep) {
       case 0:
         return (
@@ -905,41 +1084,25 @@ function QuoteBuilderPage() {
         );
       
       case 1:
-        // For turnkey: show Home Size & Scope, for others: show Job Type
+        // Job Type step is shown for ALL pricing models (Interior/Exterior selection)
+        return (
+          <JobTypeStep
+            formData={formData}
+            onUpdate={handleStepDataUpdate}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+            pricingSchemes={pricingSchemes}
+          />
+        );
+      
+      case 2:
+        // For turnkey: Home Size (step 2), for others: Areas (step 2)
         if (isTurnkeyPricing()) {
           return (
             <HomeSizeStep
+              key={`homesize-${formData.pricingSchemeId}`}
               formData={formData}
               setFormData={setFormData}
-              onNext={handleNext}
-              onPrevious={handlePrevious}
-              pricingSchemes={pricingSchemes}
-            />
-          );
-        } else {
-          return (
-            <JobTypeStep
-              formData={formData}
-              onUpdate={handleStepDataUpdate}
-              onNext={handleNext}
-              onPrevious={handlePrevious}
-              pricingSchemes={pricingSchemes}
-            />
-          );
-        }
-      
-      case 2:
-        // For turnkey: Products, for others: Areas
-        if (isTurnkeyPricing()) {
-          return (
-            <ProductsStep
-              formData={{
-                ...formData,
-                pricingModelType: getPricingModelType(),
-                pricingModelFriendlyName: getPricingModelFriendlyName(),
-                pricingModelDescription: getPricingModelDescription()
-              }}
-              onUpdate={handleStepDataUpdate}
               onNext={handleNext}
               onPrevious={handlePrevious}
               pricingSchemes={pricingSchemes}
@@ -951,11 +1114,13 @@ function QuoteBuilderPage() {
             ...formData,
             pricingModelType: getPricingModelType(),
             pricingModelFriendlyName: getPricingModelFriendlyName(),
-            pricingModelDescription: getPricingModelDescription()
+            pricingModelDescription: getPricingModelDescription(),
+            contractorSettings: contractorSettings // Ensure contractor settings are passed
           };
           
           return formData.jobType === 'exterior' ? (
             <ExteriorAreasStep
+              key={`exterior-${formData.pricingSchemeId}-${formData.jobType}-${formData._laborDataUpdated || 0}`}
               formData={enhancedFormData}
               onUpdate={handleStepDataUpdate}
               onNext={handleNext}
@@ -963,6 +1128,7 @@ function QuoteBuilderPage() {
             />
           ) : (
             <AreasStepEnhanced
+              key={`areas-${formData.pricingSchemeId}-${formData.jobType}-${formData._laborDataUpdated || 0}`}
               formData={enhancedFormData}
               onUpdate={handleStepDataUpdate}
               onNext={handleNext}
@@ -972,33 +1138,28 @@ function QuoteBuilderPage() {
         }
       
       case 3:
-        // For turnkey: Summary, for others: Products
-        if (isTurnkeyPricing()) {
-          return (
-            <SummaryStep
-              formData={formData}
-              onUpdate={handleStepDataUpdate}
-              onPrevious={handlePrevious}
-              onEdit={handleEdit}
-              pricingSchemes={pricingSchemes}
-            />
-          );
-        } else {
-          return (
-            <ProductsStep
-              formData={formData}
-              onUpdate={handleStepDataUpdate}
-              onNext={handleNext}
-              onPrevious={handlePrevious}
-              pricingSchemes={pricingSchemes}
-            />
-          );
-        }
+        // Products (step 3) - shown for all pricing models
+        return (
+          <ProductsStep
+            key={`products-${formData.pricingSchemeId}`}
+            formData={{
+              ...formData,
+              pricingModelType: getPricingModelType(),
+              pricingModelFriendlyName: getPricingModelFriendlyName(),
+              pricingModelDescription: getPricingModelDescription()
+            }}
+            onUpdate={handleStepDataUpdate}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+            pricingSchemes={pricingSchemes}
+          />
+        );
       
       case 4:
-        // Only for non-turnkey: Summary
+        // Summary (step 4) - shown for all pricing models
         return (
           <SummaryStep
+            key={`summary-${formData.pricingSchemeId}`}
             formData={formData}
             onUpdate={handleStepDataUpdate}
             onPrevious={handlePrevious}
@@ -1033,7 +1194,7 @@ function QuoteBuilderPage() {
                 Refresh Settings
               </Button>
               <span className="text-sm text-gray-500">
-                Step {currentStep + 1} of {dynamicSteps.length}
+                Step {currentStep + 1} of {steps.length}
               </span>
             </div>
           </div>
@@ -1042,7 +1203,7 @@ function QuoteBuilderPage() {
           
           {/* Step Indicators */}
           <Steps current={currentStep} className="hidden md:flex">
-            {dynamicSteps.map((step) => (
+            {steps.map((step) => (
               <Steps.Step
                 key={step.id}
                 title={step.title}
@@ -1057,10 +1218,10 @@ function QuoteBuilderPage() {
           <div className="mb-6">
             <h3 className="text-xl font-semibold flex items-center gap-2">
               {(() => {
-                const StepIcon = dynamicSteps[currentStep].icon;
+                const StepIcon = steps[currentStep].icon;
                 return <StepIcon className="text-blue-500" />;
               })()}
-              {dynamicSteps[currentStep].title}
+              {steps[currentStep].title}
             </h3>
           </div>
 

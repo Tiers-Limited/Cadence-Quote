@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Typography, Space, message, Spin, Alert, Divider } from 'antd';
 import { FiCreditCard, FiLock, FiCheckCircle } from 'react-icons/fi';
 import { apiService } from '../../services/apiService';
+import { magicLinkApiService } from '../../services/magicLinkApiService';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
@@ -194,6 +195,7 @@ function DepositPayment() {
     // Check if returning from Stripe
     const success = searchParams.get('success');
     const paymentIntentId = searchParams.get('payment_intent');
+    const [headerVisible, setHeaderVisible] = useState(true);
     
     if (success === 'true' && paymentIntentId) {
       handlePaymentSuccess(paymentIntentId);
@@ -203,7 +205,7 @@ function DepositPayment() {
   const fetchProposal = async () => {
     try {
       setLoading(true);
-      const response = await apiService.get(`/customer/proposals/${proposalId}`);
+      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`);
       if (response.success) {
         setProposal(response.data);
         
@@ -223,7 +225,7 @@ function DepositPayment() {
     try {
       setLoading(true);
       
-      const response = await apiService.post(`/customer/proposals/${proposalId}/create-payment-intent`, {
+      const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/create-payment-intent`, {
         tier: proposal.selectedTier
       });
 
@@ -253,7 +255,7 @@ function DepositPayment() {
     try {
       setLoading(true);
       
-      const response = await apiService.post(`/customer/proposals/${proposalId}/verify-deposit`, {
+      const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/verify-deposit`, {
         paymentIntentId
       });
 
@@ -262,9 +264,9 @@ function DepositPayment() {
         
         // Handle already processed case (idempotency)
         if (response.data?.alreadyProcessed) {
-          message.info('Payment already verified. Redirecting to portal...');
+          message.info('Deposit already verified. Your portal is unlocked – redirecting...');
         } else {
-          message.success(response.message || 'Payment successful! Portal is now open.');
+          message.success(response.message || 'Deposit received! Your Job is confirmed and portal is now unlocked.');
         }
         
         // Redirect after 2 seconds
@@ -327,6 +329,7 @@ function DepositPayment() {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <Alert message="Proposal not found" type="error" />
+          
       </div>
     );
   }
@@ -340,42 +343,82 @@ function DepositPayment() {
               <FiCheckCircle />
             </div>
             
-            <Title level={2} className="text-green-600">Payment Successful!</Title>
+            <Title level={2} className="text-green-600">Deposit Received – Thank You!</Title>
             
             <Alert
-              message="Your Customer Portal is Now Open"
-              description="You now have access to select your paint products, colors, and sheens for your project."
+              message="Your deposit has been successfully processed"
+              description="Your project is confirmed. Your contractor will review your deposit and unlock the portal for product selections."
               type="success"
               showIcon
             />
 
             <Paragraph>
-              <Text strong>Deposit Amount:</Text> ${parseFloat(proposal.depositAmount).toFixed(2)}
+              <Text strong>Deposit Paid:</Text> ${parseFloat(proposal.depositAmount).toFixed(2)}
             </Paragraph>
 
             <Paragraph>
-              <Text strong>Portal Valid Until:</Text>{' '}
-              {proposal.portalClosedAt 
-                ? new Date(proposal.portalClosedAt).toLocaleDateString()
-                : 'See contractor for details'}
+              <Text strong>Project Total:</Text> ${parseFloat(proposal.total).toFixed(2)}
             </Paragraph>
 
             <Divider />
 
-            <Title level={4}>Next Steps:</Title>
-            <ol className="text-left max-w-md mx-auto">
-              <li className="mb-2">Acknowledge the finish standards</li>
-              <li className="mb-2">Select products for each area</li>
-              <li className="mb-2">Choose colors and sheens</li>
-              <li className="mb-2">Submit your selections</li>
-            </ol>
+            <Title level={4}>What Happens Next?</Title>
+            <div className="text-left max-w-md mx-auto space-y-4">
+              <div className="flex items-start gap-3">
+                <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0 text-xl" />
+                <div>
+                  <Text strong>Deposit Verified</Text>
+                  <Paragraph type="secondary" className="mb-0">
+                    Your contractor will verify your deposit payment (usually within 24 hours)
+                  </Paragraph>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0 text-xl" />
+                <div>
+                  <Text strong>Portal Access</Text>
+                  <Paragraph type="secondary" className="mb-0">
+                    Once verified, you'll receive an email notification to access the portal for product selections
+                  </Paragraph>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0 text-xl" />
+                <div>
+                  <Text strong>Make Selections</Text>
+                  <Paragraph type="secondary" className="mb-0">
+                    Choose products, colors, and sheens for each area of your project
+                  </Paragraph>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0 text-xl" />
+                <div>
+                  <Text strong>Project Scheduled</Text>
+                  <Paragraph type="secondary" className="mb-0">
+                    After you submit selections, your contractor will schedule your project start date
+                  </Paragraph>
+                </div>
+              </div>
+            </div>
+
+            <Alert
+              message="Email Confirmation Sent"
+              description="A payment receipt has been sent to your email. You'll receive another email when the portal is ready for selections."
+              type="info"
+              showIcon
+              className="mt-4"
+            />
 
             <Button 
-              type="primary" 
+              type="default" 
               size="large"
-              onClick={() => navigate(`/portal/finish-standards/${proposalId}`)}
+              onClick={() => navigate('/portal/dashboard')}
             >
-              Continue to Finish Standards
+              Return to Dashboard
             </Button>
           </Space>
         </Card>
@@ -416,10 +459,17 @@ function DepositPayment() {
 
             <Alert
               message="Secure Payment"
-              description="Your payment is processed securely through Stripe. Your portal will open immediately after payment confirmation."
+              description="Your payment is processed securely through Stripe. Upon confirmation, your Job will be created and the full interactive portal will unlock immediately."
               type="info"
               showIcon
               icon={<FiLock />}
+            />
+
+            <Alert
+              message="Important: Deposit Gates Portal Access"
+              description="The full interactive portal (product, color, and sheen selection) only becomes available after deposit payment. This confirms your project and starts your selection period."
+              type="warning"
+              showIcon
             />
           </Space>
         </Card>
@@ -432,9 +482,9 @@ function DepositPayment() {
               <div className="flex items-start gap-3">
                 <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0" />
                 <div>
-                  <Text strong>Instant Portal Access</Text>
+                  <Text strong>Portal Unlocks Immediately</Text>
                   <Paragraph type="secondary" className="mb-0">
-                    Your customer portal opens immediately
+                    Full interactive access to finalize your project details
                   </Paragraph>
                 </div>
               </div>
@@ -442,9 +492,9 @@ function DepositPayment() {
               <div className="flex items-start gap-3">
                 <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0" />
                 <div>
-                  <Text strong>Email Confirmation</Text>
+                  <Text strong>Timed Access Period Starts</Text>
                   <Paragraph type="secondary" className="mb-0">
-                    Receipt and portal access link sent to your email
+                    You'll have a set number of days to complete your selections (typically 7 days)
                   </Paragraph>
                 </div>
               </div>
@@ -452,9 +502,19 @@ function DepositPayment() {
               <div className="flex items-start gap-3">
                 <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0" />
                 <div>
-                  <Text strong>Make Your Selections</Text>
+                  <Text strong>Email Confirmation Sent</Text>
                   <Paragraph type="secondary" className="mb-0">
-                    Choose products, colors, and sheens for your project
+                    Receipt, portal link, and expiration date sent to your email
+                  </Paragraph>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <FiCheckCircle className="text-green-500 mt-1 flex-shrink-0" />
+                <div>
+                  <Text strong>Finalize Your Selections</Text>
+                  <Paragraph type="secondary" className="mb-0">
+                    Choose products, colors, and sheens – then submit to generate your Material List & Work Order
                   </Paragraph>
                 </div>
               </div>

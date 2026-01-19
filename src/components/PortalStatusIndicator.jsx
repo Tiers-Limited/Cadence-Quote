@@ -78,7 +78,9 @@ function PortalStatusIndicator({ proposal, compact = false }) {
           type: 'info',
           icon: <ClockCircleOutlined />,
           title: 'Portal Open',
-          message: `You have ${daysRemaining} days to complete your product selections. Expires ${new Date(proposal.portalClosedAt).toLocaleDateString()}.`,
+          message: `You have ${daysRemaining} days to complete your product selections. Expires ${new Date(proposal.portalClosedAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}.`,
           color: 'processing'
         };
       }

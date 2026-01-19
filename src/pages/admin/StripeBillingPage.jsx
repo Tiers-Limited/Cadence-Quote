@@ -214,8 +214,12 @@ const StripeBillingPage = () => {
         const end = new Date(record.currentPeriodEnd);
         return (
           <div className="text-xs">
-            <div>{start.toLocaleDateString()}</div>
-            <div className="text-gray-500">to {end.toLocaleDateString()}</div>
+            <div>{start.toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}</div>
+            <div className="text-gray-500">to {end.toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}</div>
           </div>
         );
       }

@@ -1,6 +1,26 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { FiLogOut, FiHome, FiSettings, FiUsers, FiPackage, FiSidebar, FiMenu, FiX, FiDroplet, FiDollarSign, FiFileText, FiToggleLeft, FiCreditCard, FiClipboard, FiTrendingUp } from 'react-icons/fi'
-import { message, Layout, Menu, Button, theme, Drawer, Badge } from 'antd'
+import {
+  FiLogOut,
+  FiHome,
+  FiSettings,
+  FiUsers,
+  FiPackage,
+  FiSidebar,
+  FiMenu,
+  FiX,
+  FiDroplet,
+  FiDollarSign,
+  FiFileText,
+  FiToggleLeft,
+  FiCreditCard,
+  FiClipboard,
+  FiTrendingUp,
+  FiCalendar,
+  FiTool,
+  FiLink ,
+  FiUser
+} from 'react-icons/fi'
+import { message, Layout, Menu, Button, theme, Drawer, Badge, Dropdown, Avatar } from 'antd'
 import { useAuth } from '../hooks/useAuth'
 import { useState, useEffect } from 'react'
 import { apiService } from '../services/apiService'
@@ -10,7 +30,7 @@ import LogoIcon from './LogoIcon'
 
 const { SubMenu } = Menu
 
-function MainLayout({ children }) {
+function MainLayout ({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { logout, user } = useAuth()
@@ -20,7 +40,7 @@ function MainLayout({ children }) {
   const [activeProposalId, setActiveProposalId] = useState(null)
   const [openKeys, setOpenKeys] = useState([])
   const {
-    token: { colorBgContainer, borderRadiusLG },
+    token: { colorBgContainer, borderRadiusLG }
   } = theme.useToken()
 
   // Detect mobile screen
@@ -31,7 +51,7 @@ function MainLayout({ children }) {
         setMobileOpen(false)
       }
     }
-    
+
     checkMobile()
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
@@ -63,7 +83,7 @@ function MainLayout({ children }) {
     navigate('/login')
   }
 
-  const handleMenuClick = (path) => {
+  const handleMenuClick = path => {
     navigate(path)
     if (isMobile) {
       setMobileOpen(false)
@@ -133,7 +153,7 @@ function MainLayout({ children }) {
       icon: <FiSettings size={20} />,
       label: 'Settings',
       onClick: () => handleMenuClick('/admin/settings')
-    },
+    }
   ]
 
   const normalMenuItems = [
@@ -146,40 +166,49 @@ function MainLayout({ children }) {
       onClick: () => handleMenuClick('/dashboard')
     },
     {
-      key: 'pricing-engine-submenu',
+      key: 'pricing-engine',
+      path: '/pricing-engine',
       icon: <FiDollarSign size={20} />,
       label: 'Pricing Engine',
-      children: [
-        {
-          key: 'pricing-engine',
-          path: '/pricing-engine',
-          icon: <FiDollarSign size={18} />,
-          label: 'Labor & Pricing',
-          onClick: () => handleMenuClick('/pricing-engine')
-        },
-        {
-          key: 'product-tiers',
-          path: '/products/tiers',
-          icon: <FiPackage size={18} />,
-          label: 'Product Tiers',
-          onClick: () => handleMenuClick('/products/tiers')
-        },
-      ]
+      onClick: () => handleMenuClick('/pricing-engine')
+      // children: [
+      //   {
+      //     key: 'pricing-engine',
+      //     path: '/pricing-engine',
+      //     icon: <FiDollarSign size={18} />,
+      //     label: 'Labor & Pricing',
+      //     onClick: () => handleMenuClick('/pricing-engine')
+      //   },
+      //   // {
+      //   //   key: 'product-tiers',
+      //   //   path: '/products/tiers',
+      //   //   icon: <FiPackage size={18} />,
+      //   //   label: 'Product Tiers',
+      //   //   onClick: () => handleMenuClick('/products/tiers')
+      //   // },
+      // ]
     },
     {
       key: 'pipeline',
       icon: <FiTrendingUp size={20} />,
       label: 'Pipeline',
       children: [
+        // {
+        //   label: 'New Quote',
+        //   key: 'quotes-new',
+        //   path: '/quotes/new',
+        //   exactMatch: true,
+        //   icon: <Badge dot offset={[-5, 5]}>
+        //     <FiFileText size={18} />
+        //   </Badge>,
+        //   onClick: () => handleMenuClick('/quotes/new')
+        // },
         {
-          label: 'New Quote',
-          key: 'quotes-new',
-          path: '/quotes/new',
-          exactMatch: true,
-          icon: <Badge dot offset={[-5, 5]}>
-            <FiFileText size={18} />
-          </Badge>,
-          onClick: () => handleMenuClick('/quotes/new')
+          key: 'leads',
+          path: '/leads',
+          icon: <FiUsers size={18} />,
+          label: 'Leads',
+          onClick: () => handleMenuClick('/leads/forms')
         },
         {
           key: 'quotes',
@@ -189,12 +218,12 @@ function MainLayout({ children }) {
           onClick: () => handleMenuClick('/quotes')
         },
         {
-          key: 'leads',
-          path: '/leads',
-          icon: <FiUsers size={18} />,
-          label: 'Leads',
-          onClick: () => handleMenuClick('/leads/forms')
-        },
+          key: 'jobs',
+          path: '/jobs',
+          icon: <FiTool size={18} />,
+          label: 'Jobs',
+          onClick: () => handleMenuClick('/jobs')
+        }
       ]
     },
     {
@@ -210,14 +239,21 @@ function MainLayout({ children }) {
           onClick: () => handleMenuClick('/proposal-defaults')
         },
         {
+  key: 'magic-links',
+  icon: <FiLink  />,
+  label: 'Magic Links',
+  path: '/magic-links',
+  onClick: () => handleMenuClick('/magic-links')
+},
+        {
           key: 'settings',
           path: '/settings',
           icon: <FiSettings size={18} />,
           label: 'General Settings',
-          onClick: () => handleMenuClick('/settings'),
-        },
+          onClick: () => handleMenuClick('/settings')
+        }
       ]
-    },
+    }
   ]
 
   const customerMenuItems = [
@@ -229,41 +265,54 @@ function MainLayout({ children }) {
       label: 'Dashboard',
       onClick: () => handleMenuClick('/portal/dashboard')
     },
-    ...(activeProposalId ? [
-      {
-        key: 'portal-proposal',
-        path: `/portal/proposal/${activeProposalId}`,
-        icon: <FiFileText size={20} />,
-        label: 'My Proposal',
-        onClick: () => handleMenuClick(`/portal/proposal/${activeProposalId}`)
-      },
-      {
-        key: 'portal-selections',
-        path: `/portal/colors/${activeProposalId}`,
-        icon: <FiPackage size={20} />,
-        label: 'Color Selections',
-        onClick: () => handleMenuClick(`/portal/colors/${activeProposalId}`)
-      },
-      {
-        key: 'portal-documents',
-        path: `/portal/documents/${activeProposalId}`,
-        icon: <FiClipboard size={20} />,
-        label: 'Documents',
-        onClick: () => handleMenuClick(`/portal/documents/${activeProposalId}`)
-      },
-    ] : []),
+    ...(activeProposalId
+      ? [
+          {
+            key: 'portal-proposal',
+            path: `/portal/proposal/${activeProposalId}`,
+            icon: <FiFileText size={20} />,
+            label: 'My Proposal',
+            onClick: () =>
+              handleMenuClick(`/portal/proposal/${activeProposalId}`)
+          },
+          {
+            key: 'portal-job-progress',
+            path: `/portal/jobs/${activeProposalId}`,
+            icon: <FiTool size={20} />,
+            label: 'Job Progress',
+            onClick: () =>
+              handleMenuClick(`/portal/jobs/${activeProposalId}`)
+          },
+          {
+            key: 'portal-selections',
+            path: `/portal/colors/${activeProposalId}`,
+            icon: <FiPackage size={20} />,
+            label: 'Color Selections',
+            onClick: () => handleMenuClick(`/portal/colors/${activeProposalId}`)
+          },
+          {
+            key: 'portal-documents',
+            path: `/portal/documents/${activeProposalId}`,
+            icon: <FiClipboard size={20} />,
+            label: 'Documents',
+            onClick: () =>
+              handleMenuClick(`/portal/documents/${activeProposalId}`)
+          }
+        ]
+      : [])
   ]
 
-  const menuItems = user?.role === 'admin' 
-    ? adminMenuItems 
-    : user?.role === 'customer' 
-      ? customerMenuItems 
+  const menuItems =
+    user?.role === 'admin'
+      ? adminMenuItems
+      : user?.role === 'customer'
+      ? customerMenuItems
       : normalMenuItems
-  
+
   // Generic and dynamic selectedKey logic
   const getSelectedKey = () => {
     const currentPath = location.pathname
-    
+
     // Flatten menu items to include submenu children
     const flattenedItems = []
     menuItems.forEach(item => {
@@ -274,17 +323,17 @@ function MainLayout({ children }) {
         flattenedItems.push(item)
       }
     })
-    
+
     // First pass: Check for exact matches (highest priority)
-    const exactMatch = flattenedItems.find(item => 
-      item.exactMatch && item.path === currentPath
+    const exactMatch = flattenedItems.find(
+      item => item.exactMatch && item.path === currentPath
     )
     if (exactMatch) return exactMatch.key
-    
+
     // Second pass: Find the longest matching path (most specific match)
     let bestMatch = null
     let longestMatchLength = 0
-    
+
     for (const item of flattenedItems) {
       if (item.path && currentPath.startsWith(item.path)) {
         const matchLength = item.path.length
@@ -294,15 +343,15 @@ function MainLayout({ children }) {
         }
       }
     }
-    
+
     if (bestMatch) return bestMatch.key
-    
+
     // Default to dashboard if no match found
     return 'dashboard'
   }
-  
+
   const selectedKey = getSelectedKey()
-  
+
   // Find current menu item label (including submenu items)
   const findMenuItem = (items, key) => {
     for (const item of items) {
@@ -314,46 +363,48 @@ function MainLayout({ children }) {
     }
     return null
   }
-  
+
   const currentMenuItem = findMenuItem(menuItems, selectedKey)
   const headerTitle = currentMenuItem?.label || 'Dashboard'
 
   // Sidebar content component (reusable for both desktop and mobile)
   const SidebarContent = () => (
-    <div className="h-full flex flex-col">
-      <div style={{ background: '#eff0f4' }} className="flex items-center h-32 p-6 border-b flex-shrink-0">
-        <div className="flex flex-col">
-          <span className="text-[#4a8bff] font-bold text-lg truncate">
-            {collapsed && !isMobile ? <LogoIcon/> : <Logo />}
+    <div className='h-full flex flex-col'>
+      <div
+        style={{ background: '#eff0f4' }}
+        className='flex items-center h-32 p-6 border-b flex-shrink-0'
+      >
+        <div className='flex flex-col'>
+          <span className='text-[#4a8bff] font-bold text-lg truncate'>
+            {collapsed && !isMobile ? <LogoIcon /> : <Logo />}
           </span>
-         
         </div>
       </div>
 
-      <div className="overflow-y-auto flex-1 overflow-x-hidden">
+      <div className='overflow-y-auto flex-1 overflow-x-hidden'>
         <Menu
-          mode="inline"
+          mode='inline'
           selectedKeys={[selectedKey]}
           openKeys={collapsed && !isMobile ? [] : openKeys}
-          onOpenChange={(keys) => setOpenKeys(keys)}
+          onOpenChange={keys => setOpenKeys(keys)}
           style={{
             background: '#fafafa',
-            border: 'none',
+            border: 'none'
           }}
           items={menuItems}
-          className="px-3 py-4"
-          rootClassName="custom-menu"
+          className='px-3 py-4'
+          rootClassName='custom-menu'
         />
       </div>
 
-      <div className="mt-auto p-4 bg-[#fafafa] border-t">
-        <Button 
-          danger 
-          type="primary" 
-          block 
-          onClick={handleLogout} 
+      <div className='mt-auto p-4 bg-[#fafafa] border-t'>
+        <Button
+          danger
+          type='primary'
+          block
+          onClick={handleLogout}
           icon={<FiLogOut />}
-          className="flex items-center justify-center"
+          className='flex items-center justify-center'
         >
           {(!collapsed || isMobile) && 'Logout'}
         </Button>
@@ -362,7 +413,7 @@ function MainLayout({ children }) {
   )
 
   return (
-    <Layout hasSider className="min-h-screen">
+    <Layout hasSider className='min-h-screen'>
       {/* Desktop Sidebar */}
       {!isMobile && (
         <Layout.Sider
@@ -377,14 +428,14 @@ function MainLayout({ children }) {
             bottom: 0,
             zIndex: 999,
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: 'column'
           }}
           width={240}
           collapsible
           collapsed={collapsed}
           trigger={null}
           collapsedWidth={80}
-          className="transition-all duration-200 ease-in-out"
+          className='transition-all duration-200 ease-in-out'
         >
           <SidebarContent />
         </Layout.Sider>
@@ -393,7 +444,7 @@ function MainLayout({ children }) {
       {/* Mobile Drawer */}
       {isMobile && (
         <Drawer
-          placement="left"
+          placement='left'
           onClose={() => setMobileOpen(false)}
           open={mobileOpen}
           closable={false}
@@ -404,41 +455,120 @@ function MainLayout({ children }) {
           }}
           zIndex={1050}
         >
-          <div className="h-full flex flex-col" style={{ background: '#fafafa' }}>
+          <div
+            className='h-full flex flex-col'
+            style={{ background: '#fafafa' }}
+          >
             <SidebarContent />
           </div>
         </Drawer>
       )}
 
-      <Layout 
-        className="transition-all duration-200 ease-in-out min-h-screen bg-gray-50"
-        style={{ 
-          marginLeft: isMobile ? 0 : (collapsed ? 80 : 240),
+      <Layout
+        className='transition-all duration-200 ease-in-out min-h-screen bg-gray-50'
+        style={{
+          marginLeft: isMobile ? 0 : collapsed ? 80 : 240
         }}
       >
-        <Layout.Header 
-          className="fixed top-0 z-[998] shadow-sm flex items-center gap-3 px-4 md:px-6"
-          style={{ 
+        <Layout.Header
+          className='fixed top-0 z-[998] shadow-sm flex items-center justify-between gap-3 px-4 md:px-6'
+          style={{
             background: colorBgContainer,
             width: isMobile ? '100%' : `calc(100% - ${collapsed ? 80 : 240}px)`,
-            left: isMobile ? 0 : (collapsed ? 80 : 240),
+            left: isMobile ? 0 : collapsed ? 80 : 240
           }}
         >
-          <Button 
-            type="text" 
-            icon={isMobile ? (mobileOpen ? <FiX size={22} /> : <FiMenu size={22} />) : <FiSidebar size={20} />} 
-            onClick={() => isMobile ? setMobileOpen(!mobileOpen) : setCollapsed(!collapsed)}
-            className="text-gray-500 flex items-center justify-center"
-          />
-          <span className="text-base md:text-lg font-semibold">{headerTitle}</span>
+          <div className='flex items-center gap-3'>
+            <Button
+              type='text'
+              icon={
+                isMobile ? (
+                  mobileOpen ? (
+                    <FiX size={22} />
+                  ) : (
+                    <FiMenu size={22} />
+                  )
+                ) : (
+                  <FiSidebar size={20} />
+                )
+              }
+              onClick={() =>
+                isMobile ? setMobileOpen(!mobileOpen) : setCollapsed(!collapsed)
+              }
+              className='text-gray-500 flex items-center justify-center'
+            />
+            <span className='text-base md:text-lg font-semibold'>
+              {headerTitle}
+            </span>
+          </div>
+
+          {/* User Profile Section */}
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'profile',
+                  label: (
+                    <div className='px-2 py-1'>
+                      <div className='font-semibold text-gray-900'>{user?.fullName || 'User'}</div>
+                      <div className='text-sm text-gray-500'>{user?.email || 'No email'}</div>
+                      <div className='text-xs text-gray-400 mt-1 capitalize'>{user?.role?.replace('_', ' ') || 'Role'}</div>
+                    </div>
+                  ),
+                  disabled: true
+                },
+                {
+                  type: 'divider'
+                },
+                {
+                  key: 'logout',
+                  icon: <FiLogOut />,
+                  label: 'Logout',
+                  danger: true,
+                  onClick: handleLogout
+                }
+              ]
+            }}
+            placement='bottomRight'
+            trigger={['click']}
+          >
+            <div className='flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-3 py-2 rounded-lg transition-colors'>
+              {
+                user?.tenant?.companyLogoUrl ? (
+                  <Avatar 
+                    style={{ backgroundColor: '#4a8bff' }}
+                    src={user.tenant.companyLogoUrl}
+                    size={32}
+                  />
+                ) :
+                <Avatar 
+                style={{ backgroundColor: '#4a8bff' }} 
+                icon={<FiUser />}
+                size={32}
+              />}
+              {!isMobile && (
+                <div className='flex flex-col'>
+                  <span className='text-sm font-medium text-gray-900'>
+                    {user?.fullName || 'User'}
+                  </span>
+                  <span className='text-xs text-gray-500'>
+                    {user?.tenant?.companyName}
+                  </span>
+                  <span className='text-xs text-gray-500'>
+                    {user?.email || 'No email'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </Dropdown>
         </Layout.Header>
 
         <Layout.Content
-          className="mt-16 p-3 md:p-6 transition-all duration-200"
+          className='mt-16 p-3 md:p-6 transition-all duration-200'
           style={{
             minHeight: 'calc(100vh - 64px)',
             background: isMobile ? '#f9fafb' : colorBgContainer,
-            borderRadius: isMobile ? 0 : borderRadiusLG,
+            borderRadius: isMobile ? 0 : borderRadiusLG
           }}
         >
           {children}
