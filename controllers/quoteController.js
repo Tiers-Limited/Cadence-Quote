@@ -771,11 +771,13 @@ exports.getQuotes = async (req, res) => {
 
     const where = {
       tenantId,
-      isActive: true
+      isActive: true,
+      status: { [Op.notIn]: ['accepted', 'deposit_paid'] } // Exclude accepted and deposit_paid quotes - they should appear in Jobs section
     };
 
     // Apply filters
     if (status && status !== 'all') {
+      // If filtering by specific status, override the exclusion
       where.status = status;
     }
 

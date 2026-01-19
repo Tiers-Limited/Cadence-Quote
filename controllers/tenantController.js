@@ -40,7 +40,7 @@ exports.getAllTenants = async (req, res) => {
       ],
       limit: Number.parseInt(limit),
       offset,
-      order: [['createdAt', 'DESC']],
+      order: [['id', 'DESC']],
     });
 
     res.json({

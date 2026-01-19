@@ -94,9 +94,25 @@ const Tenant = sequelize.define('Tenant', {
     type: DataTypes.STRING,
     allowNull: true,
     field: 'subscription_id'
+  },
+  companyLogoUrl: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'company_logo_url'
+  },
+  defaultEmailMessage: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: {
+      subject: 'Your Quote is Ready',
+      body: ''
+    },
+    field: 'default_email_message'
   }
 }, {
-  timestamps: true,
+  tableName: 'Tenants', // Explicitly set table name to match database
+  underscored: true,
+  timestamps: false, // Tenants table doesn't have createdAt/updatedAt columns
   indexes: [
     {
     

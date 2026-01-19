@@ -6,11 +6,20 @@ const { createAuditLog } = require('./auditLogController');
 /**
  * Get all labor categories (global predefined list)
  * GET /api/v1/labor-categories
+ * Query params: jobType (optional) - 'interior' or 'exterior'
  */
 exports.getAllCategories = async (req, res) => {
   try {
+    const { jobType } = req.query;
+    
+    // Build where clause
+    const where = { isActive: true };
+    if (jobType) {
+      where.categoryType = jobType;
+    }
+
     const categories = await LaborCategory.findAll({
-      where: { isActive: true },
+      where,
       order: [['displayOrder', 'ASC'], ['categoryName', 'ASC']]
     });
 
@@ -180,13 +189,20 @@ exports.initializeCategories = async (req, res) => {
 exports.getLaborRates = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
+    const { jobType } = req.query; // Get jobType from query params
+
+    // Build where clause for category filtering
+    const categoryWhere = { isActive: true };
+    if (jobType) {
+      categoryWhere.categoryType = jobType;
+    }
 
     const rates = await LaborRate.findAll({
       where: { tenantId, isActive: true },
       include: [{
         model: LaborCategory,
         as: 'category',
-        where: { isActive: true }
+        where: categoryWhere
       }],
       order: [[{ model: LaborCategory, as: 'category' }, 'displayOrder', 'ASC']]
     });

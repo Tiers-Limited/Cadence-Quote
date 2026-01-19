@@ -724,6 +724,99 @@ class EmailService {
   }
 
   /**
+   * Send contractor-authored message with standardized signature
+   * Requirements:
+   * - From appears as contractor; reply-to goes to contractor
+   * - Body is authored by contractor and not modified
+   * - Signature is appended by system with logo and contact info
+   * - No pricing or CTAs should be present in body (validation handled upstream)
+   * @param {Object} params
+   * @param {string} params.to - Customer email
+   * @param {string} params.subject - Email subject line
+   * @param {string} params.body - Contractor-authored plain text body
+   * @param {Object} params.contractor - { name, title?, companyName, email, phone?, website?, logoUrl? }
+   * @param {Buffer} [params.pdfBuffer] - Optional proposal PDF attachment
+   */
+  async sendContractorMessageWithSignature({ to, subject, body, contractor, pdfBuffer }) {
+    if (!this.transporter) {
+      console.warn('Email service not configured, skipping send');
+      return { success: false, message: 'Email service not configured' };
+    }
+
+    const escapeHtml = (unsafe) =>
+      String(unsafe)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    const signatureHtml = `
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+      <table style="width:100%; max-width:600px; font-family: Arial, sans-serif; color:#374151;">
+        <tr>
+          <td style="width:64px; vertical-align: top; padding-right: 12px;">
+            ${contractor.logoUrl ? `<img src="${contractor.logoUrl}" alt="Company Logo" style="max-height:48px; width:auto; display:block;" />` : ''}
+          </td>
+          <td style="vertical-align: top;">
+            <div style="font-size:14px; line-height:1.6;">
+              <div style="font-weight:600; color:#111827;">${escapeHtml(contractor.name || contractor.companyName || 'Contractor')}</div>
+              ${contractor.title ? `<div style="color:#6b7280;">${escapeHtml(contractor.title)}</div>` : ''}
+              <div style="color:#374151;">${escapeHtml(contractor.companyName || '')}</div>
+              ${contractor.phone ? `<div style="color:#374151;">📱 ${escapeHtml(contractor.phone)}</div>` : ''}
+              ${contractor.email ? `<div style="color:#374151;">📧 <a href="mailto:${escapeHtml(contractor.email)}" style="color:#2563eb; text-decoration:none;">${escapeHtml(contractor.email)}</a></div>` : ''}
+              ${contractor.website ? `<div style="color:#374151;">🌐 <a href="${escapeHtml(contractor.website)}" style="color:#2563eb; text-decoration:none;">${escapeHtml(contractor.website)}</a></div>` : ''}
+            </div>
+          </td>
+        </tr>
+      </table>
+    `;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>${escapeHtml(subject || 'Message')}</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827; background:#ffffff;">
+          <div style="max-width:700px; margin:0 auto; padding:24px;">
+            <div style="font-size:16px; color:#374151;">
+              ${body || ''}
+            </div>
+            ${signatureHtml}
+          </div>
+        </body>
+      </html>
+    `;
+
+    const mailOptions = {
+      from: `${contractor.name ? '"' + contractor.name + '" ' : ''}<${process.env.SMTP_USER}>`,
+      to,
+      replyTo: contractor.email,
+      subject,
+      html: htmlContent,
+      attachments: []
+    };
+
+    if (pdfBuffer) {
+      mailOptions.attachments.push({
+        filename: `Proposal.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      });
+    }
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Contractor message sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending contractor message:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Quote email template
    */
   getQuoteEmailTemplate({ customerName, quote, calculation, contractor, quoteViewUrl }) {
@@ -1022,48 +1115,22 @@ class EmailService {
   /**
    * Send email notification when deposit is verified
    */
-  async sendDepositVerifiedEmail(customerEmail, proposalDetails) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    
+  async sendDepositVerifiedEmail(customerEmail, proposalDetails = {}, options = {}) {
+    // options: { tenantId, contractorMessage }
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+    const subject = (tenant?.defaultEmailMessage?.subject) || `Deposit Verified - ${proposalDetails.quoteNumber || ''}`;
+
     const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
       to: customerEmail,
-      subject: `Your deposit has been verified - ${proposalDetails.quoteNumber}`,
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-            .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
-            .button { display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-            .footer { text-align: center; margin-top: 20px; font-size: 0.9em; color: #6b7280; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header"><h1>Deposit Verified!</h1></div>
-            <div class="content">
-              <h2>Great news, ${proposalDetails.customerName}!</h2>
-              <p>Your deposit for proposal <strong>${proposalDetails.quoteNumber}</strong> has been verified.</p>
-              <p>You can now access the customer portal to acknowledge finish standards and make your product selections.</p>
-              <p style="text-align: center;">
-                <a href="${frontendUrl}/portal/finish-standards/${proposalDetails.id}" class="button">Access Customer Portal</a>
-              </p>
-              <p><strong>Next Steps:</strong></p>
-              <ol>
-                <li>Review and acknowledge the finish standards</li>
-                <li>Select your preferred products, colors, and sheens for each area</li>
-                <li>Submit your selections when complete</li>
-              </ol>
-            </div>
-            <div class="footer"><p>© ${new Date().getFullYear()} Cadence Painting</p></div>
-          </div>
-        </body>
-        </html>
-      `
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage, tenant),
+      text: this._stripHtml(contractorMessage)
     };
 
     try {
@@ -1187,40 +1254,21 @@ class EmailService {
   /**
    * Send email notification when portal is reopened
    */
-  async sendPortalReopenedEmail(customerEmail, proposalDetails) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    
+  async sendPortalReopenedEmail(customerEmail, proposalDetails = {}, options = {}) {
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+    const subject = tenant?.defaultEmailMessage?.subject || `Portal Reopened - ${proposalDetails.quoteNumber || ''}`;
+
     const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
       to: customerEmail,
-      subject: `Portal reopened for changes - ${proposalDetails.quoteNumber}`,
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-            .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
-            .button { display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header"><h1>Portal Reopened</h1></div>
-            <div class="content">
-              <p>Hello ${proposalDetails.customerName},</p>
-              <p>The customer portal for proposal <strong>${proposalDetails.quoteNumber}</strong> has been reopened.</p>
-              <p>You can now make changes to your product selections if needed.</p>
-              <p style="text-align: center;">
-                <a href="${frontendUrl}/portal/selections/${proposalDetails.id}" class="button">Access Portal</a>
-              </p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage, tenant),
+      text: this._stripHtml(contractorMessage)
     };
 
     try {
@@ -1427,6 +1475,1102 @@ class EmailService {
       throw new Error('Failed to send password reset email');
     }
   }
+
+  /**
+   * Send OTP verification code email
+   * @param {Object} params
+   * @param {string} params.to - Customer email
+   * @param {string} params.code - 6-digit OTP code
+   * @param {string} params.clientName - Customer name
+   * @param {string} params.companyName - Contractor company name
+   * @param {number} params.expiryMinutes - How long code is valid
+   */
+  async sendOTPEmail({ to, code, clientName, companyName, expiryMinutes = 10 }) {
+    if (!this.transporter) {
+      console.warn('Email service not configured, skipping OTP email');
+      return { success: false, message: 'Email service not configured' };
+    }
+
+    const firstName = clientName.split(' ')[0];
+
+    const mailOptions = {
+      from: `"${companyName}" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `Your Verification Code - ${companyName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              text-align: center;
+              padding: 20px 0;
+              border-bottom: 2px solid #2563eb;
+            }
+            .content {
+              padding: 30px 0;
+            }
+            .otp-code {
+              background-color: #f3f4f6;
+              border: 2px solid #2563eb;
+              border-radius: 8px;
+              padding: 20px;
+              text-align: center;
+              margin: 30px 0;
+            }
+            .code {
+              font-size: 36px;
+              font-weight: bold;
+              letter-spacing: 8px;
+              color: #2563eb;
+              font-family: 'Courier New', monospace;
+            }
+            .footer {
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 1px solid #e5e7eb;
+              text-align: center;
+              color: #6b7280;
+              font-size: 14px;
+            }
+            .warning {
+              background-color: #fef3c7;
+              border-left: 4px solid #f59e0b;
+              padding: 12px;
+              margin: 20px 0;
+              border-radius: 4px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 style="margin: 0; color: #2563eb;">${companyName}</h1>
+          </div>
+          
+          <div class="content">
+            <p>Hi ${firstName},</p>
+            
+            <p>You requested access to all your projects with ${companyName}. Here's your verification code:</p>
+            
+            <div class="otp-code">
+              <div class="code">${code}</div>
+              <p style="margin: 10px 0 0 0; color: #6b7280;">Enter this code in the customer portal</p>
+            </div>
+            
+            <p><strong>This code will expire in ${expiryMinutes} minutes.</strong></p>
+            
+            <div class="warning">
+              <strong>⚠️ Security Notice:</strong> Never share this code with anyone. ${companyName} will never ask for this code via phone or text.
+            </div>
+            
+            <p>If you didn't request this code, you can safely ignore this email or contact us directly.</p>
+          </div>
+          
+          <div class="footer">
+            <p>This email was sent by ${companyName}</p>
+            <p style="font-size: 12px; color: #9ca3af;">Powered by Cadence Quote</p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+Hi ${firstName},
+
+You requested access to all your projects with ${companyName}. Here's your verification code:
+
+${code}
+
+Enter this code in the customer portal within ${expiryMinutes} minutes.
+
+SECURITY NOTICE: Never share this code with anyone. ${companyName} will never ask for this code via phone or text.
+
+If you didn't request this code, you can safely ignore this email or contact us directly.
+
+- ${companyName}
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('OTP email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending OTP email:', error);
+      throw new Error('Failed to send verification code');
+    }
+  }
+
+  /**
+   * Send magic link for customer portal access
+   * @param {Object} params
+   * @param {string} params.to - Customer email
+   * @param {string} params.customerName - Customer name
+   * @param {string} params.magicLink - Magic link URL
+   * @param {string} params.companyName - Contractor company name
+   * @param {string} params.companyLogo - Optional contractor logo URL
+   * @param {string} params.purpose - Link purpose (quote_view, payment, etc.)
+   * @param {Object} params.quoteInfo - Optional quote information
+   * @param {number} params.expiryHours - Hours until link expires
+   */
+  async sendMagicLink({ 
+    to, 
+    customerName, 
+    magicLink, 
+    companyName, 
+    companyLogo = null,
+    purpose = 'portal_access',
+    quoteInfo = null,
+    expiryHours = 24 
+  }) {
+    if (!this.transporter) {
+      console.warn('Email service not configured, skipping magic link email');
+      return { success: false, message: 'Email service not configured' };
+    }
+
+    const firstName = customerName.split(' ')[0];
+    
+    // Purpose-specific messaging
+    const purposeMessages = {
+      quote_view: {
+        subject: 'Your Painting Proposal is Ready',
+        heading: 'Your Proposal is Ready to View',
+        intro: `Great news! Your painting proposal${quoteInfo ? ` #${quoteInfo.quoteNumber}` : ''} is ready for review.`,
+        cta: 'View Your Proposal',
+      },
+      quote_approval: {
+        subject: 'Action Required: Approve Your Proposal',
+        heading: 'Your Approval is Needed',
+        intro: 'Your proposal is ready for final approval. Please review and approve to get started.',
+        cta: 'Review & Approve',
+      },
+      payment: {
+        subject: 'Complete Your Payment',
+        heading: 'Ready to Process Payment',
+        intro: 'Your project is approved! Complete your payment to schedule the work.',
+        cta: 'Make Payment',
+      },
+      portal_access: {
+        subject: 'Access Your Project Portal',
+        heading: 'Access Your Customer Portal',
+        intro: 'Click below to securely access your project information.',
+        cta: 'Access Portal',
+      },
+      job_status: {
+        subject: 'Project Update Available',
+        heading: 'New Project Update',
+        intro: 'There\'s a new update on your project. View the latest status and photos.',
+        cta: 'View Update',
+      },
+    };
+
+    const msg = purposeMessages[purpose] || purposeMessages.portal_access;
+
+    const mailOptions = {
+      from: `"${companyName}" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `${msg.subject} - ${companyName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+              background-color: #f9fafb;
+            }
+            .container {
+              background-color: white;
+              border-radius: 8px;
+              overflow: hidden;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .header {
+              background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+              color: white;
+              padding: 40px 30px;
+              text-align: center;
+            }
+            .logo {
+              max-width: 200px;
+              height: auto;
+              margin-bottom: 20px;
+            }
+            .content {
+              padding: 40px 30px;
+            }
+            .cta-button {
+              display: inline-block;
+              background-color: #2563eb;
+              color: white !important;
+              text-decoration: none;
+              padding: 16px 32px;
+              border-radius: 8px;
+              font-weight: 600;
+              margin: 30px 0;
+              text-align: center;
+            }
+            .cta-button:hover {
+              background-color: #1d4ed8;
+            }
+            .info-box {
+              background-color: #f3f4f6;
+              border-left: 4px solid #2563eb;
+              padding: 16px;
+              margin: 20px 0;
+              border-radius: 4px;
+            }
+            .footer {
+              padding: 30px;
+              text-align: center;
+              color: #6b7280;
+              font-size: 14px;
+              background-color: #f9fafb;
+            }
+            .link-text {
+              word-break: break-all;
+              color: #6b7280;
+              font-size: 12px;
+              background-color: #f3f4f6;
+              padding: 12px;
+              border-radius: 4px;
+              margin-top: 20px;
+            }
+            .security-note {
+              background-color: #fef3c7;
+              border-left: 4px solid #f59e0b;
+              padding: 12px;
+              margin: 20px 0;
+              border-radius: 4px;
+              font-size: 14px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              ${companyLogo ? `<img src="${companyLogo}" alt="${companyName}" class="logo" />` : `<h1 style="margin: 0;">${companyName}</h1>`}
+              <h2 style="margin: 10px 0 0 0; font-weight: 500;">${msg.heading}</h2>
+            </div>
+            
+            <div class="content">
+              <p>Hi ${firstName},</p>
+              
+              <p>${msg.intro}</p>
+              
+              ${quoteInfo ? `
+                <div class="info-box">
+                  <strong>Proposal #${quoteInfo.quoteNumber}</strong><br/>
+                  ${quoteInfo.total ? `Total Investment: $${parseFloat(quoteInfo.total).toFixed(2)}<br/>` : ''}
+                  ${quoteInfo.validUntil ? `Valid Until: ${new Date(quoteInfo.validUntil).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}` : ''}
+                </div>
+              ` : ''}
+              
+              <div style="text-align: center;">
+                <a href="${magicLink}" class="cta-button">${msg.cta}</a>
+              </div>
+              
+              <p style="margin-top: 30px;">This secure link gives you instant access - no password required! It will remain valid for ${expiryHours} hours.</p>
+              
+              <div class="security-note">
+                <strong>🔒 Security:</strong> This link is unique to you. Don't share it with others. If you have questions, contact us directly.
+              </div>
+              
+              <p>Having trouble with the button? Copy and paste this link into your browser:</p>
+              <div class="link-text">${magicLink}</div>
+              
+              <p style="margin-top: 30px;">
+                Questions? Reply to this email or give us a call. We're here to help!
+              </p>
+            </div>
+            
+            <div class="footer">
+              <p><strong>${companyName}</strong></p>
+              <p style="margin: 5px 0;">Professional Painting Services</p>
+              <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">Powered by Cadence Quote</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+Hi ${firstName},
+
+${msg.intro}
+
+${quoteInfo ? `Proposal #${quoteInfo.quoteNumber}\n${quoteInfo.total ? `Total Investment: $${parseFloat(quoteInfo.total).toFixed(2)}\n` : ''}` : ''}
+
+Click here to access: ${magicLink}
+
+This secure link gives you instant access - no password required! It will remain valid for ${expiryHours} hours.
+
+SECURITY: This link is unique to you. Don't share it with others. If you have questions, contact us directly.
+
+Questions? Reply to this email or give us a call. We're here to help!
+
+- ${companyName}
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Magic link email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending magic link email:', error);
+      throw new Error('Failed to send access link');
+    }
+  }
+
+  /**
+   * Send portal expiry notification email
+   * @param {Object} params
+   * @param {string} params.to - Customer email
+   * @param {string} params.customerName - Customer name
+   * @param {number} params.daysRemaining - Days until expiry
+   * @param {Date} params.expiryDate - Expiry date
+   * @param {Object} params.tenantBranding - Contractor branding
+   * @param {string} params.portalUrl - Portal base URL
+   */
+  async sendPortalExpiryNotification({
+    to,
+    customerName,
+    daysRemaining,
+    expiryDate,
+    tenantBranding = {},
+    portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://portal.cadence.local'
+  }) {
+    if (!this.transporter) {
+      console.warn('Email service not configured, skipping expiry notification');
+      return { success: false, message: 'Email service not configured' };
+    }
+
+    const firstName = customerName.split(' ')[0];
+    const companyName = tenantBranding?.companyName || 'Your Contractor';
+    const expiryDateStr = expiryDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      month: 'long', 
+      day: 'numeric',
+      year: 'numeric'
+    });
+
+    const mailOptions = {
+      from: `"${companyName}" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `⏰ Your Portal Access Expires in ${daysRemaining} Day${daysRemaining > 1 ? 's' : ''}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+              background-color: #f9fafb;
+            }
+            .container {
+              background-color: white;
+              border-radius: 8px;
+              overflow: hidden;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+            .header {
+              background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+              color: white;
+              padding: 30px;
+              text-align: center;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 28px;
+              font-weight: bold;
+            }
+            .content {
+              padding: 30px;
+            }
+            .expiry-box {
+              background-color: #fef3c7;
+              border: 2px solid #f59e0b;
+              border-radius: 8px;
+              padding: 20px;
+              margin: 20px 0;
+              text-align: center;
+            }
+            .expiry-days {
+              font-size: 36px;
+              font-weight: bold;
+              color: #d97706;
+              margin: 10px 0;
+            }
+            .expiry-date {
+              font-size: 16px;
+              color: #92400e;
+              margin-top: 10px;
+            }
+            .action-box {
+              background-color: #dbeafe;
+              border: 2px solid #3b82f6;
+              border-radius: 8px;
+              padding: 20px;
+              margin: 20px 0;
+            }
+            .action-box h3 {
+              margin: 0 0 10px 0;
+              color: #1e40af;
+              font-size: 16px;
+            }
+            .action-box p {
+              margin: 8px 0;
+              color: #1e40af;
+              font-size: 14px;
+            }
+            .footer {
+              background-color: #f3f4f6;
+              padding: 20px;
+              border-top: 1px solid #e5e7eb;
+              text-align: center;
+              font-size: 12px;
+              color: #6b7280;
+            }
+            ul {
+              margin: 15px 0;
+              padding-left: 20px;
+              color: #374151;
+            }
+            li {
+              margin-bottom: 8px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>⏰ Portal Access Expiring Soon</h1>
+              <p style="margin: 10px 0 0 0; opacity: 0.95;">Your access will expire soon</p>
+            </div>
+
+            <div class="content">
+              <p>Hi ${firstName},</p>
+
+              <p>This is a reminder that your access to the customer portal will expire soon.</p>
+
+              <div class="expiry-box">
+                <p style="margin: 0 0 5px 0; color: #92400e; font-size: 14px;">Portal expires in:</p>
+                <div class="expiry-days">${daysRemaining}</div>
+                <p style="margin: 0; color: #92400e; font-size: 12px;">day${daysRemaining > 1 ? 's' : ''}</p>
+                <div class="expiry-date">
+                  <strong>${expiryDateStr}</strong>
+                </div>
+              </div>
+
+              <p style="color: #4b5563; margin-top: 20px;">After this date, you will no longer be able to:</p>
+              <ul>
+                <li>View your project quotes</li>
+                <li>Approve or decline proposals</li>
+                <li>Make design selections</li>
+                <li>Access project documents</li>
+              </ul>
+
+              <div class="action-box">
+                <h3>📧 Need Access Again?</h3>
+                <p>If you need continued access after the expiration date, please contact ${companyName} directly and request a new magic link.</p>
+                <p style="margin: 15px 0 0 0;">Our team can extend your access or send you a new link for your next project phase.</p>
+              </div>
+
+              <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+                <strong>Questions?</strong> Reply to this email or contact ${companyName} for assistance.
+              </p>
+
+              <p style="margin-top: 30px;">Best regards,<br>
+              <strong>${companyName}</strong></p>
+            </div>
+
+            <div class="footer">
+              <p style="margin: 0 0 8px 0;">This is an automated notification from Cadence Quote</p>
+              <p style="margin: 0;">© ${new Date().getFullYear()} ${companyName}. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+Hi ${firstName},
+
+This is a reminder that your access to the customer portal will expire soon.
+
+PORTAL EXPIRES IN: ${daysRemaining} day${daysRemaining > 1 ? 's' : ''} (${expiryDateStr})
+
+After this date, you will no longer be able to:
+- View your project quotes
+- Approve or decline proposals
+- Make design selections
+- Access project documents
+
+NEED ACCESS AGAIN?
+If you need continued access after the expiration date, please contact ${companyName} directly and request a new magic link. Our team can extend your access or send you a new link for your next project phase.
+
+Questions? Contact ${companyName} for assistance.
+
+Best regards,
+${companyName}
+
+---
+This is an automated notification from Cadence Quote
+© ${new Date().getFullYear()} ${companyName}. All rights reserved.
+      `
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Portal expiry notification sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending expiry notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // NEW WORKFLOW EMAIL TEMPLATES
+  // ============================================================================
+
+  /**
+   * Send proposal accepted notification to contractor
+   */
+  async sendProposalAcceptedEmail(to, { quoteNumber, customerName, customerEmail, selectedTier, total, depositAmount }) {
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `✅ Proposal Accepted - ${quoteNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #52c41a;">🎉 Proposal Accepted!</h2>
+            <p>Great news! <strong>${customerName}</strong> has accepted your proposal.</p>
+            <div style="background: #f6ffed; border: 1px solid #b7eb8f; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Quote:</strong> ${quoteNumber}</p>
+              <p><strong>Customer:</strong> ${customerName} (${customerEmail})</p>
+              ${selectedTier ? `<p><strong>Selected Tier:</strong> ${selectedTier.toUpperCase()}</p>` : ''}
+              <p><strong>Total:</strong> $${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+              <p><strong>Deposit:</strong> $${depositAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+            </div>
+            <p><strong>Next Steps:</strong></p>
+            <ol>
+              <li>Customer will complete deposit payment</li>
+              <li>Selection portal will open for product/color choices</li>
+              <li>You'll be notified when selections are complete</li>
+              <li>Schedule the job and begin work</li>
+            </ol>
+            <p>Best regards,<br>Cadence System</p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `Proposal Accepted - ${quoteNumber}\n\nCustomer: ${customerName} (${customerEmail})\nSelected Tier: ${selectedTier || 'N/A'}\nTotal: $${total}\nDeposit: $${depositAmount}\n\nNext steps: Customer will complete payment and make product selections.`,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Proposal accepted email sent');
+    } catch (error) {
+      console.error('Error sending proposal accepted email:', error);
+    }
+  }
+
+  /**
+   * Send proposal rejected notification to contractor
+   */
+  async sendProposalRejectedEmail(to, { quoteNumber, customerName, customerEmail, total, reason, comments }) {
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `❌ Proposal Rejected - ${quoteNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #ff4d4f;">Proposal Rejected</h2>
+            <p><strong>${customerName}</strong> has declined your proposal.</p>
+            <div style="background: #fff2e8; border: 1px solid #ffbb96; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Quote:</strong> ${quoteNumber}</p>
+              <p><strong>Customer:</strong> ${customerName} (${customerEmail})</p>
+              <p><strong>Total:</strong> $${total}</p>
+              <p><strong>Reason:</strong> ${reason.replace('_', ' ')}</p>
+              ${comments ? `<p><strong>Comments:</strong> ${comments}</p>` : ''}
+            </div>
+            <p>Consider reaching out to discuss their concerns or offer alternatives.</p>
+            <p>Best regards,<br>Cadence System</p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `Proposal Rejected - ${quoteNumber}\n\nCustomer: ${customerName}\nReason: ${reason}\nComments: ${comments || 'None'}`,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Proposal rejected email sent');
+    } catch (error) {
+      console.error('Error sending proposal rejected email:', error);
+    }
+  }
+
+  /**
+   * Send selection portal open notification to customer
+   */
+  async sendSelectionPortalOpenEmail(to, { customerName, quoteNumber, portalExpiryDate, portalDurationDays }, options = {}) {
+    const expiryDateStr = new Date(portalExpiryDate).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || null;
+    const subject = (tenant?.defaultEmailMessage?.subject) || `🎨 Make Your Product Selections - ${quoteNumber}`;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage || `
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #1890ff;">Your Selection Portal is Now Open!</h2>
+            <p>Hi ${customerName},</p>
+            <p>Thank you for your deposit payment! You can now make your product, color, and sheen selections for your project.</p>
+            <div style="background: #e6f7ff; border: 1px solid #91d5ff; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>⏰ Portal Closes:</strong> ${expiryDateStr}</p>
+              <p><strong>📅 Days Remaining:</strong> ${portalDurationDays} days</p>
+            </div>
+            <p><strong>What to do:</strong></p>
+            <ol>
+              <li>Log in to your customer portal</li>
+              <li>Review the selected products for each area</li>
+              <li>Choose your preferred colors and sheens</li>
+              <li>Submit your selections when complete</li>
+            </ol>
+            <p><strong>Important:</strong> Please complete your selections before the portal closes. If you need more time, contact us to extend your access.</p>
+            <p>Best regards,<br>Your Project Team</p>
+          </div>
+        </body>
+        </html>
+      `, tenant),
+      text: contractorMessage ? this._stripHtml(contractorMessage) : `Selection Portal Open\n\nHi ${customerName},\n\nYour selection portal is now open! You have ${portalDurationDays} days to make your product, color, and sheen selections.\n\nPortal closes: ${expiryDateStr}\n\nLog in to your customer portal to get started.`,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Selection portal open email sent');
+    } catch (error) {
+      console.error('Error sending portal open email:', error);
+    }
+  }
+
+  /**
+   * Send selections complete notification to contractor
+   */
+  async sendSelectionsCompleteEmail(to, { jobNumber, quoteNumber, customerName, customerEmail }, options = {}) {
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || null;
+    const subject = (tenant?.defaultEmailMessage?.subject) || `✅ Customer Selections Complete - ${jobNumber}`;
+
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #52c41a;">Customer Selections Submitted!</h2>
+            <p><strong>${customerName}</strong> has completed and submitted their product selections.</p>
+            <div style="background: #f6ffed; border: 1px solid #b7eb8f; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Job Number:</strong> ${jobNumber}</p>
+              <p><strong>Original Quote:</strong> ${quoteNumber}</p>
+              <p><strong>Customer:</strong> ${customerName} (${customerEmail})</p>
+            </div>
+            <p><strong>Next Steps:</strong></p>
+            <ol>
+              <li>Review the customer's selections in the dashboard</li>
+              <li>Download work order and material lists (auto-generated)</li>
+              <li>Schedule the job with your crew</li>
+              <li>Customer will be notified of the schedule</li>
+            </ol>
+            <p>The job is ready to be scheduled!</p>
+            <p>Best regards,<br>Cadence System</p>
+          </div>
+        </body>
+        </html>
+      `;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage || htmlContent, tenant),
+      text: contractorMessage ? this._stripHtml(contractorMessage) : `Selections Complete - ${jobNumber}\n\nCustomer: ${customerName}\nJob is ready to schedule!`,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Selections complete email sent');
+    } catch (error) {
+      console.error('Error sending selections complete email:', error);
+    }
+  }
+
+  /**
+   * Send selections confirmation to customer
+   */
+  async sendSelectionsConfirmationEmail(to, { customerName, jobNumber, quoteNumber }, options = {}) {
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || null;
+    const subject = (tenant?.defaultEmailMessage?.subject) || `✅ Your Selections Have Been Submitted - ${jobNumber}`;
+
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #52c41a;">Selections Submitted Successfully!</h2>
+            <p>Hi ${customerName},</p>
+            <p>Thank you for completing your product selections! Your choices have been locked and submitted to your contractor.</p>
+            <div style="background: #f6ffed; border: 1px solid #b7eb8f; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Job Number:</strong> ${jobNumber}</p>
+              <p><strong>Original Proposal:</strong> ${quoteNumber}</p>
+            </div>
+            <p><strong>What happens next:</strong></p>
+            <ol>
+              <li>Your contractor will review your selections</li>
+              <li>The job will be scheduled and you'll receive notification</li>
+              <li>You can track progress in your customer portal</li>
+            </ol>
+            <p>Your selections are now locked and cannot be changed. If you have concerns, please contact your contractor directly.</p>
+            <p>Best regards,<br>Your Project Team</p>
+          </div>
+        </body>
+        </html>
+      `;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage || htmlContent, tenant),
+      text: contractorMessage ? this._stripHtml(contractorMessage) : `Selections Submitted - ${jobNumber}\n\nHi ${customerName},\n\nYour product selections have been submitted and locked. Your contractor will schedule the job and notify you soon.`,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Selections confirmation email sent');
+    } catch (error) {
+      console.error('Error sending selections confirmation email:', error);
+    }
+  }
+
+  /**
+   * Send job scheduled notification to customer
+   */
+  async sendJobScheduledEmail(to, { customerName, jobNumber, scheduledStartDate, scheduledEndDate, estimatedDuration } = {}, options = {}) {
+    // options: { tenantId, contractorMessage }
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options && options.tenantId) {
+      tenant = await Tenant.findByPk(options.tenantId);
+    }
+
+    // Build body: prefer contractorMessage (exact contractor-written body), else fallback to tenant default email
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+
+    const startDateStr = scheduledStartDate ? new Date(scheduledStartDate).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }): null
+
+    const endDateStr = scheduledEndDate ? new Date(scheduledEndDate).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }) : null;
+
+    // Build the HTML: use contractorMessage (assumed to be full HTML) and append system-controlled signature
+    const htmlBody = `${contractorMessage || `
+      <div>
+        <h2>Your Project is Scheduled!</h2>
+        <p>Hi ${customerName || ''},</p>
+        <p>Your job <strong>${jobNumber || ''}</strong> has been scheduled.</p>
+      </div>
+    `}`;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject: (tenant?.defaultEmailMessage?.subject) ? tenant.defaultEmailMessage.subject : `Your Project Has Been Scheduled - ${jobNumber}`,
+      html: await this._appendSignatureHtml(htmlBody, tenant),
+      text: contractorMessage ? this._stripHtml(contractorMessage) : `Job Scheduled - ${jobNumber}\nStart Date: ${startDateStr}`
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Job scheduled email sent');
+    } catch (error) {
+      console.error('Error sending job scheduled email:', error);
+    }
+  }
+
+  /**
+   * Notify customer that contractor approved their selections
+   */
+  async sendSelectionsApprovedEmail(to, { customerName, jobNumber, quoteNumber, jobId }) {
+    // Legacy signature: allow caller to pass tenantId or contractorMessage via options
+    // New usage: sendSelectionsApprovedEmail(to, payload, { tenantId, contractorMessage })
+    // But maintain backwards compatibility
+    const options = arguments[2] || {};
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || `<div><p>Hi ${customerName || ''},</p><p>Your selections for job ${jobNumber || ''} have been approved by your contractor.</p></div>`;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject: (tenant?.defaultEmailMessage?.subject) ? tenant.defaultEmailMessage.subject : `Selections approved - ${jobNumber}`,
+      html: await this._appendSignatureHtml(contractorMessage, tenant),
+      text: this._stripHtml(contractorMessage)
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Selections approved email sent');
+    } catch (error) {
+      console.error('Error sending selections approved email:', error);
+    }
+  }
+
+  // Helper: append standardized, system-controlled signature HTML to a contractor-provided body
+  async _appendSignatureHtml(bodyHtml, tenant) {
+    const companyLogo = tenant?.companyLogoUrl || '';
+    const companyName = tenant?.companyName || '';
+    const phone = tenant?.phoneNumber || '';
+    const email = tenant?.email || '';
+    const website = tenant?.website || '';
+
+    const signatureHtml = `
+      <div style="margin-top:20px;border-top:1px solid #e8e8e8;padding-top:12px;display:flex;gap:12px;align-items:center;font-family:Arial, sans-serif;color:#333;">
+        ${companyLogo ? `<div style="width:80px;height:80px;flex:0 0 80px;"><img src="${companyLogo}" alt="${companyName}" style="max-width:80px;max-height:80px;object-fit:contain;"/></div>` : ''}
+        <div style="font-size:14px;line-height:1.3;">
+          ${companyName ? `<div style="font-weight:600;margin-bottom:4px;">${companyName}</div>` : ''}
+          ${phone ? `<div style="color:#555;margin-bottom:2px;">${phone}</div>` : ''}
+          ${email ? `<div style="color:#555;margin-bottom:2px;">${email}</div>` : ''}
+          ${website ? `<div style="color:#555;">${website}</div>` : ''}
+        </div>
+      </div>
+    `;
+
+    return `<!DOCTYPE html><html><body style="font-family: Arial, sans-serif; color:#333;">${bodyHtml}${signatureHtml}</body></html>`;
+  }
+
+  // Helper: very simple HTML stripper for plain-text fallback
+  _stripHtml(html) {
+    if (!html) return '';
+    return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * Send job rescheduled notification to customer
+   */
+  async sendJobRescheduledEmail(to, { customerName, jobNumber, oldStartDate, newStartDate, newEndDate, reason }) {
+    const options = arguments[2] || {};
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+    const subject = tenant?.defaultEmailMessage?.subject || `Schedule Change - ${jobNumber}`;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage, tenant),
+      text: this._stripHtml(contractorMessage)
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Job rescheduled email sent');
+    } catch (error) {
+      console.error('Error sending job rescheduled email:', error);
+    }
+  }
+
+  /**
+   * Send job status update notification to customer
+   */
+  async sendJobStatusUpdateEmail(to, { customerName, jobNumber, oldStatus, newStatus, notes }) {
+    const options = arguments[2] || {};
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+    const subject = tenant?.defaultEmailMessage?.subject || `Job Status Update - ${jobNumber}`;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage, tenant),
+      text: this._stripHtml(contractorMessage)
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Job status update email sent');
+    } catch (error) {
+      console.error('Error sending status update email:', error);
+    }
+  }
+
+  /**
+   * Send final payment request to customer
+   */
+  async sendFinalPaymentRequestEmail(to, { customerName, jobNumber, total, depositPaid, remainingBalance }) {
+    const options = arguments[2] || {};
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+    const subject = tenant?.defaultEmailMessage?.subject || `Final Payment Required - ${jobNumber}`;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage, tenant),
+      text: this._stripHtml(contractorMessage)
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Final payment request email sent');
+    } catch (error) {
+      console.error('Error sending final payment request email:', error);
+    }
+  }
+
+  /**
+   * Send payment receipt to customer
+   */
+  async sendPaymentReceiptEmail(to, { customerName, jobNumber, amount, paymentDate, transactionId }) {
+    const options = arguments[2] || {};
+    const Tenant = require('../models/Tenant');
+    let tenant = null;
+    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+    const subject = tenant?.defaultEmailMessage?.subject || `Payment Receipt - ${jobNumber}`;
+
+    const mailOptions = {
+      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      replyTo: tenant?.email || process.env.SMTP_USER,
+      subject,
+      html: await this._appendSignatureHtml(contractorMessage, tenant),
+      text: this._stripHtml(contractorMessage)
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Payment receipt email sent');
+    } catch (error) {
+      console.error('Error sending payment receipt email:', error);
+    }
+  }
+
+  /**
+   * Send final payment received notification to contractor
+   */
+  async sendFinalPaymentReceivedEmail(to, { jobNumber, customerName, amount }) {
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `✅ Final Payment Received - ${jobNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #52c41a;">Final Payment Received!</h2>
+            <p><strong>${customerName}</strong> has completed their final payment.</p>
+            <div style="background: #f6ffed; border: 1px solid #b7eb8f; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Job Number:</strong> ${jobNumber}</p>
+              <p><strong>Final Payment:</strong> $${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+              <p><strong>Status:</strong> Project Complete & Paid in Full</p>
+            </div>
+            <p>This job is now fully complete. Great work!</p>
+            <p>Best regards,<br>Cadence System</p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `Final Payment Received - ${jobNumber}\n\nCustomer: ${customerName}\nAmount: $${amount}\n\nJob is now complete and paid in full.`,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      console.log('✅ Final payment received email sent');
+    } catch (error) {
+      console.error('Error sending final payment received email:', error);
+    }
+  }
 }
 
-module.exports = new EmailService()
+// Export a singleton instance so callers can use methods directly
+module.exports = new EmailService();

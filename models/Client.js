@@ -150,6 +150,8 @@ const Client = sequelize.define('Client', {
 Client.associate = (models) => {
   Client.belongsTo(models.Tenant, { foreignKey: 'tenantId', as: 'tenant' });
   Client.hasMany(models.Quote, { foreignKey: 'clientId', as: 'quotes' });
+  Client.hasMany(models.MagicLink, { foreignKey: 'clientId', as: 'magicLinks' });
+  Client.hasMany(models.CustomerSession, { foreignKey: 'clientId', as: 'customerSessions' });
 };
 
 module.exports = Client;

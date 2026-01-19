@@ -23,6 +23,10 @@ const ServiceType = require('./ServiceType');
 const SurfaceType = require('./SurfaceType');
 const LaborCategory = require('./LaborCategory');
 const LaborRate = require('./LaborRate');
+const Job = require('./Job');
+const MagicLink = require('./MagicLink');
+const CustomerSession = require('./CustomerSession');
+const CustomerSelection = require('./CustomerSelection');
 
 // Store models in an object
 const models = {
@@ -45,6 +49,10 @@ const models = {
   SurfaceType,
   LaborCategory,
   LaborRate,
+  Job,
+  MagicLink,
+  CustomerSession,
+  CustomerSelection,
   sequelize
 };
 

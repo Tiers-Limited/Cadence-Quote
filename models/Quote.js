@@ -173,6 +173,7 @@ const Quote = sequelize.define('Quote', {
   },
   
   // Areas and Surfaces (stored as JSON)
+  // Format: [{ id, name, laborItems: [{ categoryName, selected, quantity, ... }] }]
   areas: {
     type: DataTypes.JSONB,
     allowNull: true,
@@ -180,7 +181,23 @@ const Quote = sequelize.define('Quote', {
     
   },
 
-  // Product selections per surface type
+  // Product selections - supports both global (turnkey) and area-wise (flat_rate, production_based, rate_based)
+  // Structure depends on pricing scheme type:
+  // 
+  // TURNKEY (global selection by surface type):
+  // { surfaceType: { products: { good, better, best, single }, ... }, ... }
+  //
+  // AREA-WISE (flat_rate_unit, production_based, rate_based):
+  // {
+  //   areaId: {
+  //     areaName: string,
+  //     surfaces: {
+  //       surfaceType: { products: { good, better, best, single }, quantity, unit, ... },
+  //       ...
+  //     }
+  //   },
+  //   ...
+  // }
   productSets: {
     type: DataTypes.JSONB,
     allowNull: true,

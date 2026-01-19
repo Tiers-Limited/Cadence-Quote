@@ -82,7 +82,7 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
         quoteNumber: proposal.quoteNumber,
         customerName: proposal.customerName,
         id: proposal.id
-      });
+      }, { tenantId: proposal.tenantId });
     } catch (emailError) {
       console.error('Error sending deposit verified email:', emailError);
     }

@@ -80,7 +80,7 @@ exports.verifyDeposit = async (req, res) => {
         quoteNumber: proposal.quoteNumber,
         customerName: proposal.customerName,
         id: proposal.id
-      });
+      }, { tenantId: proposal.tenantId });
     } catch (emailError) {
       console.error('Error sending deposit verified email:', emailError);
       // Don't fail the request if email fails

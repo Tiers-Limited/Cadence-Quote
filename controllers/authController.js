@@ -23,6 +23,7 @@ const { OAuth2Client } = require("google-auth-library");
 const speakeasy = require("speakeasy");
 const crypto = require('crypto');
 const { createAuditLog } = require('./auditLogController');
+const { createDefaultPricingSchemesForTenant } = require("../seeders/20250113-create-default-pricing-schemes");
 /**
  * Register new tenant (contractor company) and admin user
  * POST /api/auth/register
@@ -124,6 +125,16 @@ const register = async (req, res) => {
     // Commit transaction
     await transaction.commit();
 
+    // Create default pricing schemes for the new tenant
+    try {
+      const models = require("../models");
+      await createDefaultPricingSchemesForTenant(tenant.id, models);
+      console.log(`✓ Default pricing schemes created for tenant ${tenant.id}`);
+    } catch (schemeError) {
+      console.error("Failed to create default pricing schemes:", schemeError);
+      // Don't fail registration if scheme creation fails
+    }
+
     // Generate JWT token
     const token = generateToken(user.id, tenant.id);
 
@@ -172,6 +183,7 @@ const register = async (req, res) => {
           companyName: tenant.companyName,
           tradeType: tenant.tradeType,
           subscriptionPlan: tenant.subscriptionPlan,
+          companyLogoUrl: tenant.companyLogoUrl,
         },
         token,
         accessUrl: `${
@@ -444,6 +456,7 @@ const login = async (req, res) => {
             companyName: user.tenant.companyName,
             tradeType: user.tenant.tradeType,
             subscriptionPlan: user.tenant.subscriptionPlan,
+            companyLogoUrl: user.tenant.companyLogoUrl,
           },
           token,
           refreshToken,
@@ -535,6 +548,7 @@ const login = async (req, res) => {
           companyName: user.tenant.companyName,
           tradeType: user.tenant.tradeType,
           subscriptionPlan: user.tenant.subscriptionPlan,
+          companyLogoUrl: user.tenant.companyLogoUrl,
         },
         token,
         refreshToken,
@@ -635,6 +649,7 @@ const verifyTwoFactorCode = async (req, res) => {
           companyName: user.tenant.companyName,
           tradeType: user.tenant.tradeType,
           subscriptionPlan: user.tenant.subscriptionPlan,
+          companyLogoUrl: user.tenant.companyLogoUrl,
         },
         token,
         refreshToken,
@@ -823,7 +838,7 @@ const getProfile = async (req, res) => {
         },
       });
     }
-
+    
     // Regular user (contractor/admin) - already attached by authenticateToken middleware
     const user = await User.findOne({
       where: { id: req.user.id },
@@ -840,19 +855,12 @@ const getProfile = async (req, res) => {
         {
           model: Tenant,
           as: 'tenant',
-          attributes: [
-            "id",
-            "companyName",
-            "tradeType",
-            "subscriptionPlan",
-            "phoneNumber",
-            "businessAddress",
-          ],
+         
           required: true, // INNER JOIN for better performance
         },
       ],
     });
-
+    
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -1226,6 +1234,7 @@ const registerWithPayment = async (req, res) => {
           companyName: tenant.companyName,
           tradeType: tenant.tradeType,
           subscriptionPlan: tenant.subscriptionPlan,
+          companyLogoUrl: user.tenant.companyLogoUrl,
         },
         user: {
           id: user.id,
@@ -1573,7 +1582,7 @@ const completeGoogleSignup = async (req, res) => {
 
     // Create Stripe Checkout Session
     const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
-    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:4001";
 
     const session = await createCheckoutSession({
       userId: user.id,
@@ -1612,6 +1621,7 @@ const completeGoogleSignup = async (req, res) => {
         tenant: {
           id: tenant.id,
           companyName: tenant.companyName,
+          companyLogoUrl: user.tenant.companyLogoUrl,
         },
         user: {
           id: user.id,
@@ -2027,6 +2037,7 @@ const completeAppleSignup = async (req, res) => {
         tenant: {
           id: tenant.id,
           companyName: tenant.companyName,
+          companyLogoUrl: user.tenant.companyLogoUrl,
         },
         user: {
           id: user.id,

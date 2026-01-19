@@ -36,7 +36,9 @@ class DocumentService {
             <p style="margin: 3px 0;">• Sheen: ${area.selections.sheen || 'Not selected'}</p>
             ${area.selections.selectedAt ? `
               <p style="margin: 3px 0; font-size: 0.85em; color: #666;">
-                Selected: ${new Date(area.selections.selectedAt).toLocaleDateString()}
+                Selected: ${new Date(area.selections.selectedAt).toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}
               </p>
             ` : ''}
           </div>
@@ -118,7 +120,9 @@ class DocumentService {
         <div class="section-title">Project Information</div>
         <div class="info-grid">
           <div class="info-item"><strong>Quote Number:</strong> ${proposal.quoteNumber}</div>
-          <div class="info-item"><strong>Date:</strong> ${new Date().toLocaleDateString()}</div>
+          <div class="info-item"><strong>Date:</strong> ${new Date().toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}</div>
           <div class="info-item"><strong>Customer:</strong> ${proposal.customerName}</div>
           <div class="info-item"><strong>Selected Tier:</strong> ${proposal.selectedTier?.toUpperCase() || 'N/A'}</div>
           ${proposal.customerEmail ? `<div class="info-item"><strong>Email:</strong> ${proposal.customerEmail}</div>` : ''}
@@ -248,7 +252,9 @@ class DocumentService {
         <p><strong>Quote Number:</strong> ${proposal.quoteNumber}</p>
         <p><strong>Customer:</strong> ${proposal.customerName}</p>
         <p><strong>Tier:</strong> ${proposal.selectedTier?.toUpperCase() || 'N/A'}</p>
-        <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+        <p><strong>Date:</strong> ${new Date().toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}</p>
 
         <div class="section-title">Materials Required</div>
         ${materialsHTML || '<p style="color: red;">No materials selected</p>'}
@@ -374,7 +380,9 @@ class DocumentService {
         <div class="section-title">Order Information</div>
         <p><strong>Order Reference:</strong> ${proposal.quoteNumber}</p>
         <p><strong>Customer Name:</strong> ${proposal.customerName}</p>
-        <p><strong>Order Date:</strong> ${new Date().toLocaleDateString()}</p>
+        <p><strong>Order Date:</strong> ${new Date().toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      })}</p>
         <p><strong>Project Tier:</strong> ${proposal.selectedTier?.toUpperCase() || 'N/A'}</p>
 
         <div class="section-title">Order Items</div>

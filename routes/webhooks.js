@@ -340,21 +340,38 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
   const { createAuditLog } = require('../controllers/auditLogController');
   const emailService = require('../services/emailService');
 
-  // Update proposal
+  // Update proposal using Phase 1 status flow
   const proposal = await Quote.findByPk(proposalId);
   if (!proposal) {
     console.error(`Proposal ${proposalId} not found`);
     return;
   }
 
-  await proposal.update({
-    depositVerified: true,
-    depositVerifiedAt: new Date(),
-    depositPaymentMethod: 'stripe',
-    depositTransactionId: paymentIntent.id,
-    portalOpen: true,
-    portalOpenedAt: new Date()
-  });
+  // Use StatusFlowService for automated deposit_paid transition
+  const StatusFlowService = require('../services/statusFlowService');
+  try {
+    await StatusFlowService.handlePaymentSuccess(proposalId, paymentIntent.id, {
+      tenantId: proposal.tenantId,
+      userId: null // Automated
+    });
+
+    // Open portal after deposit is paid
+    await proposal.update({
+      portalOpen: true,
+      portalOpenedAt: new Date()
+    });
+  } catch (statusError) {
+    console.error('Status transition error:', statusError);
+    // Fallback to direct update if status flow fails
+    await proposal.update({
+      depositVerified: true,
+      depositVerifiedAt: new Date(),
+      depositPaymentMethod: 'stripe',
+      depositTransactionId: paymentIntent.id,
+      portalOpen: true,
+      portalOpenedAt: new Date()
+    });
+  }
 
   // Create audit log
   await createAuditLog({
@@ -375,7 +392,7 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
       quoteNumber: proposal.quoteNumber,
       customerName: proposal.customerName,
       id: proposal.id
-    });
+    }, { tenantId: proposal.tenantId });
   } catch (emailError) {
     console.error('Error sending deposit verified email:', emailError);
   }

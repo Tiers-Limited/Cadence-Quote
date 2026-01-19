@@ -15,7 +15,7 @@ const getSettings = async (req, res) => {
       where: { tenantId },
       include: [{
         model: Tenant,
-        attributes: ['id', 'companyName', 'email', 'phoneNumber', 'businessAddress', 'tradeType']
+        attributes: ['id', 'companyName', 'email', 'phoneNumber', 'businessAddress', 'tradeType', 'companyLogoUrl', 'defaultEmailMessage']
       }]
     });
 
@@ -38,7 +38,7 @@ const getSettings = async (req, res) => {
         where: { tenantId },
         include: [{
           model: Tenant,
-          attributes: ['id', 'companyName', 'email', 'phoneNumber', 'businessAddress', 'tradeType']
+          attributes: ['id', 'companyName', 'email', 'phoneNumber', 'businessAddress', 'tradeType', 'companyLogoUrl', 'defaultEmailMessage']
         }]
       });
     }
@@ -133,7 +133,13 @@ const updateSettings = async (req, res) => {
       businessHours,
       quoteValidityDays,
       portalDurationDays,
-      portalAutoLock
+      portalAutoLock,
+      portalLinkExpiryDays,
+      portalLinkMaxExpiryDays,
+      portalAutoCleanup,
+      portalAutoCleanupDays,
+      portalRequireOTPForMultiJob,
+      defaultEmailMessage
     } = req.body;
 
     let settings = await ContractorSettings.findOne({
@@ -165,8 +171,23 @@ const updateSettings = async (req, res) => {
         businessHours: businessHours !== undefined ? businessHours : settings.businessHours,
         quoteValidityDays: quoteValidityDays !== undefined ? quoteValidityDays : settings.quoteValidityDays,
         portalDurationDays: portalDurationDays !== undefined ? portalDurationDays : settings.portalDurationDays,
-        portalAutoLock: portalAutoLock !== undefined ? portalAutoLock : settings.portalAutoLock
+        portalAutoLock: portalAutoLock !== undefined ? portalAutoLock : settings.portalAutoLock,
+        portalLinkExpiryDays: portalLinkExpiryDays !== undefined ? portalLinkExpiryDays : settings.portalLinkExpiryDays,
+        portalLinkMaxExpiryDays: portalLinkMaxExpiryDays !== undefined ? portalLinkMaxExpiryDays : settings.portalLinkMaxExpiryDays,
+        portalAutoCleanup: portalAutoCleanup !== undefined ? portalAutoCleanup : settings.portalAutoCleanup,
+        portalAutoCleanupDays: portalAutoCleanupDays !== undefined ? portalAutoCleanupDays : settings.portalAutoCleanupDays,
+        portalRequireOTPForMultiJob: portalRequireOTPForMultiJob !== undefined ? portalRequireOTPForMultiJob : settings.portalRequireOTPForMultiJob
       });
+    }
+
+    // Update email message in tenant if provided
+    if (defaultEmailMessage) {
+      const tenant = await Tenant.findByPk(tenantId);
+      if (tenant) {
+        await tenant.update({
+          defaultEmailMessage: defaultEmailMessage
+        });
+      }
     }
 
     // Audit log
@@ -208,7 +229,8 @@ const updateCompanyInfo = async (req, res) => {
       email,
       phoneNumber,
       businessAddress,
-      tradeType
+      tradeType,
+      companyLogoUrl
     } = req.body;
 
     const tenant = await Tenant.findByPk(tenantId);
@@ -224,13 +246,15 @@ const updateCompanyInfo = async (req, res) => {
     if (companyName && companyName !== tenant.companyName) changes.companyName = { old: tenant.companyName, new: companyName };
     if (email && email !== tenant.email) changes.email = { old: tenant.email, new: email };
     if (phoneNumber && phoneNumber !== tenant.phoneNumber) changes.phoneNumber = { old: tenant.phoneNumber, new: phoneNumber };
+    if (companyLogoUrl && companyLogoUrl !== tenant.companyLogoUrl) changes.companyLogoUrl = { old: tenant.companyLogoUrl, new: companyLogoUrl };
 
     await tenant.update({
       companyName: companyName || tenant.companyName,
       email: email || tenant.email,
       phoneNumber: phoneNumber || tenant.phoneNumber,
       businessAddress: businessAddress !== undefined ? businessAddress : tenant.businessAddress,
-      tradeType: tradeType || tenant.tradeType
+      tradeType: tradeType || tenant.tradeType,
+      companyLogoUrl: companyLogoUrl !== undefined ? companyLogoUrl : tenant.companyLogoUrl
     });
 
     // Audit log

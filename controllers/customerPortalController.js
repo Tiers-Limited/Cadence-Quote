@@ -1,13 +1,430 @@
-// controllers/customerPortalController.js
+﻿// controllers/customerPortalController.js
 // Customer Portal Controller - Handles customer portal access and selections
 
 const Quote = require('../models/Quote');
 const Client = require('../models/Client');
+const Tenant = require('../models/Tenant');
 const { Op } = require('sequelize');
 const { createAuditLog } = require('./auditLogController');
 const documentService = require('../services/documentService');
 const emailService = require('../services/emailService');
+const MagicLinkService = require('../services/magicLinkService');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
+const path = require('path');
+const fs = require('fs');
+
+// ============================================================================
+// MAGIC LINK AUTHENTICATION (Passwordless Access)
+// ============================================================================
+
+/**
+ * Access portal via magic link
+ * GET /api/customer-portal/access/:token
+ */
+exports.accessPortal = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    
+    // Validate magic link
+    const result = await MagicLinkService.validateMagicLink(token, ipAddress, userAgent);
+    
+    if (!result.valid) {
+      return res.status(400).json({
+        success: false,
+        message: result.message,
+        reason: result.reason,
+      });
+    }
+    
+    // Get tenant branding
+    const tenant = await Tenant.findByPk(result.magicLink.tenantId);
+    const branding = {
+      companyName: tenant?.companyName || 'Your Contractor',
+      logo: tenant?.companyLogoUrl || null,
+      primaryColor: tenant?.brandColor || '#2563eb',
+      email: tenant?.email || null,
+      phone: tenant?.phoneNumber || null,
+      website: tenant?.website || null,
+    };
+    
+    // Create audit log
+    await createAuditLog({
+      category: 'customer_portal',
+      action: 'Portal accessed via magic link',
+      userId: null,
+      tenantId: result.magicLink.tenantId,
+      entityType: 'MagicLink',
+      entityId: result.magicLink.id,
+      metadata: {
+        clientId: result.client.id,
+        clientEmail: result.client.email,
+        purpose: result.magicLink.purpose,
+      },
+      ipAddress,
+      userAgent,
+    });
+    
+    res.json({
+      success: true,
+      message: 'Access granted',
+      session: {
+        token: result.session.sessionToken,
+        expiresAt: result.session.expiresAt,
+        isVerified: result.session.isVerified,
+      },
+      client: {
+        id: result.client.id,
+        name: result.client.name,
+        email: result.client.email,
+        phone: result.client.phone,
+      },
+      branding,
+      quote: result.quote ? {
+        id: result.quote.id,
+        quoteNumber: result.quote.quoteNumber,
+        status: result.quote.status,
+        total: result.quote.total,
+      } : null,
+      allowMultiJobAccess: result.magicLink.allowMultiJobAccess && !result.session.isVerified,
+    });
+    
+  } catch (error) {
+    console.error('Access portal error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to access portal',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Validate existing session
+ * POST /api/customer-portal/validate-session
+ */
+exports.validateSession = async (req, res) => {
+  try {
+    const { sessionToken } = req.body;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    
+    if (!sessionToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session token is required',
+      });
+    }
+    
+    // Validate session
+    const result = await MagicLinkService.validateSession(sessionToken, ipAddress, userAgent);
+    
+    if (!result.valid) {
+      return res.status(401).json({
+        success: false,
+        message: result.message,
+        reason: result.reason,
+      });
+    }
+    
+    // Get tenant branding
+    const tenant = await Tenant.findByPk(result.session.tenantId);
+    const branding = {
+      companyName: tenant?.companyName || 'Your Contractor',
+      logo: tenant?.companyLogoUrl || null,
+      primaryColor: tenant?.brandColor || '#2563eb',
+      email: tenant?.email || null,
+      phone: tenant?.phoneNumber || null,
+      website: tenant?.website || null,
+    };
+    
+    res.json({
+      success: true,
+      session: {
+        token: result.session.sessionToken,
+        expiresAt: result.session.expiresAt,
+        isVerified: result.session.isVerified,
+      },
+      client: {
+        id: result.client.id,
+        name: result.client.name,
+        email: result.client.email,
+        phone: result.client.phone,
+      },
+      branding,
+    });
+    
+  } catch (error) {
+    console.error('Validate session error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to validate session',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Request OTP for multi-job access verification
+ * POST /api/customer-portal/request-otp
+ */
+exports.requestOTP = async (req, res) => {
+  try {
+    const { sessionToken, method } = req.body; // method: 'email' or 'sms'
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    
+    if (!sessionToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session token is required',
+      });
+    }
+    
+    if (!['email', 'sms'].includes(method)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification method. Use "email" or "sms".',
+      });
+    }
+    
+    // Validate session
+    const sessionResult = await MagicLinkService.validateSession(sessionToken, ipAddress, userAgent);
+    
+    if (!sessionResult.valid) {
+      return res.status(401).json({
+        success: false,
+        message: sessionResult.message,
+      });
+    }
+    
+    const session = sessionResult.session;
+    const client = sessionResult.client;
+    
+    // Check if already verified
+    if (session.isVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session is already verified for multi-job access.',
+      });
+    }
+    
+    // Determine target (email or phone)
+    const target = method === 'email' ? client.email : client.phone;
+    
+    if (!target) {
+      return res.status(400).json({
+        success: false,
+        message: method === 'email' 
+          ? 'No email address on file.'
+          : 'No phone number on file. Please use email verification.',
+      });
+    }
+    
+    // Create OTP
+    const otp = await MagicLinkService.createOTPVerification({
+      clientId: client.id,
+      tenantId: session.tenantId,
+      sessionId: session.id,
+      method,
+      target,
+    });
+    
+    // Send OTP
+    if (method === 'email') {
+      // Get tenant for branding
+      const tenant = await Tenant.findByPk(session.tenantId);
+      
+      await emailService.sendOTPEmail({
+        to: target,
+        code: otp.code,
+        clientName: client.name,
+        companyName: tenant?.companyName || 'Your Contractor',
+        expiryMinutes: 10,
+      });
+      
+      otp.deliveredAt = new Date();
+      await otp.save();
+    } else {
+      // SMS implementation (requires SMS service like Twilio)
+      // For now, return error
+      return res.status(501).json({
+        success: false,
+        message: 'SMS verification is not yet implemented. Please use email verification.',
+      });
+    }
+    
+    // Create audit log
+    await createAuditLog({
+      category: 'customer_portal',
+      action: 'OTP verification requested',
+      userId: null,
+      tenantId: session.tenantId,
+      entityType: 'CustomerSession',
+      entityId: session.id,
+      metadata: {
+        clientId: client.id,
+        method,
+        target: method === 'email' ? target : '***' + target.slice(-4),
+      },
+      ipAddress,
+      userAgent,
+    });
+    
+    res.json({
+      success: true,
+      message: `Verification code sent to your ${method === 'email' ? 'email' : 'phone'}.`,
+      method,
+      target: method === 'email' 
+        ? target.replace(/(.{2})(.*)(@.*)/, '$1***$3') // Mask email
+        : '***' + target.slice(-4), // Mask phone
+      expiresIn: 600, // 10 minutes in seconds
+    });
+    
+  } catch (error) {
+    console.error('Request OTP error:', error);
+    
+    if (error.message.includes('Too many OTP requests')) {
+      return res.status(429).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send verification code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Verify OTP and upgrade session to multi-job access
+ * POST /api/customer-portal/verify-otp
+ */
+exports.verifyOTP = async (req, res) => {
+  try {
+    const { sessionToken, code } = req.body;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    
+    if (!sessionToken || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session token and verification code are required',
+      });
+    }
+    
+    // Validate session
+    const sessionResult = await MagicLinkService.validateSession(sessionToken, ipAddress, userAgent);
+    
+    if (!sessionResult.valid) {
+      return res.status(401).json({
+        success: false,
+        message: sessionResult.message,
+      });
+    }
+    
+    const session = sessionResult.session;
+    
+    // Verify OTP
+    const result = await MagicLinkService.verifyOTP({
+      code: code.toString(),
+      sessionId: session.id,
+      ipAddress,
+    });
+    
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.message,
+        reason: result.reason,
+        attemptsRemaining: result.attemptsRemaining,
+      });
+    }
+    
+    // Create audit log
+    await createAuditLog({
+      category: 'customer_portal',
+      action: 'OTP verification successful - Multi-job access granted',
+      userId: null,
+      tenantId: session.tenantId,
+      entityType: 'CustomerSession',
+      entityId: session.id,
+      metadata: {
+        clientId: sessionResult.client.id,
+        quoteCount: result.quoteIds.length,
+      },
+      ipAddress,
+      userAgent,
+    });
+    
+    res.json({
+      success: true,
+      message: 'Verification successful! You now have access to all your projects.',
+      session: {
+        token: result.session.sessionToken,
+        expiresAt: result.session.expiresAt,
+        isVerified: true,
+      },
+      quoteIds: result.quoteIds,
+    });
+    
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Get tenant branding
+ * GET /api/customer-portal/branding/:tenantId
+ */
+exports.getBranding = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    
+    const tenant = await Tenant.findByPk(tenantId);
+    
+    if (!tenant) {
+      return res.status(404).json({
+        success: false,
+        message: 'Contractor not found',
+      });
+    }
+    
+    res.json({
+      success: true,
+      branding: {
+        companyName: tenant.companyName || 'Your Contractor',
+        logo: tenant.companyLogoUrl || null,
+        primaryColor: tenant.brandColor || '#2563eb',
+        email: tenant.email || null,
+        phone: tenant.phoneNumber || null,
+        website: tenant.website || null,
+        address: tenant.businessAddress || null,
+      },
+    });
+    
+  } catch (error) {
+    console.error('Get branding error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve branding',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+// ============================================================================
+// EXISTING PORTAL FUNCTIONALITY (Below)
+// ============================================================================
 
 /**
  * Get all proposals for the logged-in customer with pagination and search
@@ -114,12 +531,20 @@ exports.getCustomerProposals = async (req, res) => {
  */
 exports.getProposalDetail = async (req, res) => {
   try {
-    const { proposalId } = req.params;
-    const customerId = req.user.id;
+    const { id } = req.params; // Route uses :id not :proposalId
+    // Use req.customer from customerSessionAuth middleware
+    const customerId = req.customer?.id;
+    
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found in session'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
-        id: proposalId,
+        id: id,
         clientId: customerId
       }
     });
@@ -133,12 +558,62 @@ exports.getProposalDetail = async (req, res) => {
 
     // Calculate tier pricing structure for customer portal
     const ContractorSettings = require('../models/ContractorSettings');
-    const settings = await ContractorSettings.findOne({ 
-      where: { tenantId: proposal.tenantId }
-    });
+    const ProposalDefaults = require('../models/ProposalDefaults');
+    
+    const [settings, proposalDefaults] = await Promise.all([
+      ContractorSettings.findOne({ where: { tenantId: proposal.tenantId } }),
+      ProposalDefaults.findOne({ where: { tenantId: proposal.tenantId } })
+    ]);
     
     const depositPercent = settings?.depositPercent || 50;
     const baseTotal = parseFloat(proposal.total || 0);
+    
+    // Generate project scope from areas
+    const generateProjectScope = (areas) => {
+      if (!areas || areas.length === 0) {
+        return proposalDefaults?.interiorProcess || 'Project scope will be defined based on your requirements.';
+      }
+
+      let scope = 'This project includes:\n\n';
+      
+      areas.forEach((area, index) => {
+        const areaName = area.name || `Area ${index + 1}`;
+        const items = area.laborItems || area.items || [];
+        const selectedItems = items.filter(item => item.selected);
+        
+        if (selectedItems.length > 0) {
+          scope += `**${areaName}:**\n`;
+          selectedItems.forEach(item => {
+            const qty = item.quantity || 0;
+            // Properly format unit based on measurement type
+            let unit = 'items';
+            if (item.measurementUnit === 'sqft') {
+              unit = 'sq ft';
+            } else if (item.measurementUnit === 'linear_foot') {
+              unit = 'linear feet';
+            } else if (item.measurementUnit === 'unit') {
+              unit = 'units';
+            } else if (item.measurementUnit === 'hour') {
+              unit = 'hours';
+            } else if (item.unit) {
+              // Fallback to item.unit if measurementUnit is not set
+              unit = item.unit === 'sqft' ? 'sq ft' : 
+                    item.unit === 'linear_foot' ? 'linear feet' : 
+                    item.unit === 'unit' ? 'units' : 
+                    item.unit === 'hour' ? 'hours' : 
+                    item.unit;
+            }
+            
+            const coats = item.numberOfCoats > 0 ? ` (${item.numberOfCoats} coat${item.numberOfCoats > 1 ? 's' : ''})` : '';
+            
+            scope += `  • ${item.categoryName}: ${qty} ${unit}${coats}\n`;
+          });
+          scope += '\n';
+        }
+      });
+
+      return scope.trim();
+    };
     
     // Calculate all three tier options
     const tiers = {
@@ -165,12 +640,79 @@ exports.getProposalDetail = async (req, res) => {
       effectiveDepositAmount = tiers[proposal.selectedTier.toLowerCase()].deposit;
     }
 
+    // Populate product details for productSets instead of just product IDs
+    const ProductConfig = require('../models/ProductConfig');
+    
+    const enrichedProductSets = await Promise.all(
+      (proposal.productSets || []).map(async (set) => {
+        const enrichedProducts = {};
+        
+        // Process each tier (good, better, best)
+        for (const tier of ['good', 'better', 'best']) {
+          const productId = set.products?.[tier];
+          if (productId) {
+            try {
+              // Fetch the product config with global product details
+              const productConfig = await ProductConfig.findOne({
+                where: { id: productId },
+                include: [
+                  {
+                    association: 'globalProduct',
+                    include: [
+                      {
+                        association: 'brand',
+                        attributes: ['id', 'name']
+                      }
+                    ]
+                  }
+                ]
+              });
+              
+              if (productConfig) {
+                enrichedProducts[tier] = {
+                  id: productConfig.id,
+                  productId: productConfig.id,
+                  globalProductId: productConfig.globalProductId,
+                  brandName: productConfig.globalProduct?.brand?.name || 'Unknown',
+                  productName: productConfig.globalProduct?.name || 'Unknown',
+                  pricePerGallon: productConfig.sheens?.[0]?.price || 0
+                };
+              } else {
+                // Fallback if product not found
+                enrichedProducts[tier] = { id: productId, productName: 'Product not found' };
+              }
+            } catch (err) {
+              console.error(`Error fetching product ${productId}:`, err);
+              enrichedProducts[tier] = { id: productId, productName: 'Product unavailable' };
+            }
+          }
+        }
+        
+        return {
+          ...set,
+          products: enrichedProducts
+        };
+      })
+    );
+
+    // Include any Job created from this quote (if exists) so customer portal can show progress
+    const Job = require('../models/Job');
+    const job = await Job.findOne({ where: { quoteId: proposal.id, clientId: customerId } });
+
     res.json({
       success: true,
       data: {
         ...proposal.toJSON(),
         tiers,
-        depositAmount: effectiveDepositAmount
+        depositAmount: effectiveDepositAmount,
+        // Customer portal display fields from ProposalDefaults (contractor-configurable)
+        companyIntroduction: proposalDefaults?.defaultWelcomeMessage || 'Thank you for considering us for your painting project.',
+        scope: generateProjectScope(proposal.areas),
+        terms: proposalDefaults?.paymentTermsText || 'Standard payment terms apply.',
+        // Pass complete data structures for transparency
+        areas: proposal.areas || [],
+        productSets: enrichedProductSets,
+        job: job ? job.toJSON() : null
       }
     });
   } catch (error) {
@@ -188,14 +730,23 @@ exports.getProposalDetail = async (req, res) => {
  */
 exports.acceptProposal = async (req, res) => {
   try {
-    const { proposalId } = req.params;
+    const { id } = req.params;
     const { selectedTier } = req.body;
-    const customerId = req.user?.id || 212;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
-        id: proposalId,
-        clientId: customerId
+        id,
+        clientId: customerId,
+        tenantId
       }
     });
 
@@ -255,10 +806,10 @@ exports.acceptProposal = async (req, res) => {
       action: 'proposal_accepted',
       category: 'quote',
       entityType: 'Quote',
-      entityId: proposalId,
+      entityId: id,
       details: {
         selectedTier,
-        proposalId,
+        proposalId: id,
         depositAmount
       },
       metadata: {
@@ -277,7 +828,9 @@ exports.acceptProposal = async (req, res) => {
         await emailService.sendProposalAcceptedEmail(contractor.email, {
           quoteNumber: proposal.quoteNumber,
           customerName: proposal.customerName,
+          customerEmail: client?.email || 'N/A',
           selectedTier: proposal.selectedTier,
+          total: tierTotal,
           depositAmount,
           id: proposal.id
         });
@@ -312,14 +865,23 @@ exports.acceptProposal = async (req, res) => {
  */
 exports.declineProposal = async (req, res) => {
   try {
-    const { proposalId } = req.params;
+    const { id } = req.params;
     const { reason } = req.body;
-    const customerId = req.user?.id || 212;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
-        id: proposalId,
-        clientId: customerId
+        id,
+        clientId: customerId,
+        tenantId
       }
     });
 
@@ -346,8 +908,8 @@ exports.declineProposal = async (req, res) => {
       action: 'proposal_declined',
       category: 'quote',
       entityType: 'Quote',
-      entityId: proposalId,
-      details: { proposalId, reason },
+      entityId: id,
+      details: { proposalId: id, reason },
       metadata: {
         clientId: customerId,
         clientEmail: client?.email,
@@ -393,13 +955,22 @@ exports.declineProposal = async (req, res) => {
  */
 exports.acknowledgeFinishStandards = async (req, res) => {
   try {
-    const { proposalId } = req.params;
-    const customerId = req.user.id;
+    const { id } = req.params;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
-        id: proposalId,
+        id,
         clientId: customerId,
+        tenantId,
         depositVerified: true
       }
     });
@@ -426,8 +997,8 @@ exports.acknowledgeFinishStandards = async (req, res) => {
       action: 'finish_standards_acknowledged',
       category: 'quote',
       entityType: 'Quote',
-      entityId: proposalId,
-      details: { proposalId },
+      entityId: id,
+      details: { proposalId: id },
       metadata: {
         clientId: customerId,
         clientEmail: client?.email,
@@ -457,12 +1028,21 @@ exports.saveAreaSelections = async (req, res) => {
   try {
     const { proposalId, areaId } = req.params;
     const { brandId, productId, colorId, customColor, sheen } = req.body;
-    const customerId = req.user.id;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
         clientId: customerId,
+        tenantId,
         portalOpen: true
       }
     });
@@ -545,12 +1125,21 @@ exports.submitAllSelections = async (req, res) => {
   try {
     const { proposalId } = req.params;
     const { selections } = req.body;
-    const customerId = req.user.id;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
         clientId: customerId,
+        tenantId,
         portalOpen: true
       }
     });
@@ -605,6 +1194,17 @@ exports.submitAllSelections = async (req, res) => {
         selectionsCompletedAt: new Date(),
         portalOpen: false
       });
+
+      // Update corresponding Job if it exists
+      const Job = require('../models/Job');
+      const job = await Job.findOne({ where: { quoteId: proposalId } });
+      if (job) {
+        await job.update({
+          customerSelectionsComplete: true,
+          customerSelectionsSubmittedAt: new Date(),
+          status: 'selections_complete'
+        });
+      }
     } else {
       // Old format validation (from ProductSelections component)
       const incomplete = areas.filter(area => !area.selections || !area.selections.productId);
@@ -622,6 +1222,17 @@ exports.submitAllSelections = async (req, res) => {
         selectionsCompletedAt: new Date(),
         portalOpen: false
       });
+
+      // Update corresponding Job if it exists
+      const Job = require('../models/Job');
+      const job = await Job.findOne({ where: { quoteId: proposalId } });
+      if (job) {
+        await job.update({
+          customerSelectionsComplete: true,
+          customerSelectionsSubmittedAt: new Date(),
+          status: 'selections_complete'
+        });
+      }
     }
 
     // Fetch client info for audit log
@@ -680,12 +1291,21 @@ exports.submitAllSelections = async (req, res) => {
 exports.getDocuments = async (req, res) => {
   try {
     const { proposalId } = req.params;
-    const customerId = req.user.id;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
-        clientId: customerId
+        clientId: customerId,
+        tenantId
       }
     });
 
@@ -698,17 +1318,43 @@ exports.getDocuments = async (req, res) => {
 
     const documents = [];
 
-    if (proposal.selectionsComplete) {
-      documents.push(
-        { type: 'work_order', title: 'Work Order', available: true },
-        { type: 'store_order', title: 'Store Order Sheet', available: true },
-        { type: 'material_list', title: 'Material List', available: true }
-      );
+    // Invoice/Proposal - Always available
+    documents.push({
+      type: 'invoice',
+      title: 'Invoice / Proposal',
+      description: 'Your invoice and proposal document',
+      available: true
+    });
+
+    // Work Order - Available after selections complete
+    if (proposal.selectionsComplete || proposal.status === 'deposit_paid') {
+      documents.push({
+        type: 'work_order',
+        title: 'Work Order',
+        description: 'Detailed work order for the crew',
+        available: true
+      });
     }
 
-    documents.push(
-      { type: 'proposal', title: 'Original Proposal', available: true }
-    );
+    // Paint Product Order Form - Available after selections complete
+    if (proposal.selectionsComplete || proposal.status === 'deposit_paid') {
+      documents.push({
+        type: 'product_order',
+        title: 'Paint Product Order Form',
+        description: 'Store-ready paint order form',
+        available: true
+      });
+    }
+
+    // Material List - Available after selections complete
+    if (proposal.selectionsComplete || proposal.status === 'deposit_paid') {
+      documents.push({
+        type: 'material_list',
+        title: 'Material List',
+        description: 'Complete material list organized by product',
+        available: true
+      });
+    }
 
     res.json({
       success: true,
@@ -725,18 +1371,133 @@ exports.getDocuments = async (req, res) => {
 };
 
 /**
+ * Helper: enrich a Quote instance with area-level customer selections
+ * so Work Order / Product Order / Material List PDFs have paint data.
+ * Mirrors the logic used in customerSelectionsController auto-generation.
+ */
+async function buildEnrichedQuoteWithSelections(quoteInstance) {
+  if (!quoteInstance) return quoteInstance;
+
+  const quote = typeof quoteInstance.toJSON === 'function'
+    ? quoteInstance.toJSON()
+    : { ...quoteInstance };
+
+  try {
+    const CustomerSelection = require('../models/CustomerSelection');
+    const selections = await CustomerSelection.findAll({
+      where: { quoteId: quote.id },
+    });
+
+    const csMap = new Map();
+    selections.forEach((r) => {
+      const key = `${String(r.areaId || r.areaName)}::${String((r.surfaceType || '').trim().toLowerCase())}`;
+      const existing = csMap.get(key);
+      if (!existing || new Date(r.updatedAt) > new Date(existing.updatedAt)) {
+        csMap.set(key, r);
+      }
+    });
+
+    let enrichedAreas = [];
+    try {
+      let ps = quote.productSets;
+      if (typeof ps === 'string') ps = JSON.parse(ps || '[]');
+
+      if (Array.isArray(ps) && ps.length > 0) {
+        for (const p of ps) {
+          const key = `${String(p.areaId || p.areaName)}::${String((p.surfaceType || '').trim().toLowerCase())}`;
+          const sel = csMap.get(key);
+          const fallbackProduct =
+            sel?.productName ||
+            p.productName ||
+            p.product ||
+            p.products?.single?.name ||
+            p.products?.good?.name ||
+            p.products?.better?.name ||
+            p.products?.best?.name ||
+            null;
+          enrichedAreas.push({
+            name: p.areaName || p.name || `Area ${p.areaId || ''}`,
+            surface: p.surfaceType,
+            sqft: p.sqft || null,
+            customerSelections: sel ? {
+              product: sel.productName || fallbackProduct || 'Not selected',
+              sheen: sel.sheen || null,
+              color: sel.colorName || null,
+              colorNumber: sel.colorNumber || null,
+              swatch: sel.colorHex || null,
+              quantityGallons: sel.quantityGallons || null,
+            } : null,
+          });
+        }
+      } else {
+        csMap.forEach((r) => {
+          const fallbackProduct = r.productName || quote.defaultProductName || null;
+          enrichedAreas.push({
+            name: r.areaName || `Area ${r.areaId || ''}`,
+            surface: r.surfaceType,
+            sqft: r.sqft || null,
+            customerSelections: {
+              product: r.productName || fallbackProduct || 'Not selected',
+              sheen: r.sheen || null,
+              color: r.colorName || null,
+              colorNumber: r.colorNumber || null,
+              swatch: r.colorHex || null,
+              quantityGallons: r.quantityGallons || null,
+            },
+          });
+        });
+      }
+    } catch (e) {
+      enrichedAreas = [];
+    }
+
+    return { ...quote, areas: enrichedAreas };
+  } catch (err) {
+    console.error('buildEnrichedQuoteWithSelections failed:', err);
+    return typeof quoteInstance.toJSON === 'function' ? quoteInstance.toJSON() : quoteInstance;
+  }
+}
+
+/**
  * Download document
  */
 exports.downloadDocument = async (req, res) => {
   try {
     const { proposalId } = req.params;
     const { docType } = req.params;
-    const customerId = req.user.id;
+    let customerId = req.customer?.id;
+    let tenantId = req.customerTenantId;
+    const { token } = req.query;
+
+    // Support token-based access (magic link) for downloads when Authorization header not present
+    if (!customerId && token) {
+      try {
+        const MagicLinkService = require('../services/magicLinkService');
+        const result = await MagicLinkService.validateMagicLink(token, req.ip, req.headers['user-agent']);
+        if (result.valid && result.magicLink) {
+          customerId = result.magicLink.clientId;
+          tenantId = result.magicLink.tenantId;
+        } else if (!result.valid) {
+          return res.status(401).json({ success: false, message: result.message });
+        }
+      } catch (tokenErr) {
+        console.error('Token validation error (download):', tokenErr);
+        return res.status(401).json({ success: false, message: 'Invalid or expired link' });
+      }
+    }
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
-        clientId: customerId
+        clientId: customerId,
+        tenantId
       }
     });
 
@@ -747,37 +1508,211 @@ exports.downloadDocument = async (req, res) => {
       });
     }
 
+    // Get related job if exists
+    const Job = require('../models/Job');
+    const job = await Job.findOne({
+      where: { quoteId: proposal.id, tenantId }
+    });
+
+    // Get contractor info
+    const Tenant = require('../models/Tenant');
+    const contractor = await Tenant.findByPk(tenantId);
+    const contractorInfo = {
+      companyName: contractor?.companyName || 'Professional Painting Co.',
+      address: contractor?.address || '',
+      phone: contractor?.phoneNumber || '',
+      email: contractor?.email || '',
+      logo: contractor?.companyLogoUrl || null
+    };
+
     // Generate PDF based on docType
-    let filePath;
+    let pdfBuffer;
+    let fileName;
+    
     try {
       switch (docType) {
+        case 'invoice':
+          // Generate invoice using invoice template service
+          const invoiceTemplateService = require('../services/invoiceTemplateService');
+          const ContractorSettings = require('../models/ContractorSettings');
+          
+          const settings = await ContractorSettings.findOne({ where: { tenantId } });
+          
+          const templateType = proposal.productStrategy === 'GBB' ? 'gbb' : 'single';
+          const templateStyle = settings?.invoice_template_style || 'light';
+
+        
+
+          // Enrich for scope/materials generation (does not affect invoice pricing)
+          const enrichedForInvoice = await buildEnrichedQuoteWithSelections(proposal);
+
+          const derivedScope = (proposal.scopeOfWork && proposal.scopeOfWork.length > 0)
+            ? proposal.scopeOfWork
+            : (proposal.jobScope ? [proposal.jobScope] : []);
+
+          // Build a simple materials/selections list from enriched areas
+          const materialsSelections = Array.isArray(enrichedForInvoice?.areas)
+            ? enrichedForInvoice.areas
+              .filter(a => a.customerSelections)
+              .map(a => {
+                const cs = a.customerSelections || {};
+                const colorLabel = [cs.color, cs.colorNumber].filter(Boolean).join(' ');
+                return [cs.product, cs.sheen, colorLabel].filter(Boolean).join(' – ');
+              })
+              .filter(Boolean)
+            : [];
+          
+          const invoiceData = {
+            invoiceNumber: proposal.quoteNumber || `INV-${Date.now()}`,
+            issueDate: new Date().toLocaleDateString('en-US'),
+            dueDate: proposal.validUntil ? new Date(proposal.validUntil).toLocaleDateString('en-US') : null,
+            projectName: proposal.jobTitle || `${proposal.customerName} Project`,
+            projectAddress: [proposal.street, proposal.city, proposal.state, proposal.zipCode].filter(Boolean).join(', '),
+            customerName: proposal.customerName,
+            customerPhone: proposal.customerPhone,
+            customerEmail: proposal.customerEmail,
+            welcomeMessage: settings?.welcomeMessage || null,
+            scopeOfWork: derivedScope,
+            materialsSelections,
+            estimatedDuration: proposal.estimatedDuration || null,
+            estimatedStartDate: proposal.scheduledStartDate || null,
+            pricingItems: [
+              {
+                name: proposal.jobTitle || 'Project',
+                qty: 1,
+                rate: null,
+                amount: parseFloat(proposal.total || 0),
+              },
+            ],
+            projectInvestment: proposal.total,
+            deposit: proposal.depositAmount,
+            balance: (proposal.total || 0) - (proposal.depositAmount || 0),
+            projectTerms: []
+          };
+
+          // If GBB invoice, attempt to synthesize gbbOptions from proposal.productSets (safe defaults)
+          if (templateType === 'gbb') {
+            try {
+              let productSets = proposal.productSets || [];
+              if (typeof productSets === 'string') {
+                try { productSets = JSON.parse(productSets); } catch (e) { productSets = []; }
+              }
+              if (!Array.isArray(productSets)) productSets = [];
+
+              const tiers = { good: new Set(), better: new Set(), best: new Set() };
+              productSets.forEach(ps => {
+                const products = ps.products || {};
+                Object.entries(products).forEach(([tier, prod]) => {
+                  if (!tier) return;
+                  const name = (prod && prod.name) ? prod.name : (typeof prod === 'string' ? prod : (prod && prod.id ? `${prod.id}` : null));
+                  if (name && tiers[tier]) tiers[tier].add(name);
+                });
+              });
+
+              invoiceData.gbbOptions = {
+                good: { price: null, features: Array.from(tiers.good) },
+                better: { price: null, features: Array.from(tiers.better) },
+                best: { price: null, features: Array.from(tiers.best) }
+              };
+            } catch (gbbErr) {
+              console.warn('GBB invoice options build failed, continuing with defaults:', gbbErr?.message || gbbErr);
+              invoiceData.gbbOptions = {};
+            }
+          }
+
+          try {
+            pdfBuffer = await invoiceTemplateService.generateInvoice({
+              templateType,
+              style: templateStyle,
+              invoiceData,
+              contractorInfo
+            });
+
+            if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer)) {
+              console.error('Invoice PDF generation returned invalid buffer', { proposalId: proposal.id, templateType, templateStyle });
+              throw new Error('Invalid PDF buffer');
+            }
+          } catch (invoiceErr) {
+            console.error('Invoice generation failed, attempting safe fallback:', invoiceErr && invoiceErr.message);
+            try {
+              // Fallback: render single-item invoice HTML and convert to PDF
+              const fallbackHtml = invoiceTemplateService.generateSingleItemInvoiceHTML({ style: templateStyle, invoiceData, contractorInfo });
+              const { htmlToPdfBuffer } = require('../services/pdfService');
+              const fallbackPdf = await htmlToPdfBuffer(fallbackHtml, { waitUntil: 'load' });
+              if (!fallbackPdf || !Buffer.isBuffer(fallbackPdf)) {
+                console.error('Fallback PDF generation also failed (invalid buffer)');
+                return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF (fallback failed)' });
+              }
+
+              pdfBuffer = fallbackPdf;
+              console.warn('Fallback invoice PDF generated successfully');
+            } catch (fallbackErr) {
+              console.error('Fallback invoice PDF generation failed:', fallbackErr && fallbackErr.message);
+              return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF' });
+            }
+          }
+
+          fileName = `Invoice-${proposal.quoteNumber}.pdf`;
+          break;
+
         case 'work_order':
-          if (!proposal.selectionsComplete) {
+          if (!proposal.selectionsComplete && proposal.status !== 'deposit_paid') {
             return res.status(400).json({
               success: false,
               message: 'Work order not available until selections are complete'
             });
           }
-          filePath = await documentService.generateWorkOrder(proposal);
+          const workOrderService = require('../services/workOrderService');
+          const enrichedForWorkOrder = await buildEnrichedQuoteWithSelections(proposal);
+          pdfBuffer = await workOrderService.generateWorkOrder({
+            job: job || {},
+            quote: enrichedForWorkOrder,
+            contractorInfo
+          });
+          fileName = `WorkOrder-${job?.jobNumber || proposal.quoteNumber}.pdf`;
           break;
+
+        case 'product_order':
+          if (!proposal.selectionsComplete && proposal.status !== 'deposit_paid') {
+            return res.status(400).json({
+              success: false,
+              message: 'Product order form not available until selections are complete'
+            });
+          }
+          const productOrderService = require('../services/workOrderService');
+          const enrichedForProductOrder = await buildEnrichedQuoteWithSelections(proposal);
+          pdfBuffer = await productOrderService.generateProductOrderForm({
+            job: job || {},
+            quote: enrichedForProductOrder,
+            contractorInfo
+          });
+          fileName = `ProductOrder-${job?.jobNumber || proposal.quoteNumber}.pdf`;
+          break;
+
         case 'material_list':
-          if (!proposal.selectionsComplete) {
+          if (!proposal.selectionsComplete && proposal.status !== 'deposit_paid') {
             return res.status(400).json({
               success: false,
               message: 'Material list not available until selections are complete'
             });
           }
-          filePath = await documentService.generateMaterialList(proposal);
+          const materialListService = require('../services/workOrderService');
+          const enrichedForMaterialList = await buildEnrichedQuoteWithSelections(proposal);
+          pdfBuffer = await materialListService.generateMaterialList({
+            job: job || {},
+            quote: enrichedForMaterialList,
+            contractorInfo
+          });
+          fileName = `MaterialList-${job?.jobNumber || proposal.quoteNumber}.pdf`;
           break;
-        case 'store_order':
-          if (!proposal.selectionsComplete) {
-            return res.status(400).json({
-              success: false,
-              message: 'Store order not available until selections are complete'
-            });
-          }
-          filePath = await documentService.generateStoreOrder(proposal);
+
+        case 'proposal':
+          // Legacy support - generate proposal PDF
+          const quoteBuilderController = require('./quoteBuilderController');
+          pdfBuffer = await quoteBuilderController.generateProposalPdf(proposal);
+          fileName = `Proposal-${proposal.quoteNumber}.pdf`;
           break;
+
         default:
           return res.status(400).json({
             success: false,
@@ -785,14 +1720,12 @@ exports.downloadDocument = async (req, res) => {
           });
       }
 
-      // Send file
-      res.download(filePath, (err) => {
-        if (err) {
-          console.error('Download error:', err);
-        }
-        // Clean up temp file
-        documentService.cleanupFile(filePath);
-      });
+      // Set headers for PDF response (download)
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      
+      // Send PDF buffer
+      res.send(pdfBuffer);
     } catch (pdfError) {
       console.error('PDF generation error:', pdfError);
       return res.status(500).json({
@@ -812,18 +1745,260 @@ exports.downloadDocument = async (req, res) => {
 };
 
 /**
- * Create Stripe payment intent for deposit
+ * View document (inline PDF viewing)
+ * GET /api/customer-portal/proposals/:proposalId/documents/:docType/view
+ * Note: This endpoint can be accessed with query param ?token=XXX for iframe viewing
  */
-exports.createPaymentIntent = async (req, res) => {
+exports.viewDocument = async (req, res) => {
   try {
     const { proposalId } = req.params;
-    const { tier } = req.body;
-    const customerId = req.user.id;
+    const { docType } = req.params;
+    const { token } = req.query; // Support token query param for iframe access
+    
+    let customerId = null;
+    let tenantId = req.customerTenantId;
+
+    // If token provided, validate it first (for iframe viewing)
+    if (token) {
+      try {
+        const MagicLinkService = require('../services/magicLinkService');
+        const result = await MagicLinkService.validateMagicLink(token, req.ip, req.headers['user-agent']);
+        console.log('Magic link validation result (view):', result);
+        if (result.valid && result.magicLink) {
+          customerId = result.magicLink.clientId;
+          const sessionQuote = await Quote.findOne({
+            where: { id: proposalId, clientId: result.magicLink.clientId }
+          });
+          
+          if (sessionQuote) {
+            customerId = result.magicLink.clientId;
+            tenantId = result.magicLink.tenantId;
+          }
+        }
+      } catch (tokenError) {
+        console.error('Token validation error:', tokenError);
+      }
+    }
+
+    if (!customerId) {
+      res.status(401).set('Content-Type', 'text/html');
+      return res.send(`<html><body style="font-family: Arial, Helvetica, sans-serif; padding: 40px;"><h2>Authentication required</h2><p>No valid session or token was provided. Please access your portal link again to view documents.</p></body></html>`);
+    }
 
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
         clientId: customerId,
+        tenantId
+      }
+    });
+
+    if (!proposal) {
+      res.status(404).set('Content-Type', 'text/html');
+      return res.send(`<html><body style="font-family: Arial, Helvetica, sans-serif; padding: 40px;"><h2>Document not found</h2><p>The requested proposal or document could not be found. Please check the link or contact support.</p></body></html>`);
+    }
+
+    // Get related job if exists
+    const Job = require('../models/Job');
+    const job = await Job.findOne({
+      where: { quoteId: proposal.id, tenantId }
+    });
+
+    // Get contractor info
+    const Tenant = require('../models/Tenant');
+    const contractor = await Tenant.findByPk(tenantId);
+    const contractorInfo = {
+      companyName: contractor?.companyName || 'Professional Painting Co.',
+      address: contractor?.address || '',
+      phone: contractor?.phoneNumber || '',
+      email: contractor?.email || '',
+      logo: contractor?.companyLogoUrl || null
+    };
+
+    // Generate PDF (same logic as download)
+    let pdfBuffer;
+    
+    try {
+      switch (docType) {
+        case 'invoice':
+          const invoiceTemplateService = require('../services/invoiceTemplateService');
+          const ContractorSettings = require('../models/ContractorSettings');
+          const settings = await ContractorSettings.findOne({ where: { tenantId } });
+          
+          const templateType = proposal.productStrategy === 'GBB' ? 'gbb' : 'single';
+          const templateStyle = settings?.invoice_template_style || 'light';
+          
+          const invoiceData = {
+            invoiceNumber: proposal.quoteNumber || `INV-${Date.now()}`,
+            issueDate: new Date().toLocaleDateString('en-US'),
+            dueDate: proposal.validUntil ? new Date(proposal.validUntil).toLocaleDateString('en-US') : null,
+            projectName: proposal.jobTitle || `${proposal.customerName} Project`,
+            projectAddress: [proposal.street, proposal.city, proposal.state, proposal.zipCode].filter(Boolean).join(', '),
+            customerName: proposal.customerName,
+            customerPhone: proposal.customerPhone,
+            customerEmail: proposal.customerEmail,
+            welcomeMessage: settings?.welcomeMessage || null,
+            scopeOfWork: derivedScope,
+            materialsSelections,
+            estimatedDuration: proposal.estimatedDuration || null,
+            estimatedStartDate: proposal.scheduledStartDate || null,
+            pricingItems: [
+              {
+                name: proposal.jobTitle || 'Project',
+                qty: 1,
+                rate: null,
+                amount: parseFloat(proposal.total || 0),
+              },
+            ],
+            projectInvestment: proposal.total,
+            deposit: proposal.depositAmount,
+            balance: (proposal.total || 0) - (proposal.depositAmount || 0),
+            projectTerms: []
+          };
+
+          // If GBB invoice, attempt to synthesize gbbOptions from proposal.productSets (safe defaults)
+          if (templateType === 'gbb') {
+            try {
+              let productSets = proposal.productSets || [];
+              if (typeof productSets === 'string') {
+                try { productSets = JSON.parse(productSets); } catch (e) { productSets = []; }
+              }
+              if (!Array.isArray(productSets)) productSets = [];
+
+              const tiers = { good: new Set(), better: new Set(), best: new Set() };
+              productSets.forEach(ps => {
+                const products = ps.products || {};
+                Object.entries(products).forEach(([tier, prod]) => {
+                  if (!tier) return;
+                  const name = (prod && prod.name) ? prod.name : (typeof prod === 'string' ? prod : (prod && prod.id ? `${prod.id}` : null));
+                  if (name && tiers[tier]) tiers[tier].add(name);
+                });
+              });
+
+              invoiceData.gbbOptions = {
+                good: { price: null, features: Array.from(tiers.good) },
+                better: { price: null, features: Array.from(tiers.better) },
+                best: { price: null, features: Array.from(tiers.best) }
+              };
+            } catch (gbbErr) {
+              console.warn('GBB invoice options build failed, continuing with defaults:', gbbErr?.message || gbbErr);
+              invoiceData.gbbOptions = {};
+            }
+          }
+
+          pdfBuffer = await invoiceTemplateService.generateInvoice({
+            templateType,
+            style: templateStyle,
+            invoiceData,
+            contractorInfo
+          });
+
+          if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer)) {
+            console.error('Invoice PDF generation returned invalid buffer (view)', { proposalId: proposal.id, templateType, templateStyle });
+            return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF (invalid buffer)' });
+          }
+
+          break;
+
+        case 'work_order':
+          if (!proposal.selectionsComplete && proposal.status !== 'deposit_paid') {
+            return res.status(400).json({
+              success: false,
+              message: 'Work order not available until selections are complete'
+            });
+          }
+          const workOrderService = require('../services/workOrderService');
+          const enrichedForWorkOrder = await buildEnrichedQuoteWithSelections(proposal);
+          pdfBuffer = await workOrderService.generateWorkOrder({
+            job: job || {},
+            quote: enrichedForWorkOrder,
+            contractorInfo
+          });
+          break;
+
+        case 'product_order':
+          if (!proposal.selectionsComplete && proposal.status !== 'deposit_paid') {
+            return res.status(400).json({
+              success: false,
+              message: 'Product order form not available until selections are complete'
+            });
+          }
+          const productOrderService = require('../services/workOrderService');
+          const enrichedForProductOrder = await buildEnrichedQuoteWithSelections(proposal);
+          pdfBuffer = await productOrderService.generateProductOrderForm({
+            job: job || {},
+            quote: enrichedForProductOrder,
+            contractorInfo
+          });
+          break;
+
+        case 'material_list':
+          if (!proposal.selectionsComplete && proposal.status !== 'deposit_paid') {
+            return res.status(400).json({
+              success: false,
+              message: 'Material list not available until selections are complete'
+            });
+          }
+          const materialListService = require('../services/workOrderService');
+          const enrichedForMaterialList = await buildEnrichedQuoteWithSelections(proposal);
+          pdfBuffer = await materialListService.generateMaterialList({
+            job: job || {},
+            quote: enrichedForMaterialList,
+            contractorInfo
+          });
+          break;
+
+        default:
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid document type'
+          });
+      }
+
+      // Set headers for inline PDF viewing
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+      
+      // Send PDF buffer
+      res.send(pdfBuffer);
+    } catch (pdfError) {
+      console.error('PDF generation error:', pdfError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to generate document',
+        error: pdfError.message
+      });
+    }
+  } catch (error) {
+    console.error('View document error:', error);
+    res.status(500).set('Content-Type', 'text/html');
+    const message = process.env.NODE_ENV === 'development' ? (`<pre>${error.message}</pre>`) : '';
+    return res.send(`<html><body style="font-family: Arial, Helvetica, sans-serif; padding: 40px;"><h2>Failed to generate document</h2><p>The server encountered an error generating this document. Please contact support.</p>${message}</body></html>`);
+  }
+};
+
+/**
+ * Create Stripe payment intent for deposit
+ */
+exports.createPaymentIntent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tier } = req.body;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
+
+    const proposal = await Quote.findOne({
+      where: { 
+        id,
+        clientId: customerId,
+        tenantId,
         status: 'accepted'
       }
     });
@@ -895,9 +2070,17 @@ exports.createPaymentIntent = async (req, res) => {
  */
 exports.verifyDepositAndOpenPortal = async (req, res) => {
   try {
-    const { proposalId } = req.params;
+    const { id } = req.params;
     const { paymentIntentId } = req.body;
-    const customerId = req.user?.id || 212;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     // Validate input
     if (!paymentIntentId) {
@@ -909,8 +2092,9 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
 
     const proposal = await Quote.findOne({
       where: { 
-        id: proposalId,
+        id,
         clientId: customerId,
+        tenantId,
         status: 'accepted'
       }
     });
@@ -931,7 +2115,7 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
           portalOpen: proposal.portalOpen,
           portalExpiresAt: proposal.portalClosedAt,
           portalDurationDays: Math.ceil((new Date(proposal.portalClosedAt) - new Date(proposal.portalOpenedAt)) / (1000 * 60 * 60 * 24)),
-          redirectTo: `/portal/finish-standards/${proposalId}`,
+          redirectTo: `/portal/finish-standards/${id}`,
           alreadyProcessed: true
         }
       });
@@ -939,7 +2123,7 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
 
     // EDGE CASE: Deposit verified but different transaction ID (possible fraud/error)
     if (proposal.depositVerified && proposal.depositTransactionId !== paymentIntentId) {
-      console.error(`Payment verification conflict: Proposal ${proposalId} already has transaction ${proposal.depositTransactionId}, attempted ${paymentIntentId}`);
+      console.error(`Payment verification conflict: Proposal ${id} already has transaction ${proposal.depositTransactionId}, attempted ${paymentIntentId}`);
       return res.status(409).json({
         success: false,
         message: 'Deposit has already been verified with a different payment. Please contact support.',
@@ -1003,8 +2187,8 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
       }
 
       // SECURITY: Verify payment metadata matches proposal
-      if (paymentIntent.metadata.proposalId !== proposalId.toString()) {
-        console.error(`Payment metadata mismatch: Expected proposal ${proposalId}, got ${paymentIntent.metadata.proposalId}`);
+      if (paymentIntent.metadata.proposalId !== id.toString()) {
+        console.error(`Payment metadata mismatch: Expected proposal ${id}, got ${paymentIntent.metadata.proposalId}`);
         return res.status(400).json({
           success: false,
           message: 'Payment does not match this proposal. Please contact support.',
@@ -1047,22 +2231,87 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
     const transaction = await sequelize.transaction();
 
     try {
-      // Update proposal - mark deposit as verified and open portal
-      await proposal.update({
-        depositVerified: true,
-        depositVerifiedAt: new Date(),
-        // depositVerifiedBy is for contractor verification, not customer self-service payment
-        depositPaymentMethod: 'stripe',
-        depositTransactionId: paymentIntentId,
-        portalOpen: true,
-        portalOpenedAt: new Date(),
-        portalClosedAt: portalExpiresAt, // Set when portal should auto-close
-        status: 'deposit_paid'
+      // Use Phase 1 status flow for deposit_paid transition
+      const StatusFlowService = require('../services/statusFlowService');
+      try {
+        await StatusFlowService.handlePaymentSuccess(
+          proposal.id,
+          paymentIntentId,
+          {
+            tenantId,
+            userId: null, // Automated
+            transaction
+          }
+        );
+
+        // Reload proposal to get updated status
+        await proposal.reload({ transaction });
+
+        // Open portal after deposit is paid
+        await proposal.update({
+          portalOpen: true,
+          portalOpenedAt: new Date(),
+          portalClosedAt: portalExpiresAt, // Set when portal should auto-close
+        }, { transaction });
+      } catch (statusError) {
+        console.error('Status transition error:', statusError);
+        // Fallback to direct update if status flow fails
+        await proposal.update({
+          depositVerified: true,
+          depositVerifiedAt: new Date(),
+          depositPaymentMethod: 'stripe',
+          depositTransactionId: paymentIntentId,
+          portalOpen: true,
+          portalOpenedAt: new Date(),
+          portalClosedAt: portalExpiresAt,
+          status: 'deposit_paid'
+        }, { transaction });
+      }
+
+      // CRITICAL: CREATE JOB RECORD (Quote → Job transition)
+      // This is the key pipeline hand-off from quoting to job management
+      const Job = require('../models/Job');
+      
+      // Generate unique job number
+      const jobCount = await Job.count({ 
+        where: { tenantId: proposal.tenantId },
+        transaction 
+      });
+      const jobNumber = `JOB-${new Date().getFullYear()}-${String(jobCount + 1).padStart(4, '0')}`;
+      
+      // Create job from accepted quote
+      const job = await Job.create({
+        tenantId: proposal.tenantId,
+        userId: proposal.userId,
+        clientId: proposal.clientId,
+        quoteId: proposal.id,
+        jobNumber,
+        jobName: `${proposal.customerName} - ${proposal.jobType || 'Painting'} Project`,
+        customerName: proposal.customerName,
+        customerEmail: proposal.customerEmail,
+        customerPhone: proposal.customerPhone || null,
+        jobAddress: proposal.propertyAddress || proposal.serviceAddress || null,
+        status: proposal.selectionsComplete ? 'selections_complete' : 'deposit_paid', // Set status based on selections
+        totalAmount: proposal.total,
+        depositAmount: proposal.depositAmount,
+        depositPaid: true,
+        depositPaidAt: new Date(),
+        balanceRemaining: proposal.total - proposal.depositAmount,
+        selectedTier: proposal.selectedTier,
+        jobType: proposal.jobType || 'interior',
+        customerSelectionsComplete: proposal.selectionsComplete || false,
+        customerSelectionsSubmittedAt: proposal.selectionsCompletedAt || null,
+        portalExpiresAt: portalExpiresAt,
+        materialListGenerated: false,
+        workOrderGenerated: false,
+        areaProgress: {} // Initialize empty area progress tracking
       }, { transaction });
+
+      console.log(`Job ${jobNumber} created successfully from proposal ${id}`);
 
       // Commit transaction - all changes saved atomically
       await transaction.commit();
-      console.log(`Proposal ${proposalId} deposit verified and portal opened successfully`);
+      console.log(`Proposal ${id} deposit verified, portal opened, and Job ${jobNumber} created successfully`);
       
     } catch (dbError) {
       // ROLLBACK: Database update failed, rollback transaction
@@ -1088,9 +2337,9 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
       action: 'deposit_verified',
       category: 'quote',
       entityType: 'Quote',
-      entityId: proposalId,
+      entityId: id,
       details: {
-        proposalId,
+        proposalId: id,
         paymentIntentId,
         amount: paymentIntent.amount / 100,
         portalExpiresAt
@@ -1105,16 +2354,14 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
 
     // Send confirmation email to customer with portal link
     try {
-      const portalLink = `${process.env.FRONTEND_URL}/portal/selections/${proposalId}`;
-      await emailService.sendPortalAccessEmail(proposal.customerEmail, {
+      await emailService.sendDepositVerifiedEmail(proposal.customerEmail, {
         customerName: proposal.customerName,
         quoteNumber: proposal.quoteNumber,
-        portalLink,
-        expiresAt: portalExpiresAt.toLocaleDateString(),
+        id: proposal.id,
         depositAmount: proposal.depositAmount
-      });
+      }, { tenantId: proposal.tenantId });
     } catch (emailError) {
-      console.error('Error sending portal access email:', emailError);
+      console.error('Error sending deposit verified email:', emailError);
     }
 
     res.json({
@@ -1124,7 +2371,7 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
         portalOpen: true,
         portalExpiresAt,
         portalDurationDays,
-        redirectTo: `/portal/finish-standards/${proposalId}`
+        redirectTo: `/portal/finish-standards/${id}`
       }
     });
   } catch (error) {
@@ -1145,12 +2392,21 @@ exports.checkPaymentStatus = async (req, res) => {
   try {
     const { proposalId } = req.params;
     const { paymentIntentId } = req.query;
-    const customerId = req.user?.id || 212;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
-        clientId: customerId
+        clientId: customerId,
+        tenantId
       }
     });
 
@@ -1204,12 +2460,21 @@ exports.checkPaymentStatus = async (req, res) => {
 exports.checkPortalStatus = async (req, res) => {
   try {
     const { proposalId } = req.params;
-    const customerId = req.user?.id || 212;
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     const proposal = await Quote.findOne({
       where: { 
         id: proposalId,
-        clientId: customerId
+        clientId: customerId,
+        tenantId
       }
     });
 
@@ -1307,7 +2572,15 @@ exports.upgradeTier = async (req, res) => {
   try {
     const { proposalId } = req.params;
     const { newTier, additionalAmount } = req.body;
-    const clientId = req.client.id;
+    const clientId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     if (!['good', 'better', 'best'].includes(newTier)) {
       return res.status(400).json({
@@ -1317,7 +2590,7 @@ exports.upgradeTier = async (req, res) => {
     }
 
     const quote = await Quote.findOne({
-      where: { id: proposalId, clientId }
+      where: { id: proposalId, clientId, tenantId }
     });
 
     if (!quote) {
@@ -1364,7 +2637,15 @@ exports.requestTierChange = async (req, res) => {
   try {
     const { proposalId } = req.params;
     const { newTier, reason } = req.body;
-    const clientId = req.client.id;
+    const clientId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
 
     if (!['good', 'better', 'best'].includes(newTier)) {
       return res.status(400).json({
@@ -1374,7 +2655,7 @@ exports.requestTierChange = async (req, res) => {
     }
 
     const quote = await Quote.findOne({
-      where: { id: proposalId, clientId }
+      where: { id: proposalId, clientId, tenantId }
     });
 
     if (!quote) {
@@ -1414,6 +2695,663 @@ exports.requestTierChange = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to submit tier change request',
+      error: error.message
+    });
+  }
+};
+
+
+/**
+ * Get all jobs for customer (quotes that have been converted to jobs)
+ */
+exports.getCustomerJobs = async (req, res) => {
+  try {
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+    const Job = require('../models/Job');
+
+    const whereClause = { clientId: customerId };
+    if (tenantId) whereClause.tenantId = tenantId;
+
+    const jobs = await Job.findAll({
+      where: whereClause,
+      order: [['createdAt', 'DESC']],
+      include: [
+        {
+          model: Quote,
+          as: 'quote',
+          attributes: ['id', 'quoteNumber', 'areas', 'selectedTier']
+        }
+      ],
+      attributes: [
+        'quoteId',
+        'id',
+        'jobNumber',
+        'jobName',
+        'status',
+        'scheduledStartDate',
+        'scheduledEndDate',
+        'estimatedDuration',
+        'actualStartDate',
+        'actualEndDate',
+        'customerSelectionsComplete',
+        'areaProgress',
+        'totalAmount',
+        'depositAmount',
+        'createdAt'
+      ]
+    });
+
+    res.json({
+      success: true,
+      data: jobs
+    });
+  } catch (error) {
+    console.error('Get customer jobs error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch jobs',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get job detail with progress for customer
+ */
+exports.getJobDetail = async (req, res) => {
+  try {
+     const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+    const { jobId } = req.params;
+    const Job = require('../models/Job');
+
+    const job = await Job.findOne({
+      where: { 
+        id: jobId, 
+        clientId: customerId 
+      },
+      include: [
+        {
+          model: Quote,
+          as: 'quote',
+          attributes: ['id', 'quoteNumber', 'areas', 'selectedTier', 'breakdown']
+        },
+        {
+          model: Client,
+          as: 'client',
+          attributes: ['id', 'name', 'email', 'phone']
+        }
+      ]
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: job
+    });
+  } catch (error) {
+    console.error('Get job detail error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch job details',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get job calendar events for current customer (view-only)
+ * GET /api/customer-portal/jobs/calendar
+ */
+exports.getCustomerJobCalendar = async (req, res) => {
+  try {
+    const customerId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+    const Job = require('../models/Job');
+
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
+
+    const jobs = await Job.findAll({
+      where: {
+        clientId: customerId,
+        ...(tenantId ? { tenantId } : {}),
+        // Only show scheduled / in progress / completed
+        status: ['scheduled', 'in_progress', 'completed']
+      },
+      attributes: [
+        'id',
+        'jobNumber',
+        'jobName',
+        'status',
+        'scheduledStartDate',
+        'scheduledEndDate',
+        'estimatedDuration',
+        'actualStartDate',
+        'actualEndDate',
+        'customerName'
+      ],
+      order: [['scheduledStartDate', 'ASC']]
+    });
+
+    const events = jobs.map(job => ({
+      id: job.id,
+      title: `${job.jobNumber} - ${job.customerName}`,
+      start: job.scheduledStartDate || job.actualStartDate,
+      end: job.scheduledEndDate || job.actualEndDate || job.scheduledStartDate || job.actualStartDate,
+      status: job.status,
+      duration: job.estimatedDuration,
+      jobNumber: job.jobNumber,
+      customerName: job.customerName
+    })).filter(e => e.start); // only with dates
+
+    return res.json({
+      success: true,
+      data: events
+    });
+  } catch (error) {
+    console.error('Get customer job calendar error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch job calendar',
+      error: error.message
+    });
+  }
+};
+
+// ============================================================================
+// QUOTE MANAGEMENT (Magic Link Session Based)
+// ============================================================================
+
+/**
+ * Get all accessible quotes for current session
+ * GET /api/customer-portal/quotes
+ */
+exports.getQuotes = async (req, res) => {
+  try {
+    const clientId = req.customer.id;
+    const tenantId = req.customerTenantId;
+    const isVerified = req.isVerifiedCustomer;
+    
+    // Build query based on verification status
+    const whereClause = {
+      tenantId,
+      clientId,
+    };
+    
+    // If not verified, only show quote from magic link (first/only quoteId in session)
+    const primaryQuoteId = Array.isArray(req.customerSession.quoteIds) ? req.customerSession.quoteIds[0] : null;
+    if (!isVerified && primaryQuoteId) {
+      whereClause.id = primaryQuoteId;
+    }
+    
+    const quotes = await Quote.findAll({
+      where: whereClause,
+      attributes: [
+        'id',
+        'quoteNumber',
+        'status',
+        'total',
+        'createdAt',
+        'updatedAt',
+        'jobType',
+        'jobCategory',
+        // Customer portal fields
+        'depositAmount',
+        'depositVerified',
+        'selectedTier',
+        'portalOpen',
+        'selectionsComplete'
+      ],
+      order: [['createdAt', 'DESC']],
+    });
+
+    // Attach jobId for quotes that have an associated job
+    const Job = require('../models/Job');
+    const quoteIds = quotes.map(q => q.id);
+    const jobs = await Job.findAll({ where: { quoteId: quoteIds }, attributes: ['id', 'quoteId'] });
+    const jobLookup = {};
+    jobs.forEach(j => { jobLookup[j.quoteId] = j.id; });
+
+    const quotesWithJob = quotes.map(q => {
+      const qObj = q.toJSON ? q.toJSON() : q;
+      qObj.jobId = jobLookup[qObj.id] || null;
+      return qObj;
+    });
+
+    res.json({
+      success: true,
+      quotes: quotesWithJob,
+      isVerified,
+      count: quotesWithJob.length,
+    });
+    
+  } catch (error) {
+    console.error('Get quotes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch quotes',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Get specific quote details
+ * GET /api/customer-portal/quotes/:id
+ */
+exports.getQuoteDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const clientId = req.customer.id;
+    const tenantId = req.customerTenantId;
+    const isVerified = req.isVerifiedCustomer;
+    
+    // Build query - restrict to specific quote if not verified
+    const whereClause = {
+      id,
+      tenantId,
+      clientId,
+    };
+    
+    // If not verified, only allow access to quote from magic link (first/only quoteId in session)
+    const primaryQuoteId = Array.isArray(req.customerSession.quoteIds) ? req.customerSession.quoteIds[0] : null;
+    if (!isVerified && primaryQuoteId) {
+      if (parseInt(id) !== primaryQuoteId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Verification required to access other quotes. Please complete OTP verification.',
+          code: 'VERIFICATION_REQUIRED',
+        });
+      }
+    }
+    
+    const quote = await Quote.findOne({
+      where: whereClause,
+      include: [
+        {
+          model: Client,
+          as: 'client',
+          attributes: ['id', 'name', 'email', 'phone', 'address'],
+        },
+      ],
+    });
+    
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found or access denied',
+      });
+    }
+    
+    res.json({
+      success: true,
+      quote,
+      isVerified,
+    });
+    
+  } catch (error) {
+    console.error('Get quote details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch quote details',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Approve a quote
+ * POST /api/customer-portal/quotes/:id/approve
+ */
+exports.approveQuote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { signature, comments } = req.body;
+    const clientId = req.customer.id;
+    const tenantId = req.customerTenantId;
+    const isVerified = req.isVerifiedCustomer;
+    
+    // Build query
+    const whereClause = {
+      id,
+      tenantId,
+      clientId,
+    };
+    
+    // If not verified, only allow access to quote from magic link (first/only quoteId in session)
+    const primaryQuoteId = Array.isArray(req.customerSession.quoteIds) ? req.customerSession.quoteIds[0] : null;
+    if (!isVerified && primaryQuoteId) {
+      if (parseInt(id) !== primaryQuoteId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Verification required to approve other quotes',
+          code: 'VERIFICATION_REQUIRED',
+        });
+      }
+    }
+    
+    const quote = await Quote.findOne({ where: whereClause });
+    
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found or access denied',
+      });
+    }
+    
+    // Check if quote can be approved
+    if (quote.status === 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Quote is already approved',
+      });
+    }
+    
+    if (quote.status === 'declined') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot approve a declined quote',
+      });
+    }
+    
+    // Update quote using Phase 1 status flow (automated)
+    const StatusFlowService = require('../services/statusFlowService');
+    await StatusFlowService.transitionQuoteStatus(
+      quote,
+      'accepted', // Phase 1: accepted (not approved)
+      {
+        userId: null, // Customer action
+        tenantId,
+        isAdmin: false, // Automated customer action
+        req
+      }
+    );
+    
+    // Update signature and comments separately
+    await quote.update({
+      customerSignature: signature,
+      customerComments: comments,
+    });
+    
+    // Create audit log
+    await createAuditLog({
+      category: 'customer_portal',
+      action: 'Quote approved by customer',
+      userId: null,
+      tenantId,
+      entityType: 'Quote',
+      entityId: quote.id,
+      metadata: {
+        quoteNumber: quote.quoteNumber,
+        clientId,
+        clientEmail: req.customer.email,
+        comments,
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    
+    // Send notification email to contractor
+    try {
+      const User = require('../models/User');
+      const contractor = await User.findOne({ 
+        where: { tenantId, role: 'admin', isActive: true } 
+      });
+      
+      if (contractor?.email) {
+        await emailService.sendQuoteApprovedEmail(contractor.email, {
+          quoteNumber: quote.quoteNumber,
+          customerName: req.customer.name,
+          customerEmail: req.customer.email,
+          total: quote.total,
+          comments,
+        });
+      }
+    } catch (emailError) {
+      console.error('Error sending approval email:', emailError);
+      // Don't fail the request if email fails
+    }
+    
+    res.json({
+      success: true,
+      message: 'Quote approved successfully',
+      quote: {
+        id: quote.id,
+        quoteNumber: quote.quoteNumber,
+        status: quote.status,
+        approvedAt: quote.approvedAt,
+      },
+    });
+    
+  } catch (error) {
+    console.error('Approve quote error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve quote',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Reject a quote
+ * POST /api/customer-portal/quotes/:id/reject
+ */
+exports.rejectQuote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason, comments } = req.body;
+    const clientId = req.customer.id;
+    const tenantId = req.customerTenantId;
+    const isVerified = req.isVerifiedCustomer;
+    
+    // Build query
+    const whereClause = {
+      id,
+      tenantId,
+      clientId,
+    };
+    
+    // If not verified, only allow access to quote from magic link (first/only quoteId in session)
+    const primaryQuoteId = Array.isArray(req.customerSession.quoteIds) ? req.customerSession.quoteIds[0] : null;
+    if (!isVerified && primaryQuoteId) {
+      if (parseInt(id) !== primaryQuoteId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Verification required to reject other quotes',
+          code: 'VERIFICATION_REQUIRED',
+        });
+      }
+    }
+    
+    const quote = await Quote.findOne({ where: whereClause });
+    
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found or access denied',
+      });
+    }
+    
+    // Check if quote can be rejected
+    if (quote.status === 'declined') {
+      return res.status(400).json({
+        success: false,
+        message: 'Quote is already rejected',
+      });
+    }
+    
+    if (quote.status === 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot reject an approved quote',
+      });
+    }
+    
+    // Update quote using Phase 1 status flow (automated)
+    const StatusFlowService = require('../services/statusFlowService');
+    await StatusFlowService.transitionQuoteStatus(
+      quote,
+      'declined', // Phase 1: declined/rejected
+      {
+        userId: null, // Customer action
+        tenantId,
+        isAdmin: false, // Automated customer action
+        reason,
+        req
+      }
+    );
+    
+    // Update comments separately
+    await quote.update({
+      customerComments: comments,
+    });
+    
+    // Create audit log
+    await createAuditLog({
+      category: 'customer_portal',
+      action: 'Quote rejected by customer',
+      userId: null,
+      tenantId,
+      entityType: 'Quote',
+      entityId: quote.id,
+      metadata: {
+        quoteNumber: quote.quoteNumber,
+        clientId,
+        clientEmail: req.customer.email,
+        reason,
+        comments,
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    
+    // Send notification email to contractor
+    try {
+      const User = require('../models/User');
+      const contractor = await User.findOne({ 
+        where: { tenantId, role: 'admin', isActive: true } 
+      });
+      
+      if (contractor?.email) {
+        await emailService.sendQuoteRejectedEmail(contractor.email, {
+          quoteNumber: quote.quoteNumber,
+          customerName: req.customer.name,
+          customerEmail: req.customer.email,
+          total: quote.total,
+          reason,
+          comments,
+        });
+      }
+    } catch (emailError) {
+      console.error('Error sending rejection email:', emailError);
+      // Don't fail the request if email fails
+    }
+    
+    res.json({
+      success: true,
+      message: 'Quote rejected successfully',
+      quote: {
+        id: quote.id,
+        quoteNumber: quote.quoteNumber,
+        status: quote.status,
+        declinedAt: quote.declinedAt,
+      },
+    });
+    
+  } catch (error) {
+    console.error('Reject quote error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject quote',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Mark quote as viewed by customer
+ * POST /api/customer-portal/quotes/:id/view
+ */
+exports.markQuoteViewed = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const clientId = req.customer?.id;
+    const tenantId = req.customerTenantId;
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found'
+      });
+    }
+
+    const quote = await Quote.findOne({
+      where: { id, clientId, tenantId }
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Mark as viewed using Phase 1 status flow
+    const StatusFlowService = require('../services/statusFlowService');
+    try {
+      await StatusFlowService.transitionQuoteStatus(
+        quote,
+        'viewed',
+        {
+          userId: null, // Customer action
+          tenantId,
+          isAdmin: false, // Automated
+          req
+        }
+      );
+      await quote.reload(); // Reload to get updated status and viewedAt
+    } catch (statusError) {
+      // If status flow fails (e.g., already viewed), try direct method as fallback
+      await quote.markAsViewed();
+      await quote.reload();
+    }
+
+    // Create audit log
+    await createAuditLog({
+      userId: null,
+      tenantId,
+      action: 'quote_viewed',
+      category: 'quote',
+      entityType: 'Quote',
+      entityId: id,
+      details: { clientId, quoteNumber: quote.quoteNumber },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return res.json({
+      success: true,
+      message: 'Quote marked as viewed',
+      viewedAt: quote.viewedAt
+    });
+  } catch (error) {
+    console.error('Mark quote viewed error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to mark quote as viewed',
       error: error.message
     });
   }

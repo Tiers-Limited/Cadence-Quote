@@ -17,7 +17,16 @@ const sequelize = require('../config/database');
  */
 const getAllProductConfigs = async (req, res) => {
   try {
-    const tenantId = req.user.tenantId;
+    // Support both contractor auth (req.user) and customer session auth (req.customerTenantId)
+    const tenantId = req.user?.tenantId || req.customerTenantId;
+    
+    if (!tenantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Tenant ID not found in request'
+      });
+    }
+    
     const {
       brandId,
       jobType,
@@ -543,11 +552,36 @@ const getDefaults = async (req, res) => {
         productionExteriorWalls: Number(settings.productionExteriorWalls) || 0,
         productionExteriorTrim: Number(settings.productionExteriorTrim) || 0,
         productionSoffitFascia: Number(settings.productionSoffitFascia) || 0,
+        productionGutters: Number(settings.productionGutters) || 0,
         // Production Rates - Optional
         productionDoors: Number(settings.productionDoors) || 0,
         productionCabinets: Number(settings.productionCabinets) || 0,
         // Flat Rate Unit Prices
-        flatRateUnitPrices: settings.flatRateUnitPrices || {},
+        flatRateUnitPrices: {
+          // Interior surfaces
+          walls: settings.flatRateUnitPrices?.walls || 2.5,
+          ceilings: settings.flatRateUnitPrices?.ceilings || 2.0,
+          interior_trim: settings.flatRateUnitPrices?.interior_trim || settings.flatRateUnitPrices?.trim || 1.5,
+          // Exterior surfaces
+          siding: settings.flatRateUnitPrices?.siding || 3.0,
+          exterior_trim: settings.flatRateUnitPrices?.exterior_trim || settings.flatRateUnitPrices?.trim || 1.8,
+          soffit_fascia: settings.flatRateUnitPrices?.soffit_fascia || 2.0,
+          gutters: settings.flatRateUnitPrices?.gutters || 4.0,        deck: settings.flatRateUnitPrices?.deck || 2.5,          // Items
+          door: settings.flatRateUnitPrices?.door || 85,
+          window: settings.flatRateUnitPrices?.window || 75,
+          cabinet: settings.flatRateUnitPrices?.cabinet || 125,
+          // Rooms
+          room_small: settings.flatRateUnitPrices?.room_small || 350,
+          room_medium: settings.flatRateUnitPrices?.room_medium || 450,
+          room_large: settings.flatRateUnitPrices?.room_large || 600,
+        },
+        // Material Settings
+        includeMaterials: settings.includeMaterials !== undefined ? settings.includeMaterials : true,
+        coverage: Number(settings.coverage) || 350,
+        applicationMethod: settings.applicationMethod || 'roll',
+        coats: Number(settings.coats) || 2,
+        // Crew Size
+        crewSize: Number(settings.crewSize) || 2,
       },
     });
   } catch (error) {
@@ -574,9 +608,10 @@ const updateDefaults = async (req, res) => {
       turnkeyInteriorRate, turnkeyExteriorRate,
       prepRepairHourlyRate, finishCabinetHourlyRate,
       productionInteriorWalls, productionInteriorCeilings, productionInteriorTrim,
-      productionExteriorWalls, productionExteriorTrim, productionSoffitFascia,
+      productionExteriorWalls, productionExteriorTrim, productionSoffitFascia, productionGutters,
       productionDoors, productionCabinets,
-      flatRateUnitPrices
+      flatRateUnitPrices,
+      includeMaterials, coverage, applicationMethod, coats, crewSize
     } = req.body;
     
     // Get or create contractor settings
@@ -655,6 +690,9 @@ const updateDefaults = async (req, res) => {
     if (productionSoffitFascia !== undefined) {
       updates.productionSoffitFascia = productionSoffitFascia;
     }
+    if (productionGutters !== undefined) {
+      updates.productionGutters = productionGutters;
+    }
     // Production Rates - Optional
     if (productionDoors !== undefined) {
       updates.productionDoors = productionDoors;
@@ -665,6 +703,23 @@ const updateDefaults = async (req, res) => {
     // Flat Rate Unit Prices
     if (flatRateUnitPrices !== undefined) {
       updates.flatRateUnitPrices = flatRateUnitPrices;
+    }
+    // Material Settings
+    if (includeMaterials !== undefined) {
+      updates.includeMaterials = includeMaterials;
+    }
+    if (coverage !== undefined) {
+      updates.coverage = coverage;
+    }
+    if (applicationMethod !== undefined) {
+      updates.applicationMethod = applicationMethod;
+    }
+    if (coats !== undefined) {
+      updates.coats = coats;
+    }
+    // Crew Size
+    if (crewSize !== undefined) {
+      updates.crewSize = crewSize;
     }
     
     await settings.update(updates);
@@ -693,9 +748,34 @@ const updateDefaults = async (req, res) => {
         productionExteriorWalls: Number(settings.productionExteriorWalls) || 0,
         productionExteriorTrim: Number(settings.productionExteriorTrim) || 0,
         productionSoffitFascia: Number(settings.productionSoffitFascia) || 0,
+        productionGutters: Number(settings.productionGutters) || 0,
         productionDoors: Number(settings.productionDoors) || 0,
         productionCabinets: Number(settings.productionCabinets) || 0,
-        flatRateUnitPrices: settings.flatRateUnitPrices || {},
+        flatRateUnitPrices: {
+          // Interior surfaces
+          walls: settings.flatRateUnitPrices?.walls || 2.5,
+          ceilings: settings.flatRateUnitPrices?.ceilings || 2.0,
+          interior_trim: settings.flatRateUnitPrices?.interior_trim || settings.flatRateUnitPrices?.trim || 1.5,
+          // Exterior surfaces
+          siding: settings.flatRateUnitPrices?.siding || 3.0,
+          exterior_trim: settings.flatRateUnitPrices?.exterior_trim || settings.flatRateUnitPrices?.trim || 1.8,
+          soffit_fascia: settings.flatRateUnitPrices?.soffit_fascia || 2.0,
+          gutters: settings.flatRateUnitPrices?.gutters || 4.0,
+          deck: settings.flatRateUnitPrices?.deck || 2.5,
+          // Items
+          door: settings.flatRateUnitPrices?.door || 85,
+          window: settings.flatRateUnitPrices?.window || 75,
+          cabinet: settings.flatRateUnitPrices?.cabinet || 125,
+          // Rooms
+          room_small: settings.flatRateUnitPrices?.room_small || 350,
+          room_medium: settings.flatRateUnitPrices?.room_medium || 450,
+          room_large: settings.flatRateUnitPrices?.room_large || 600,
+        },
+        includeMaterials: settings.includeMaterials !== undefined ? settings.includeMaterials : true,
+        coverage: Number(settings.coverage) || 350,
+        applicationMethod: settings.applicationMethod || 'roll',
+        coats: Number(settings.coats) || 2,
+        crewSize: Number(settings.crewSize) || 2,
       },
     });
   } catch (error) {

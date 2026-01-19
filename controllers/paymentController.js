@@ -143,7 +143,7 @@ const confirmStripePayment = async (req, res) => {
     const { sessionId, registration } = req.query;
 
     if (!sessionId) {
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4001';
       return res.redirect(`${FRONTEND_URL}/payment-cancel?error=missing_session_id`);
     }
 
@@ -153,7 +153,7 @@ const confirmStripePayment = async (req, res) => {
 
     // Check payment status
     if (session.payment_status !== 'paid') {
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4001';
       return res.redirect(`${FRONTEND_URL}/payment-cancel?error=payment_not_completed`);
     }
 
@@ -161,7 +161,7 @@ const confirmStripePayment = async (req, res) => {
 
     if (!userId || !tenantId || !subscriptionPlan) {
       await transaction.rollback();
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4001';
       return res.redirect(`${FRONTEND_URL}/payment-cancel?error=missing_metadata`);
     }
 
@@ -174,14 +174,14 @@ const confirmStripePayment = async (req, res) => {
 
     if (!payment) {
       await transaction.rollback();
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4001';
       return res.redirect(`${FRONTEND_URL}/payment-cancel?error=payment_record_not_found`);
     }
 
     // Check if payment already processed to avoid double processing
     if (payment.status === 'paid') {
       console.log('Payment already processed:', { paymentId: payment.id, sessionId });
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4001';
       if (registration === 'true') {
         return res.redirect(`${FRONTEND_URL}/registration-success?plan=${subscriptionPlan}&already_processed=true`);
       } else {
@@ -315,7 +315,7 @@ const confirmStripePayment = async (req, res) => {
     });
 
     // Redirect based on flow type
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4001';
     if (registration === 'true') {
       // Registration flow - redirect to registration success
       return res.redirect(`${FRONTEND_URL}/registration-success?sessionId=${sessionId}&plan=${subscriptionPlan}`);
@@ -328,7 +328,7 @@ const confirmStripePayment = async (req, res) => {
     await transaction.rollback();
     console.error('Confirm payment error:', error);
     
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4001';
     return res.redirect(`${FRONTEND_URL}/payment-cancel?error=${encodeURIComponent(error.message)}`);
   }
 };

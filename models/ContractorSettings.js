@@ -171,6 +171,40 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     field: 'portal_auto_lock',
     comment: 'Automatically lock portal after duration expires'
   },
+  // Magic Link Settings
+  portalLinkExpiryDays: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 7,
+    field: 'portal_link_expiry_days',
+    comment: 'Number of days magic link remains valid'
+  },
+  portalLinkMaxExpiryDays: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 30,
+    field: 'portal_link_max_expiry_days',
+    comment: 'Maximum number of days for magic link expiry'
+  },
+  portalAutoCleanup: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    field: 'portal_auto_cleanup',
+    comment: 'Automatically cleanup expired magic links'
+  },
+  portalAutoCleanupDays: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 30,
+    field: 'portal_auto_cleanup_days',
+    comment: 'Number of days to keep expired magic links before cleanup'
+  },
+  portalRequireOTPForMultiJob: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    field: 'portal_require_otp_for_multi_job',
+    comment: 'Require OTP verification when accessing multiple jobs'
+  },
   // Turnkey Square Foot Rates
   turnkeyInteriorRate: {
     type: DataTypes.DECIMAL(10, 2),
@@ -245,6 +279,13 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     field: 'production_soffit_fascia',
     comment: 'Soffit & fascia production rate (linear ft/hour)'
   },
+  productionGutters: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0.00,
+    field: 'production_gutters',
+    comment: 'Gutters production rate (linear ft/hour)'
+  },
   // Production Rates (Optional)
   productionDoors: {
     type: DataTypes.DECIMAL(10, 2),
@@ -267,6 +308,42 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     field: 'flat_rate_unit_prices',
     defaultValue: {},
     comment: 'Flat rate unit prices for surfaces, items, and rooms'
+  },
+  // Material Settings (Global Defaults)
+  includeMaterials: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    field: 'include_materials',
+    comment: 'Default setting for including materials in quotes'
+  },
+  coverage: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 350,
+    field: 'coverage',
+    comment: 'Default paint coverage in sq ft per gallon'
+  },
+  applicationMethod: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'roll',
+    field: 'application_method',
+    comment: 'Default paint application method (roll or spray)'
+  },
+  coats: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 2,
+    field: 'coats',
+    comment: 'Default number of paint coats'
+  },
+  // Crew Size
+  crewSize: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 2,
+    field: 'crew_size',
+    comment: 'Default crew size (number of painters)'
   }
 }, {
   timestamps: true,

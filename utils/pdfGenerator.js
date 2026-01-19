@@ -235,20 +235,24 @@ class PDFGenerator {
                 <td style="padding: 8px 0;"><strong>Materials Total</strong></td>
                 <td align="right" style="padding: 8px 0;"><strong>$${calculation.materialTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
               </tr>
+              ${calculation.overhead && calculation.overhead > 0 ? `
               <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px 0;"><strong>Overhead (${calculation.overheadPercent}%)</strong><br>
                   <span style="font-size: 11px; color: #595959;">Transportation, equipment, insurance</span>
                 </td>
                 <td align="right" style="padding: 8px 0;">$${calculation.overhead.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
               </tr>
+              ` : ''}
               <tr style="border-bottom: 2px solid #bfbfbf;">
                 <td style="padding: 8px 0; color: #595959;"><em>Subtotal before profit</em></td>
                 <td align="right" style="padding: 8px 0; color: #595959;"><em>$${calculation.subtotalBeforeProfit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</em></td>
               </tr>
+              ${calculation.profitAmount && calculation.profitAmount > 0 ? `
               <tr style="border-bottom: 2px solid #1890ff;">
                 <td style="padding: 8px 0;"><strong>Profit Margin (${calculation.profitMarginPercent}%)</strong></td>
                 <td align="right" style="padding: 8px 0;"><strong>$${calculation.profitAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
               </tr>
+              ` : ''}
               <tr style="border-bottom: 2px solid #1890ff;">
                 <td style="padding: 10px 0;"><strong style="font-size: 16px;">Subtotal</strong></td>
                 <td align="right" style="padding: 10px 0;"><strong style="font-size: 16px;">$${calculation.subtotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>

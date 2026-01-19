@@ -21,6 +21,181 @@ const Tenant = require('../models/Tenant');
 const { renderProposalHtml } = require('../services/proposalTemplate');
 const { htmlToPdfBuffer } = require('../services/pdfService');
 const { calculatePricing, applyMarkupsAndTax } = require('../utils/pricingCalculator');
+const LaborRate = require('../models/LaborRate');
+const LaborCategory = require('../models/LaborCategory');
+
+/**
+ * Normalize and structure product data based on pricing scheme type
+ * Converts between global (turnkey) and area-wise (flat_rate, production_based, rate_based) structures
+ * @param {Object} productData - Raw product data from frontend
+ * @param {Object} pricingScheme - Pricing scheme object with type property
+ * @param {Array} areas - Array of area objects with laborItems
+ * @returns {Object} - Normalized product structure
+ */
+function normalizeProductSets(productData, pricingScheme, areas = []) {
+  if (!productData) return [];
+  
+  const schemeType = pricingScheme?.type || 'standard';
+  const isTurnkey = schemeType === 'turnkey' || schemeType === 'sqft_turnkey';
+  const isAreaWise = ['flat_rate_unit', 'production_based', 'rate_based_sqft', 'rate_based'].includes(schemeType);
+
+  // If it's already an array with the correct structure, return as-is
+  if (Array.isArray(productData)) {
+    // Check if first element has the new structure (areaId, surfaceType, products)
+    if (productData.length > 0 && productData[0].areaId !== undefined && productData[0].surfaceType !== undefined) {
+      console.log('✅ ProductSets already in correct array format, returning as-is');
+      return productData;
+    }
+    
+    // Check if it's turnkey format (surfaceType without areaId)
+    if (isTurnkey && productData.length > 0 && productData[0].surfaceType !== undefined && !productData[0].areaId) {
+      console.log('✅ ProductSets in turnkey format, returning as-is');
+      return productData;
+    }
+    
+    console.log('⚠️ ProductSets array in unknown format, returning as-is');
+    return productData;
+  }
+
+  // If it's an old object structure, convert to array
+  if (typeof productData === 'object' && !Array.isArray(productData)) {
+    console.log('🔄 Converting legacy object structure to array');
+    const converted = [];
+    
+    if (isTurnkey) {
+      // Convert object with surfaceType keys to array
+      Object.entries(productData).forEach(([surfaceType, data]) => {
+        converted.push({
+          surfaceType,
+          products: data.products || {},
+          ...data
+        });
+      });
+    } else if (isAreaWise) {
+      // Convert nested object structure to flat array
+      Object.entries(productData).forEach(([areaId, areaData]) => {
+        if (areaData.surfaces && typeof areaData.surfaces === 'object') {
+          Object.entries(areaData.surfaces).forEach(([surfaceType, surfaceData]) => {
+            converted.push({
+              areaId: parseInt(areaId) || areaId,
+              areaName: areaData.areaName || `Area ${areaId}`,
+              surfaceType,
+              surfaceName: surfaceType,
+              products: surfaceData.products || {},
+              quantity: surfaceData.quantity,
+              unit: surfaceData.unit,
+              overridden: surfaceData.overridden || false
+            });
+          });
+        }
+      });
+    }
+    
+    return converted;
+  }
+
+  // Default: return empty array
+  return [];
+}
+
+/**
+ * Enhance product sets with area and surface information from laborItems
+ * Used to validate and enrich product data with area context
+ * @param {Array} productSets - Product sets array to enhance
+ * @param {Array} areas - Array of area objects
+ * @param {String} schemeType - Pricing scheme type
+ * @returns {Array} - Enhanced product sets array
+ */
+function enrichProductSetsWithAreaData(productSets, areas = [], schemeType = 'standard') {
+  const isAreaWise = ['flat_rate_unit', 'production_based', 'rate_based_sqft', 'rate_based'].includes(schemeType);
+  
+  if (!isAreaWise) {
+    return productSets; // No enrichment needed for turnkey
+  }
+
+  // If productSets is already an array, return as-is (already in correct format)
+  if (Array.isArray(productSets)) {
+    console.log('✅ ProductSets is array, skipping enrichment');
+    return productSets;
+  }
+
+  // Convert old object structure to array if needed (legacy support)
+  if (typeof productSets === 'object' && !Array.isArray(productSets)) {
+    console.log('🔄 Converting object structure to array in enrichment');
+    const enrichedArray = [];
+
+    // For each area, ensure product entries exist for selected surfaces
+    areas.forEach((area, areaIndex) => {
+      const areaId = area.id || areaIndex;
+      const areaData = productSets[areaId];
+
+      if (!areaData) return;
+
+      // For each selected labor item (surface), create array entry
+      if (area.laborItems && Array.isArray(area.laborItems)) {
+        area.laborItems.forEach(item => {
+          if (!item.selected || !item.categoryName) return;
+
+          const surfaceData = areaData.surfaces?.[item.categoryName];
+          if (surfaceData) {
+            enrichedArray.push({
+              areaId,
+              areaName: area.name || `Area ${areaId}`,
+              surfaceType: item.categoryName,
+              surfaceName: item.categoryName,
+              products: surfaceData.products || {},
+              quantity: surfaceData.quantity || item.quantity,
+              unit: surfaceData.unit || item.measurementUnit,
+              overridden: surfaceData.overridden || false
+            });
+          }
+        });
+      }
+    });
+
+    return enrichedArray;
+  }
+
+  return productSets || [];
+}
+
+/**
+ * Convert area-wise product structure to flat array for API responses or legacy systems
+ * @param {Object} productSets - Area-wise product sets object
+ * @returns {Array} - Flat array of product sets
+ */
+function flattenAreaWiseProducts(productSets) {
+  if (Array.isArray(productSets)) {
+    return productSets; // Already flat
+  }
+
+  if (!productSets || typeof productSets !== 'object') {
+    return [];
+  }
+
+  const flattened = [];
+
+  // For each area
+  Object.entries(productSets).forEach(([areaKey, areaData]) => {
+    if (!areaData.surfaces) {
+      return; // Skip if not area-wise format
+    }
+
+    // For each surface in that area
+    Object.entries(areaData.surfaces).forEach(([surfaceType, surfaceData]) => {
+      flattened.push({
+        areaId: areaData.areaId || areaKey,
+        areaName: areaData.areaName,
+        surfaceType,
+        products: surfaceData.products || {},
+        quantity: surfaceData.quantity,
+        unit: surfaceData.unit
+      });
+    });
+  });
+
+  return flattened;
+}
 
 /**
  * Helper function to calculate quote pricing with new unified calculator
@@ -58,10 +233,10 @@ async function calculateQuotePricing(quote, tenantId) {
     const model = modelMap[schemeType] || schemeType;
     
     // Fetch labor category rates for rate-based pricing
-    const LaborCategoryRate = require('../models/LaborCategoryRate');
+    const LaborRate = require('../models/LaborRate');
     const LaborCategory = require('../models/LaborCategory');
     
-    const laborCategoryRates = await LaborCategoryRate.findAll({
+    const laborCategoryRates = await LaborRate.findAll({
       where: { tenantId, isActive: true },
       include: [{
         model: LaborCategory,
@@ -167,11 +342,11 @@ async function calculateQuotePricing(quote, tenantId) {
     // Apply markups, overhead, profit, and tax
     const finalPricing = applyMarkupsAndTax(basePricing, {
       laborMarkupPercent: parseFloat(settings?.laborMarkupPercent) || 0,
-      materialMarkupPercent: parseFloat(settings?.materialMarkupPercent) || 25,
+      materialMarkupPercent: parseFloat(settings?.materialMarkupPercent) || 0,
       overheadPercent: parseFloat(settings?.overheadPercent) || 0,
       profitMarginPercent: parseFloat(settings?.netProfitPercent) || 0,
-      taxRatePercentage: parseFloat(settings?.taxRatePercentage) || 8.25,
-      depositPercent: parseFloat(settings?.depositPercent) || 50,
+      taxRatePercentage: parseFloat(settings?.taxRatePercentage) || 0,
+      depositPercent: parseFloat(settings?.depositPercent) || 0,
     });
     
     // Add quote validity and material calculation settings
@@ -204,12 +379,12 @@ async function calculateQuotePricingLegacy(quote, tenantId) {
 
     // Get Pricing Engine metrics - Ensure all values are numbers
     const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 0;
-    const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || 25;
+    const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || 0;
     const overheadPercent = parseFloat(settings?.overheadPercent) || 0;
     const netProfitPercent = parseFloat(settings?.netProfitPercent) || 0;
-    const taxRate = parseFloat(settings?.taxRatePercentage) || 8.25;
+    const taxRate = parseFloat(settings?.taxRatePercentage) || 0;
     const quoteValidityDays = parseInt(settings?.quoteValidityDays) || 30;
-    const depositPercent = parseFloat(settings?.depositPercent) || 50;
+    const depositPercent = parseFloat(settings?.depositPercent) || 0;
 
     // Initialize pricing totals
     let laborTotal = 0;
@@ -877,7 +1052,27 @@ exports.saveDraft = async (req, res) => {
     if (pricingSchemeId !== undefined) updateData.pricingSchemeId = pricingSchemeId;
     if (jobType !== undefined) updateData.jobType = jobType;
     if (areas !== undefined) updateData.areas = areas;
-    if (productSets !== undefined) updateData.productSets = productSets;
+    
+    // Normalize and enrich product sets based on pricing scheme
+    if (productSets !== undefined) {
+      // Get pricing scheme to determine structure
+      let pricingSchemeForNormalization = null;
+      if (pricingSchemeId) {
+        pricingSchemeForNormalization = await PricingScheme.findByPk(pricingSchemeId);
+      } else if (quote?.pricingSchemeId) {
+        pricingSchemeForNormalization = await PricingScheme.findByPk(quote.pricingSchemeId);
+      }
+      
+      // Normalize product sets
+      let normalizedProducts = normalizeProductSets(productSets, pricingSchemeForNormalization, areas);
+      
+      // Enrich with area data if needed
+      const schemeType = pricingSchemeForNormalization?.type || 'standard';
+      normalizedProducts = enrichProductSetsWithAreaData(normalizedProducts, areas, schemeType);
+      
+      updateData.productSets = normalizedProducts;
+    }
+    
     if (productStrategy !== undefined) updateData.productStrategy = productStrategy;
     if (allowCustomerProductChoice !== undefined) updateData.allowCustomerProductChoice = allowCustomerProductChoice;
     if (notes !== undefined) updateData.notes = notes;
@@ -1117,6 +1312,37 @@ exports.calculateQuote = async (req, res) => {
     } = req.body;
     const tenantId = req.user.tenantId;
 
+    // =====================================================
+    // CONSOLE LOG: START OF CALCULATION
+    // =====================================================
+    console.log('\n\n');
+    console.log('╔════════════════════════════════════════════════════════════════╗');
+    console.log('║         🧮 QUOTE CALCULATION PROCESS - DETAILED BREAKDOWN       ║');
+    console.log('╚════════════════════════════════════════════════════════════════╝');
+    console.log('\n');
+    
+    // Log input data
+    console.log('📥 INPUT DATA RECEIVED:');
+    console.log('─────────────────────────────────────────────────────────────────');
+    console.log('  • Job Type:', jobType);
+    console.log('  • Home Sq Ft:', homeSqft);
+    console.log('  • Number of Stories:', numberOfStories);
+    console.log('  • Condition Modifier:', conditionModifier);
+    console.log('  • Pricing Scheme ID:', pricingSchemeId);
+    console.log('  • Selected Tier:', selectedTier);
+    console.log('  • Include Materials:', includeMaterials);
+    console.log('  • Coverage:', coverage, 'sq ft per gallon');
+    console.log('  • Application Method:', applicationMethod);
+    console.log('  • Coats:', coats);
+    console.log('  • Areas Count:', areas?.length || 0);
+    if (areas && areas.length > 0) {
+      areas.forEach((area, idx) => {
+        const selectedItems = area.laborItems?.filter(i => i.selected) || [];
+        console.log(`    └─ Area ${idx + 1}: "${area.name}" (${selectedItems.length} items selected)`);
+      });
+    }
+    console.log('\n');
+
     // Helper: Get tier-specific value from GBB structure
     const getTierValue = (baseValue, gbbOverrides, tier = selectedTier) => {
       if (!gbbOverrides || !gbbOverrides[tier]) return baseValue;
@@ -1172,12 +1398,59 @@ exports.calculateQuote = async (req, res) => {
       });
     }
 
+    // =====================================================
+    // CONSOLE LOG: PRICING SCHEME INFO
+    // =====================================================
+    console.log('🏷️  PRICING SCHEME SELECTED:');
+    console.log('─────────────────────────────────────────────────────────────────');
+    if (pricingScheme) {
+      console.log('  • Scheme Name:', pricingScheme.name);
+      console.log('  • Scheme Type:', pricingScheme.type);
+      console.log('  • Friendly Name:', getPricingModelFriendlyName(pricingScheme.type));
+      console.log('  • Scheme ID:', pricingScheme.id);
+      console.log('  • Is Default:', pricingScheme.isDefault);
+      console.log('\n  📋 Pricing Rules:');
+      const rules = pricingScheme.pricingRules || {};
+      console.log('    ├─ Turnkey Rate:', rules.turnkeyRate);
+      console.log('    ├─ Interior Rate:', rules.interiorRate);
+      console.log('    ├─ Exterior Rate:', rules.exteriorRate);
+      console.log('    ├─ Include Materials:', rules.includeMaterials);
+      console.log('    ├─ Coverage (sqft/gal):', rules.coverage);
+      console.log('    ├─ Application Method:', rules.applicationMethod);
+      console.log('    ├─ Coats:', rules.coats);
+      console.log('    └─ Cost Per Gallon:', rules.costPerGallon);
+    } else {
+      console.log('  ⚠️  No pricing scheme found - using defaults');
+    }
+    console.log('\n');
+
     // Get contractor settings for markup, tax, etc.
     const settings = await ContractorSettings.findOne({
       where: { tenantId }
     });
 
-    // Get pricing rules with material options
+    // Fetch labor rates from database for rate-based pricing
+    const LaborRate = require('../models/LaborRate');
+    const LaborCategory = require('../models/LaborCategory');
+    
+    const laborCategoryRates = await LaborRate.findAll({
+      where: { tenantId, isActive: true },
+      include: [{
+        model: LaborCategory,
+        as: 'category',
+        where: { isActive: true },
+        required: true
+      }]
+    });
+    
+    // Build labor rates map from database
+    const laborRatesMap = {};
+    laborCategoryRates.forEach(lcr => {
+      const categoryName = lcr.category.categoryName.toLowerCase();
+      laborRatesMap[categoryName] = parseFloat(lcr.rate);
+    });
+
+    // Get pricing rules with material options (still needed for some settings)
     const pricingRules = pricingScheme?.pricingRules || {};
     
     // Material calculation settings (can be overridden by request or scheme rules)
@@ -1195,27 +1468,77 @@ exports.calculateQuote = async (req, res) => {
     if (finalCoverage < 250) finalCoverage = 250;
     if (finalCoverage > 450) finalCoverage = 450;
 
+    // =====================================================
+    // CONSOLE LOG: MATERIAL SETTINGS
+    // =====================================================
+    console.log('🎨 MATERIAL CALCULATION SETTINGS:');
+    console.log('─────────────────────────────────────────────────────────────────');
+    console.log('  • Include Materials:', finalIncludeMaterials);
+    console.log('  • Coverage Rate:', finalCoverage, 'sq ft per gallon');
+    console.log('  • Application Method:', finalApplicationMethod);
+    console.log('  • Coats:', finalCoats);
+    console.log('\n');
+    
+    console.log('⚙️  CONTRACTOR SETTINGS (Pricing Engine):');
+    console.log('─────────────────────────────────────────────────────────────────');
+    console.log('  • Labor Markup %:', settings?.laborMarkupPercent || 0);
+    console.log('  • Material Markup %:', settings?.materialMarkupPercent || 35);
+    console.log('  • Overhead %:', settings?.overheadPercent || 10);
+    console.log('  • Net Profit %:', settings?.netProfitPercent || 15);
+    console.log('  • Tax Rate %:', settings?.taxRatePercentage || 8.25);
+    console.log('  • Deposit %:', settings?.depositPercent || 50);
+    console.log('  • Quote Validity Days:', settings?.quoteValidityDays || 30);
+    console.log('\n');
+
     // Check if this is turnkey pricing
     const isTurnkey = pricingScheme && (pricingScheme.type === 'turnkey' || pricingScheme.type === 'sqft_turnkey');
 
     // If turnkey and homeSqft is provided, use turnkey calculation
     if (isTurnkey && homeSqft && homeSqft > 0) {
       
-      // Determine turnkey rate based on job scope with GBB tier support
+      // =====================================================
+      // CONSOLE LOG: TURNKEY PRICING CALCULATION
+      // =====================================================
+      console.log('\n╔════════════════════════════════════════════════════════════════╗');
+      console.log('║          🏠 TURNKEY PRICING MODEL CALCULATION                   ║');
+      console.log('╚════════════════════════════════════════════════════════════════╝\n');
+      
+      // Determine turnkey rate based on job type with GBB tier support
       let baseRate = parseFloat(pricingRules.turnkeyRate) || 3.50;
-      if (jobScope === 'interior' && pricingRules.interiorRate) {
+      console.log('Step 1: DETERMINE BASE RATE');
+      console.log('─────────────────────────────────────────────────────────────────');
+      console.log('  • Job Type:', jobType);
+      console.log('  • Default Turnkey Rate from scheme:', pricingRules.turnkeyRate || 'Not set');
+      
+      if (jobType === 'interior' && pricingRules.interiorRate) {
         baseRate = parseFloat(pricingRules.interiorRate);
-      } else if (jobScope === 'exterior' && pricingRules.exteriorRate) {
+        console.log('  ✓ Using INTERIOR rate:', baseRate, '$/sq ft');
+      } else if (jobType === 'exterior' && pricingRules.exteriorRate) {
         baseRate = parseFloat(pricingRules.exteriorRate);
+        console.log('  ✓ Using EXTERIOR rate:', baseRate, '$/sq ft');
+      } else {
+        console.log('  ℹ️  Using default rate:', baseRate, '$/sq ft');
       }
+      console.log('\nStep 2: APPLY GBB TIER ADJUSTMENTS');
+      console.log('─────────────────────────────────────────────────────────────────');
 
       // Apply GBB tier adjustments
       let turnkeyRate = baseRate;
       if (pricingRules.gbbRates && selectedTier !== 'single') {
+        const originalRate = turnkeyRate;
         turnkeyRate = getTierValue(baseRate, pricingRules.gbbRates, selectedTier);
+        console.log('  • GBB Rates Available:', true);
+        console.log('  • Selected Tier:', selectedTier);
+        console.log('  • Original Rate:', originalRate);
+        console.log('  ✓ Adjusted Rate:', turnkeyRate, '$/sq ft');
+      } else {
+        console.log('  • GBB Rates Available:', !!pricingRules.gbbRates);
+        console.log('  • No tier adjustment applied');
       }
 
       // Apply condition modifier
+      console.log('\nStep 3: APPLY CONDITION MODIFIER');
+      console.log('─────────────────────────────────────────────────────────────────');
       const conditionMultipliers = {
         excellent: 0.9,
         good: 0.95,
@@ -1225,22 +1548,43 @@ exports.calculateQuote = async (req, res) => {
       };
       const conditionMultiplier = conditionMultipliers[conditionModifier] || 1.0;
       const adjustedRate = turnkeyRate * conditionMultiplier;
+      
+      console.log('  • Property Condition:', conditionModifier);
+      console.log('  • Condition Multiplier:', conditionMultiplier);
+      console.log('  • Rate before:', turnkeyRate, '$/sq ft');
+      console.log('  ✓ Rate after condition adjustment:', adjustedRate, '$/sq ft');
 
       // Calculate base labor and material (60/40 split for turnkey when materials included)
+      console.log('\nStep 4: CALCULATE BASE TOTAL');
+      console.log('─────────────────────────────────────────────────────────────────');
       const baseTotal = homeSqft * adjustedRate;
+      console.log('  • Home Sq Ft:', homeSqft);
+      console.log('  • Adjusted Rate: $' + adjustedRate + '/sq ft');
+      console.log('  ✓ Base Total:', '$' + baseTotal.toFixed(2), '(Home SqFt × Rate)');
+      
       let baseLaborCost, baseMaterialCost;
+      console.log('\nStep 5: SPLIT INTO LABOR & MATERIALS');
+      console.log('─────────────────────────────────────────────────────────────────');
       
       if (finalIncludeMaterials) {
         // Materials included: 60% labor / 40% materials
         baseLaborCost = baseTotal * 0.60;
         baseMaterialCost = baseTotal * 0.40;
+        console.log('  • Materials INCLUDED in quote');
+        console.log('  • Labor Split: 60% = $' + baseLaborCost.toFixed(2));
+        console.log('  • Material Split: 40% = $' + baseMaterialCost.toFixed(2));
       } else {
         // Labor-only: 100% labor
         baseLaborCost = baseTotal;
         baseMaterialCost = 0;
+        console.log('  • Materials NOT included (labor-only quote)');
+        console.log('  • Labor Cost: 100% = $' + baseLaborCost.toFixed(2));
+        console.log('  • Material Cost: $0.00');
       }
 
       // Apply markups and calculate final totals
+      console.log('\nStep 6: APPLY PRICING ENGINE MARKUPS');
+      console.log('─────────────────────────────────────────────────────────────────');
       const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 35;
       const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || 20;
       const overheadPercent = parseFloat(settings?.overheadPercent) || 10;
@@ -1250,22 +1594,49 @@ exports.calculateQuote = async (req, res) => {
       // Step 1: Apply markups
       const laborMarkupAmount = baseLaborCost * (laborMarkupPercent / 100);
       const laborCostWithMarkup = baseLaborCost + laborMarkupAmount;
+      console.log('  LABOR:');
+      console.log('    Base Cost: $' + baseLaborCost.toFixed(2));
+      console.log('    Markup (' + laborMarkupPercent + '%): +$' + laborMarkupAmount.toFixed(2));
+      console.log('    With Markup: $' + laborCostWithMarkup.toFixed(2));
       
       const materialMarkupAmount = finalIncludeMaterials ? (baseMaterialCost * (materialMarkupPercent / 100)) : 0;
       const materialCostWithMarkup = finalIncludeMaterials ? (baseMaterialCost + materialMarkupAmount) : 0;
+      console.log('  MATERIALS:');
+      console.log('    Base Cost: $' + baseMaterialCost.toFixed(2));
+      console.log('    Markup (' + materialMarkupPercent + '%): +$' + materialMarkupAmount.toFixed(2));
+      console.log('    With Markup: $' + materialCostWithMarkup.toFixed(2));
 
       // Step 2: Calculate overhead on subtotal
+      console.log('\nStep 7: APPLY OVERHEAD');
+      console.log('─────────────────────────────────────────────────────────────────');
       const subtotalBeforeOverhead = laborCostWithMarkup + materialCostWithMarkup;
       const overheadAmount = subtotalBeforeOverhead * (overheadPercent / 100);
       const subtotalBeforeProfit = subtotalBeforeOverhead + overheadAmount;
+      console.log('  Subtotal before overhead: $' + subtotalBeforeOverhead.toFixed(2));
+      console.log('  Overhead (' + overheadPercent + '%): +$' + overheadAmount.toFixed(2));
+      console.log('  ✓ Subtotal before profit: $' + subtotalBeforeProfit.toFixed(2));
 
       // Step 3: Calculate profit
+      console.log('\nStep 8: APPLY NET PROFIT MARGIN');
+      console.log('─────────────────────────────────────────────────────────────────');
       const profitAmount = subtotalBeforeProfit * (profitMarginPercent / 100);
       const subtotal = subtotalBeforeProfit + profitAmount;
+      console.log('  Subtotal before profit: $' + subtotalBeforeProfit.toFixed(2));
+      console.log('  Profit Margin (' + profitMarginPercent + '%): +$' + profitAmount.toFixed(2));
+      console.log('  ✓ Subtotal (before tax): $' + subtotal.toFixed(2));
 
-      // Step 4: Calculate tax
-      const taxAmount = subtotal * (taxRate / 100);
+      // Step 4: Calculate tax (only on materials with markup)
+      console.log('\nStep 9: CALCULATE TAX (on materials only)');
+      console.log('─────────────────────────────────────────────────────────────────');
+      const taxAmount = materialCostWithMarkup * (taxRate / 100);
       const total = subtotal + taxAmount;
+      console.log('  Materials with Markup: $' + materialCostWithMarkup.toFixed(2));
+      console.log('  Tax (' + taxRate + '%): +$' + taxAmount.toFixed(2));
+      console.log('  ✓ FINAL TOTAL: $' + total.toFixed(2));
+      
+      console.log('\n' + '═'.repeat(65));
+      console.log('✅ TURNKEY PRICING COMPLETE');
+      console.log('═'.repeat(65) + '\n');
 
       return res.json({
         success: true,
@@ -1295,6 +1666,7 @@ exports.calculateQuote = async (req, res) => {
           subtotal: parseFloat(subtotal.toFixed(2)),
           taxPercent: taxRate,
           tax: parseFloat(taxAmount.toFixed(2)),
+          taxOnMaterialsOnly: true, // Tax applies only to materials with markup
           total: parseFloat(total.toFixed(2)),
           
           // Material calculation settings
@@ -1309,13 +1681,13 @@ exports.calculateQuote = async (req, res) => {
           baseRate: turnkeyRate,
           conditionModifier,
           conditionMultiplier,
-          jobScope,
+          jobType,
           
           // Quote validity
           quoteValidityDays: parseInt(settings?.quoteValidityDays) || 30,
           
           breakdown: [{
-            areaName: `${jobScope === 'interior' ? 'Interior' : jobScope === 'exterior' ? 'Exterior' : 'Full Home'} - Turnkey`,
+            areaName: `${jobType === 'interior' ? 'Interior' : 'Exterior'} - Turnkey`,
             items: [{
               categoryName: 'Turnkey Pricing',
               quantity: homeSqft,
@@ -1330,6 +1702,13 @@ exports.calculateQuote = async (req, res) => {
     }
 
     // Non-turnkey calculation (existing logic)
+    console.log('\n╔════════════════════════════════════════════════════════════════╗');
+    console.log('║    🧮 ' + getPricingModelFriendlyName(pricingScheme?.type).toUpperCase() + '   ║');
+    console.log('╚════════════════════════════════════════════════════════════════╝\n');
+    
+    console.log('Processing Areas & Items:');
+    console.log('─────────────────────────────────────────────────────────────────');
+    
     const markup = parseFloat(settings?.defaultMarkupPercentage) || 30;
     const taxRate = parseFloat(settings?.taxRatePercentage) || 0;
 
@@ -1341,6 +1720,7 @@ exports.calculateQuote = async (req, res) => {
 
     // Calculate for each area - supports both laborItems and surfaces
     for (const area of areas || []) {
+      console.log('\n📍 Area: "' + area.name + '"');
       const areaBreakdown = {
         areaId: area.id,
         areaName: area.name,
@@ -1351,6 +1731,8 @@ exports.calculateQuote = async (req, res) => {
       if (area.laborItems) {
         for (const item of area.laborItems || []) {
           if (!item.selected) continue;
+          
+          console.log('  └─ Item: ' + item.categoryName);
 
           // Calculate quantity from dimensions if not provided
           let quantity = parseFloat(item.quantity) || 0;
@@ -1390,112 +1772,155 @@ exports.calculateQuote = async (req, res) => {
           const categoryKey = item.categoryName.toLowerCase().replace(/\s+/g, '_');
           const categoryRule = pricingRules[categoryKey] || pricingRules.walls || {};
 
+          console.log('     • Quantity:', quantity, item.measurementUnit);
+          console.log('     • Coats:', item.numberOfCoats);
+
           // Calculate labor cost based on pricing scheme type
           if (pricingScheme) {
+            console.log('     • Pricing Type:', pricingScheme.type);
             switch (pricingScheme.type) {
               case 'sqft_turnkey':
                 // All-in price per sqft (labor + materials included)
                 const turnkeyRate = parseFloat(categoryRule.price || 1.15);
                 if (item.measurementUnit === 'sqft') {
                   itemBreakdown.laborCost = quantity * turnkeyRate;
+                  console.log('       Labor: ' + quantity + ' × $' + turnkeyRate + ' = $' + itemBreakdown.laborCost.toFixed(2));
                 } else {
                   // For non-sqft units, use the labor rate from item
                   itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+                  console.log('       Labor: ' + quantity + ' × $' + item.laborRate + ' = $' + itemBreakdown.laborCost.toFixed(2));
                 }
                 break;
 
               case 'sqft_labor_paint':
-              case 'rate_based_sqft':
-                // Separate labor per sqft with GBB tier support
-                let laborPerSqft = parseFloat(categoryRule.price || 0.55);
+              case 'rate_based_sqft': {
+                // Rate-Based Pricing: Use labor rates from LaborRate table
+                const categoryNameLower = item.categoryName.toLowerCase();
+                let laborRate = laborRatesMap[categoryNameLower] || parseFloat(item.laborRate) || 0;
                 
-                // Apply GBB tier override if available
+                console.log('       Category:', item.categoryName);
+                console.log('       Labor Rate from DB: $' + laborRate + '/' + item.measurementUnit);
+                
+                // Apply GBB tier override if available in settings
                 if (categoryRule.gbbRates) {
-                  laborPerSqft = getTierValue(laborPerSqft, categoryRule.gbbRates, selectedTier);
+                  laborRate = getTierValue(laborRate, categoryRule.gbbRates, selectedTier);
+                  console.log('       GBB Adjusted Rate: $' + laborRate);
                 }
                 
-                if (item.measurementUnit === 'sqft') {
-                  itemBreakdown.laborCost = quantity * laborPerSqft;
-                } else if (item.measurementUnit === 'linear_foot') {
-                  // Linear foot pricing (e.g., trim) with GBB
-                  let lfRate = parseFloat(pricingRules.trim?.price || 2.50);
-                  if (pricingRules.trim?.gbbRates) {
-                    lfRate = getTierValue(lfRate, pricingRules.trim.gbbRates, selectedTier);
-                  }
-                  itemBreakdown.laborCost = quantity * lfRate;
-                } else {
-                  // For hours or units, use labor rate from item
-                  itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
-                }
+                itemBreakdown.laborCost = quantity * laborRate;
+                console.log('       Labor: ' + quantity + ' × $' + laborRate + ' = $' + itemBreakdown.laborCost.toFixed(2));
                 break;
+              }
 
               case 'hourly_time_materials':
-              case 'production_based':
-                // Calculate based on hourly rate with GBB tier support
-                let hourlyRate = parseFloat(pricingRules.hourlyLaborRate || pricingRules.hourly_rate?.price || 50);
-                let crewSize = parseInt(pricingRules.crewSize || pricingRules.crew_size?.value || 2);
+              case 'production_based': {
+                // Production-Based Pricing: Use production rates and hourly labor rate from ContractorSettings
+                // Formula: Labor Cost = (Area ÷ Production Rate) × Hourly Labor Rate
+                let hourlyRate = parseFloat(settings?.defaultLaborHourRate) || 50;
+                let crewSize = parseInt(settings?.crewSize) || 2;
                 
-                // Apply GBB tier override for hourly rate
-                if (pricingRules.gbbHourlyRates) {
-                  hourlyRate = getTierValue(hourlyRate, pricingRules.gbbHourlyRates, selectedTier);
-                }
-                
-                // Apply GBB tier override for crew size
-                if (pricingRules.gbbCrewSizes) {
-                  crewSize = getTierValue(crewSize, pricingRules.gbbCrewSizes, selectedTier);
-                }
+                console.log('       Hourly Labor Rate from Settings: $' + hourlyRate + '/hr');
+                console.log('       Crew Size: ' + crewSize);
                 
                 if (item.measurementUnit === 'hour') {
                   // Direct hours
                   itemBreakdown.laborCost = quantity * hourlyRate * crewSize;
-                } else if (item.measurementUnit === 'sqft') {
-                  // Convert sqft to hours based on productivity
-                  let productivity = parseFloat(pricingRules.productionRates?.[categoryKey] || pricingRules.productivity_rate || 250);
+                  console.log('       Labor: ' + quantity + ' hrs × $' + hourlyRate + ' × ' + crewSize + ' = $' + itemBreakdown.laborCost.toFixed(2));
+                } else if (item.measurementUnit === 'sqft' || item.measurementUnit === 'linear_foot') {
+                  // Convert area to hours based on production rate from settings
+                  const categoryNameLower = item.categoryName.toLowerCase();
+                  let productionRate = 0;
                   
-                  // Apply GBB tier override for productivity
-                  if (pricingRules.gbbProductionRates && pricingRules.gbbProductionRates[categoryKey]) {
-                    productivity = getTierValue(productivity, pricingRules.gbbProductionRates[categoryKey], selectedTier);
+                  // Map category to production rate field in settings
+                  if (categoryNameLower.includes('wall') && categoryNameLower.includes('interior')) {
+                    productionRate = parseFloat(settings?.productionInteriorWalls) || 300;
+                  } else if (categoryNameLower.includes('ceiling')) {
+                    productionRate = parseFloat(settings?.productionInteriorCeilings) || 250;
+                  } else if (categoryNameLower.includes('trim') && categoryNameLower.includes('interior')) {
+                    productionRate = parseFloat(settings?.productionInteriorTrim) || 150;
+                  } else if (categoryNameLower.includes('wall') && categoryNameLower.includes('exterior')) {
+                    productionRate = parseFloat(settings?.productionExteriorWalls) || 250;
+                  } else if (categoryNameLower.includes('trim') && categoryNameLower.includes('exterior')) {
+                    productionRate = parseFloat(settings?.productionExteriorTrim) || 120;
+                  } else if (categoryNameLower.includes('soffit') || categoryNameLower.includes('fascia')) {
+                    productionRate = parseFloat(settings?.productionSoffitFascia) || 100;
+                  } else if (categoryNameLower.includes('door')) {
+                    productionRate = parseFloat(settings?.productionDoors) || 2;
+                  } else if (categoryNameLower.includes('cabinet')) {
+                    productionRate = parseFloat(settings?.productionCabinets) || 1.5;
+                  } else {
+                    productionRate = 250; // Default fallback
                   }
                   
-                  const hours = Math.ceil((quantity / productivity) * 10) / 10;
+                  const hours = Math.ceil((quantity / productionRate) * 10) / 10;
                   itemBreakdown.hours = hours;
                   itemBreakdown.laborCost = hours * hourlyRate * crewSize;
+                  console.log('       Production Rate from Settings: ' + productionRate + ' ' + item.measurementUnit + '/hr');
+                  console.log('       Estimated Hours: ' + quantity + ' ÷ ' + productionRate + ' = ' + hours.toFixed(1) + ' hrs');
+                  console.log('       Labor: ' + hours.toFixed(1) + ' × $' + hourlyRate + ' × ' + crewSize + ' = $' + itemBreakdown.laborCost.toFixed(2));
                 } else {
-                  // For other units, use labor rate from item
+                  // For other units, use production rate or fallback to item labor rate
                   itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+                  console.log('       Labor: ' + quantity + ' × $' + item.laborRate + ' = $' + itemBreakdown.laborCost.toFixed(2));
                 }
                 break;
+              }
 
               case 'unit_pricing':
-              case 'flat_rate_unit':
-                // Price per unit (doors, windows, cabinets, etc.) with GBB support
-                let unitPrice = parseFloat(categoryRule.price || pricingRules.unitPrices?.[categoryKey] || 85);
+              case 'flat_rate_unit': {
+                // Flat Rate Unit Pricing: Use flatRateUnitPrices from ContractorSettings
+                const flatRateUnitPrices = settings?.flatRateUnitPrices || {};
+                const categoryNameLowerFlat = item.categoryName.toLowerCase();
                 
-                // Apply GBB tier override
-                if (categoryRule.gbbPrices) {
-                  unitPrice = getTierValue(unitPrice, categoryRule.gbbPrices, selectedTier);
-                } else if (pricingRules.gbbUnitPrices && pricingRules.gbbUnitPrices[categoryKey]) {
-                  unitPrice = getTierValue(unitPrice, pricingRules.gbbUnitPrices[categoryKey], selectedTier);
-                }
-                
-                if (item.measurementUnit === 'unit') {
-                  itemBreakdown.laborCost = quantity * unitPrice;
+                // Map category to flat rate price
+                let unitPrice = 0;
+                if (categoryNameLowerFlat.includes('wall') && !categoryNameLowerFlat.includes('exterior')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.walls) || 2.5;
+                } else if (categoryNameLowerFlat.includes('ceiling')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.ceilings) || 2;
+                } else if (categoryNameLowerFlat.includes('trim') && !categoryNameLowerFlat.includes('exterior')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.interior_trim) || 1.5;
+                } else if (categoryNameLowerFlat.includes('siding') || (categoryNameLowerFlat.includes('wall') && categoryNameLowerFlat.includes('exterior'))) {
+                  unitPrice = parseFloat(flatRateUnitPrices.siding) || 3;
+                } else if (categoryNameLowerFlat.includes('trim') && categoryNameLowerFlat.includes('exterior')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.exterior_trim) || 1.8;
+                } else if (categoryNameLowerFlat.includes('soffit') || categoryNameLowerFlat.includes('fascia')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.soffit_fascia) || 2;
+                } else if (categoryNameLowerFlat.includes('gutter')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.gutters) || 4;
+                } else if (categoryNameLowerFlat.includes('deck')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.deck) || 2.5;
+                } else if (categoryNameLowerFlat.includes('door')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.door) || 85;
+                } else if (categoryNameLowerFlat.includes('window')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.window) || 75;
+                } else if (categoryNameLowerFlat.includes('cabinet')) {
+                  unitPrice = parseFloat(flatRateUnitPrices.cabinet) || 125;
                 } else {
-                  // For sqft or linear_foot, use per-unit calculation
-                  itemBreakdown.laborCost = quantity * unitPrice;
+                  // Try using the category key directly
+                  const categoryKey = categoryNameLowerFlat.replace(/\s+/g, '_');
+                  unitPrice = parseFloat(flatRateUnitPrices[categoryKey]) || parseFloat(item.laborRate) || 0;
                 }
+                
+                console.log('       Unit Price from Settings: $' + unitPrice + '/' + item.measurementUnit);
+                
+                itemBreakdown.laborCost = quantity * unitPrice;
+                console.log('       Labor: ' + quantity + ' × $' + unitPrice + ' = $' + itemBreakdown.laborCost.toFixed(2));
                 break;
+              }
 
               case 'room_flat_rate':
                 // Flat rate per room (applies once per area, not per item)
                 // Only charge once for the primary surface in the area
                 const flatRate = parseFloat(pricingRules.room_flat_rate?.price || 325);
                 itemBreakdown.laborCost = flatRate;
+                console.log('       Flat Rate: $' + flatRate + ' per room');
                 break;
 
               default:
                 // Fallback to labor rate from item
                 itemBreakdown.laborCost = quantity * (parseFloat(item.laborRate) || 0);
+                console.log('       Labor: ' + quantity + ' × $' + item.laborRate + ' = $' + itemBreakdown.laborCost.toFixed(2));
             }
           } else {
             // No pricing scheme - use labor rate from item
@@ -1571,6 +1996,11 @@ exports.calculateQuote = async (req, res) => {
           laborTotal += itemBreakdown.laborCost;
           if (finalIncludeMaterials) {
             materialTotal += itemBreakdown.materialCost;
+          }
+          
+          console.log('       ✓ Item Labor Cost: $' + itemBreakdown.laborCost.toFixed(2));
+          if (itemBreakdown.materialCost > 0) {
+            console.log('       ✓ Item Material Cost: $' + itemBreakdown.materialCost.toFixed(2));
           }
 
           areaBreakdown.items.push(itemBreakdown);
@@ -1700,6 +2130,16 @@ exports.calculateQuote = async (req, res) => {
     const travelCost = serviceArea?.distance ? serviceArea.distance * 0.50 : 0;
     const cleanupCost = 100; // Flat cleanup fee
 
+    console.log('\n📊 TOTALS FROM ALL AREAS:');
+    console.log('─────────────────────────────────────────────────────────────────');
+    console.log('  • Labor Total: $' + laborTotal.toFixed(2));
+    console.log('  • Material Total: $' + materialTotal.toFixed(2));
+    console.log('  • Prep Total: $' + prepTotal.toFixed(2));
+    console.log('  • Add-Ons Total: $' + addOnsTotal.toFixed(2));
+    console.log('\n');
+    console.log('ℹ️  Note: Prep work is included in Labor Total');
+    console.log('\n');
+
     // Get pricing engine settings from contractor settings
     const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 0;
     const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || markup;
@@ -1708,9 +2148,15 @@ exports.calculateQuote = async (req, res) => {
     const quoteValidityDays = parseInt(settings?.quoteValidityDays) || 30;
     const depositPercent = parseFloat(settings?.depositPercentage) || 50;
 
+    console.log('💰 PRICING ENGINE CALCULATIONS:');
+    console.log('─────────────────────────────────────────────────────────────────');
+
     // Step 1: Base costs
     const baseLaborCost = laborTotal;
     const baseMaterialCost = materialTotal;
+    console.log('Step 1: Base Costs');
+    console.log('  • Labor (includes prep): $' + baseLaborCost.toFixed(2));
+    console.log('  • Materials: $' + baseMaterialCost.toFixed(2));
 
     // Step 2: Apply markup to labor and materials separately (only if materials included)
     const laborMarkupAmount = baseLaborCost * (laborMarkupPercent / 100);
@@ -1718,9 +2164,21 @@ exports.calculateQuote = async (req, res) => {
     
     const materialMarkupAmount = finalIncludeMaterials ? (baseMaterialCost * (materialMarkupPercent / 100)) : 0;
     const materialCostWithMarkup = finalIncludeMaterials ? (baseMaterialCost + materialMarkupAmount) : 0;
+    
+    console.log('\nStep 2: Apply Markups');
+    console.log('  Labor:');
+    console.log('    Base: $' + baseLaborCost.toFixed(2));
+    console.log('    Markup (' + laborMarkupPercent + '%): +$' + laborMarkupAmount.toFixed(2));
+    console.log('    With Markup: $' + laborCostWithMarkup.toFixed(2));
+    console.log('  Materials:');
+    console.log('    Base: $' + baseMaterialCost.toFixed(2));
+    console.log('    Markup (' + materialMarkupPercent + '%): +$' + materialMarkupAmount.toFixed(2));
+    console.log('    With Markup: $' + materialCostWithMarkup.toFixed(2));
 
     // Step 3: Subtotal before overhead
     const subtotalBeforeOverhead = laborCostWithMarkup + materialCostWithMarkup + prepTotal + addOnsTotal;
+    console.log('\nStep 3: Subtotal Before Overhead');
+    console.log('  • $' + subtotalBeforeOverhead.toFixed(2));
 
     // Step 4: Apply overhead (fixed amount or percentage of subtotal)
     let overheadAmount = 0;
@@ -1730,20 +2188,35 @@ exports.calculateQuote = async (req, res) => {
       overheadAmount = travelCost + cleanupCost; // Use fixed costs if no overhead percent
     }
     const subtotalBeforeProfit = subtotalBeforeOverhead + overheadAmount;
+    console.log('\nStep 4: Apply Overhead');
+    console.log('  • Overhead (' + overheadPercent + '%): +$' + overheadAmount.toFixed(2));
+    console.log('  • Subtotal Before Profit: $' + subtotalBeforeProfit.toFixed(2));
 
     // Step 5: Apply net profit
     const profitAmount = subtotalBeforeProfit * (netProfitPercent / 100);
     const subtotal = subtotalBeforeProfit + profitAmount;
+    console.log('\nStep 5: Apply Net Profit');
+    console.log('  • Profit (' + netProfitPercent + '%): +$' + profitAmount.toFixed(2));
+    console.log('  • Subtotal: $' + subtotal.toFixed(2));
 
-    // Step 6: Calculate tax
-    const taxAmount = subtotal * (taxRate / 100);
-
-    // Final total
+    // Step 6: Calculate tax (only on materials with markup)
+    const taxAmount = materialCostWithMarkup * (taxRate / 100);
     const total = subtotal + taxAmount;
+    console.log('\nStep 6: Calculate Tax (on materials only)');
+    console.log('  • Materials with Markup: $' + materialCostWithMarkup.toFixed(2));
+    console.log('  • Tax (' + taxRate + '%): +$' + taxAmount.toFixed(2));
+    console.log('  ✓ FINAL TOTAL: $' + total.toFixed(2));
     
     // Calculate deposit and balance
     const deposit = total * (depositPercent / 100);
     const balance = total - deposit;
+    console.log('\nStep 7: Payment Terms');
+    console.log('  • Deposit (' + depositPercent + '%): $' + deposit.toFixed(2));
+    console.log('  • Balance: $' + balance.toFixed(2));
+    
+    console.log('\n' + '═'.repeat(65));
+    console.log('✅ PRICING CALCULATION COMPLETE');
+    console.log('═'.repeat(65) + '\n\n');
 
     res.json({
       success: true,
@@ -1777,6 +2250,7 @@ exports.calculateQuote = async (req, res) => {
         subtotal: parseFloat(subtotal?.toFixed(2)),
         taxPercent: parseFloat(taxRate?.toFixed(2)),
         tax: parseFloat(taxAmount?.toFixed(2)),
+        taxOnMaterialsOnly: true, // Tax applies only to materials with markup
         total: parseFloat(total?.toFixed(2)),
         
         // Payment terms
@@ -1854,8 +2328,19 @@ exports.sendQuote = async (req, res) => {
       });
     }
 
-    // Update quote status
-    await quote.markAsSent();
+    // Update quote status using Phase 1 status flow
+    const StatusFlowService = require('../services/statusFlowService');
+    await StatusFlowService.transitionQuoteStatus(
+      quote,
+      'sent',
+      {
+        userId,
+        tenantId,
+        isAdmin: true, // Admin sending quote
+        req,
+        transaction
+      }
+    );
 
     // Create audit log
     await createAuditLog({
@@ -1874,6 +2359,41 @@ exports.sendQuote = async (req, res) => {
     // Commit transaction before async operations (email, PDF)
     await transaction.commit();
 
+    // ===================================================================
+    // MAGIC LINK GENERATION (Passwordless Customer Portal Access)
+    // ===================================================================
+    const MagicLinkService = require('../services/magicLinkService');
+    
+    // Get portal settings for magic link expiry
+    const portalSettings = await ContractorSettings.findOne({
+      where: { tenantId }
+    });
+    const linkExpiryDays = portalSettings?.portalLinkExpiryDays || 7;
+    
+    let magicLinkResult = null;
+    try {
+      magicLinkResult = await MagicLinkService.createMagicLink({
+        tenantId,
+        clientId: quote.clientId,
+        quoteId: quote.id,
+        email: quote.customerEmail,
+        phone: quote.customerPhone,
+        purpose: 'quote_view',
+        expiryDays: linkExpiryDays, // Use contractor's portal settings
+        isSingleUse: false, // Allow multiple accesses
+        allowMultiJobAccess: true, // Enable OTP verification for multi-job access
+        metadata: {
+          quoteNumber: quote.quoteNumber,
+          sentBy: userId,
+        }
+      });
+      
+      console.log(`✅ Magic link generated (expires in ${linkExpiryDays} days):`, magicLinkResult.link);
+    } catch (magicLinkError) {
+      console.error('⚠️ Failed to generate magic link:', magicLinkError);
+      // Continue - don't fail quote send if magic link fails
+    }
+
     // Calculate quote totals for email (after commit)
     const calculation = await this.calculateQuoteData(quote);
 
@@ -1885,27 +2405,182 @@ exports.sendQuote = async (req, res) => {
       where: { tenantId }
     });
 
-    // Generate PDF (new template). Fallback to legacy generator on failure.
+    // Generate PDF using new Invoice Template Service
     let pdfBuffer = null;
     try {
-      const tenant = await Tenant.findByPk(tenantId);
-      const pDefaults = await ProposalDefaults.findOne({ where: { tenantId } });
+      const invoiceTemplateService = require('../services/invoiceTemplateService');
+      
+      // Use contractor's invoice template preferences or defaults
+      const templateStyle = settings?.invoice_template_style || 'light';
+      const templateType = settings?.invoice_template_type || (quote.productStrategy === 'GBB' ? 'gbb' : 'single');
+      
+      // Build invoiceData expected by InvoiceTemplateService
+      const invoiceData = {
+        invoiceNumber: quote.quoteNumber || `INV-${Date.now()}`,
+        issueDate: new Date().toLocaleDateString('en-US'),
+        dueDate: null,
+        projectName: quote.jobTitle || `${quote.customerName} Project`,
+        projectAddress: [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', '),
+        customerName: quote.customerName,
+        customerPhone: quote.customerPhone,
+        customerEmail: quote.customerEmail,
+        welcomeMessage: settings?.invoiceWelcomeMessage || '',
+        scopeOfWork: quote.jobScope ? [quote.jobScope] : [],
+        materialsSelections: [],
+        estimatedDuration: quote.estimatedDuration || null,
+        estimatedStartDate: quote.scheduledStartDate || null,
+        // Basic pricing item for single-item invoices; more detailed breakdowns can be added
+        pricingItems: [
+          { name: quote.jobTitle || 'Project', qty: 1, rate: null, amount: parseFloat(quote.total || 0) }
+        ],
+        projectInvestment: parseFloat(quote.total || 0),
+        deposit: parseFloat(quote.depositAmount || 0),
+        balance: (parseFloat(quote.total || 0) - parseFloat(quote.depositAmount || 0)),
+        projectTerms: settings?.invoice_terms || [],
+      };
 
-      const projectAddress = [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', ');
+      const contractorInfo = {
+        companyName: settings?.companyName || (contractor?.fullName || contractor?.name) || 'Contractor',
+        address: settings?.companyAddress || '',
+        phone: contractor?.phone || settings?.companyPhone || '',
+        email: contractor?.email || settings?.companyEmail || '',
+        logo: settings?.companyLogo || settings?.logoUrl || null,
+      };
 
-      // Prepare GBB rows from productSets
-      const rows = [];
-      const productSets = quote.productSets || {};
-      const getName = (obj) => obj ? (obj.name || obj.productName || obj.title || obj.label) : undefined;
+      pdfBuffer = await invoiceTemplateService.generateInvoice({
+        templateType: templateType,
+        style: templateStyle,
+        invoiceData,
+        contractorInfo,
+      });
+      
+      console.log(`✅ Invoice PDF generated using ${templateStyle} ${templateType} template`);
+    } catch (invoiceError) {
+      console.error('⚠️ Invoice template generation failed, attempting legacy:', invoiceError);
+      
+      // Fallback to legacy proposal template
+      try {
+        const tenant = await Tenant.findByPk(tenantId);
+        const pDefaults = await ProposalDefaults.findOne({ where: { tenantId } });
+
+        const projectAddress = [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', ');
+
+        // Prepare GBB rows from productSets (organized by surface type)
+        const rows = [];
+        
+        // Parse productSets if needed
+        let productSets = quote.productSets;
+        if (typeof productSets === 'string') {
+          try {
+            productSets = JSON.parse(productSets);
+          } catch (e) {
+            console.error('Failed to parse productSets in sendQuote:', e);
+            productSets = [];
+          }
+        }
+        // Ensure it's an array
+        if (!Array.isArray(productSets)) {
+          productSets = [];
+        }
+      
+      // Helper to get product names by ID
+      const getProductNameById = async (productId) => {
+        if (!productId) return undefined;
+        try {
+          const ProductConfig = require('../models/ProductConfig');
+          const config = await ProductConfig.findByPk(productId, {
+            include: [{ model: GlobalProduct, as: 'globalProduct', include: [{ model: Brand, as: 'brand' }] }]
+          });
+          if (config?.globalProduct) {
+            return `${config.globalProduct.brand?.name || ''} ${config.globalProduct.name || ''}`.trim();
+          }
+        } catch (e) {
+          console.error('Error fetching product name:', e);
+        }
+        return undefined;
+      };
+      
+      // Extract surface types from areas (labor items with selected status)
       const surfaceSet = new Set();
       (quote.areas || []).forEach(a => {
-        a.laborItems?.forEach(li => li?.categoryName && surfaceSet.add(li.categoryName));
-        a.surfaces?.forEach(s => s?.type && surfaceSet.add(s.type));
+        a.laborItems?.forEach(li => {
+          if (li?.selected && li?.categoryName) {
+            surfaceSet.add(li.categoryName);
+          }
+        });
       });
-      Array.from(surfaceSet).forEach(label => {
-        let set = Array.isArray(productSets) ? (productSets.find(ps => ps.surfaceType === label) || {}) : (productSets[label] || {});
-        rows.push({ label, good: getName(set.good), better: getName(set.better), best: getName(set.best) });
-      });
+      
+      // Build rows for each surface type with product selections
+      // Group by area if we have area-wise data
+      const hasAreas = productSets.some(ps => ps.areaId !== undefined);
+      
+      if (hasAreas) {
+        // Area-wise structure: group by area
+        const areaGroups = {};
+        productSets.forEach(ps => {
+          const areaName = ps.areaName || `Area ${ps.areaId}`;
+          if (!areaGroups[areaName]) {
+            areaGroups[areaName] = [];
+          }
+          areaGroups[areaName].push(ps);
+        });
+        
+        // Build rows for each area's surfaces
+        for (const [areaName, areaSets] of Object.entries(areaGroups)) {
+          for (const productSet of areaSets) {
+            const products = productSet.products || {};
+            const goodId = products.good;
+            const betterId = products.better;
+            const bestId = products.best;
+            
+            // Fetch product names for each tier
+            const [goodName, betterName, bestName] = await Promise.all([
+              getProductNameById(goodId),
+              getProductNameById(betterId),
+              getProductNameById(bestId)
+            ]);
+            
+            rows.push({
+              area: areaName,
+              label: productSet.surfaceType || 'Unknown',
+              good: goodName,
+              better: betterName,
+              best: bestName
+            });
+          }
+        }
+      } else {
+        // Turnkey structure: no areas
+        for (const surfaceType of Array.from(surfaceSet)) {
+          // Find productSet for this surface type
+          const productSet = productSets.find(ps => ps.surfaceType === surfaceType);
+          
+          if (!productSet) {
+            rows.push({ label: surfaceType, good: undefined, better: undefined, best: undefined });
+            continue;
+          }
+          
+          // Extract product IDs from nested structure
+          const products = productSet.products || {};
+          const goodId = products.good;
+          const betterId = products.better;
+          const bestId = products.best;
+          
+          // Fetch product names for each tier
+          const [goodName, betterName, bestName] = await Promise.all([
+            getProductNameById(goodId),
+            getProductNameById(betterId),
+            getProductNameById(bestId)
+          ]);
+          
+          rows.push({ 
+            label: surfaceType, 
+            good: goodName, 
+            better: betterName, 
+            best: bestName 
+          });
+        }
+      }
 
       const depositPct = parseFloat(settings?.depositPercentage || 0);
       const total = parseFloat(quote.total || 0);
@@ -1917,14 +2592,16 @@ exports.sendQuote = async (req, res) => {
           email: tenant?.email || '',
           phone: tenant?.phoneNumber || '',
           addressLine1: tenant?.businessAddress || '',
-          logoUrl: pDefaults?.companyLogo || '',
+          logoUrl: tenant?.companyLogoUrl || '',
         },
         proposal: {
           invoiceNumber: quote.quoteNumber,
-          date: new Date().toLocaleDateString(),
+          date: new Date().toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }),
           customerName: quote.customerName,
           projectAddress,
-          selectedOption: quote.productStrategy === 'GBB' ? 'Better' : 'Single',
+          selectedOption: quote.productStrategy === 'GBB' ? 'GBB' : 'Single',
           totalInvestment: total,
           depositAmount,
         },
@@ -1991,23 +2668,83 @@ exports.sendQuote = async (req, res) => {
         // Continue without PDF if generation fails
       }
     }
+  }
 
-    // Send email notification
+    // Send email notification with magic link
     try {
-      await emailService.sendQuoteToCustomer({
-        to: quote.customerEmail,
-        customerName: quote.customerName,
-        quote: quote.toJSON(),
-        calculation,
-        contractor: {
-          name: contractor.fullName,
-          email: contractor.email,
-          phone: settings?.phone,
-          companyName: settings?.businessName || 'Our Painting Team'
-        },
-        quoteViewUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/customer/quote/${quote.id}`,
-        pdfBuffer
-      });
+      const { emailSubject, emailBody } = req.body || {};
+
+      if (!emailSubject || !emailBody) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email subject and body are required'
+        });
+      }
+
+      // Enforce no pricing and no CTAs in contractor-authored body
+      const containsPricing = /\$\s*\d|\b(price|total|deposit|balance|tax)\b/i.test(emailBody);
+      const containsCTA = /\b(click|open|accept|schedule|download|install|app)\b/i.test(emailBody);
+      if (containsPricing || containsCTA) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email body cannot include pricing or calls-to-action'
+        });
+      }
+
+      const tenant = await Tenant.findByPk(tenantId);
+
+      // Send magic link via email instead of traditional quote email
+      if (magicLinkResult) {
+        await emailService.sendMagicLink({
+          to: quote.customerEmail,
+          customerName: quote.customerName,
+          magicLink: magicLinkResult.link,
+          companyName: tenant?.companyName || 'Your Contractor',
+          companyLogo: tenant?.companyLogoUrl || null,
+          purpose: 'quote_view',
+          quoteInfo: {
+            quoteNumber: quote.quoteNumber,
+            total: quote.total,
+            validUntil: quote.validUntil,
+          },
+          expiryHours: 168, // 7 days
+        });
+        
+        // Also attach PDF if available
+        if (pdfBuffer) {
+          // Send contractor's custom message as separate email with PDF
+          await emailService.sendContractorMessageWithSignature({
+            to: quote.customerEmail,
+            subject: emailSubject,
+            body: emailBody,
+            contractor: {
+              name: contractor.fullName,
+              email: contractor.email,
+              phone: tenant?.phoneNumber || settings?.phone,
+              companyName: tenant?.companyName || settings?.businessName || 'Our Painting Team',
+              logoUrl: tenant?.companyLogoUrl || undefined,
+              website: tenant?.website || undefined
+            },
+            pdfBuffer
+          });
+        }
+      } else {
+        // Fallback: Send traditional email if magic link failed
+        await emailService.sendContractorMessageWithSignature({
+          to: quote.customerEmail,
+          subject: emailSubject,
+          body: emailBody,
+          contractor: {
+            name: contractor.fullName,
+            email: contractor.email,
+            phone: tenant?.phoneNumber || settings?.phone,
+            companyName: tenant?.companyName || settings?.businessName || 'Our Painting Team',
+            logoUrl: tenant?.companyLogoUrl || undefined,
+            website: tenant?.website || undefined
+          },
+          pdfBuffer
+        });
+      }
     } catch (emailError) {
       console.error('Error sending quote email:', emailError);
       // Don't fail the request if email fails - quote is already marked as sent
@@ -2017,6 +2754,7 @@ exports.sendQuote = async (req, res) => {
       success: true,
       message: 'Quote sent successfully',
       quote,
+      magicLinkGenerated: !!magicLinkResult,
     });
   } catch (error) {
     // Only rollback if transaction is still pending
@@ -2066,15 +2804,92 @@ exports.getProposalPdf = async (req, res) => {
       .filter(Boolean)
       .join(', ');
 
-    // Build GBB table rows from productSets or areas
+    // Build GBB table rows from productSets or areas (resolve product IDs to names)
     const rows = [];
-    const productSets = quote.productSets || {};
+    
+    // Parse productSets if needed
+    let productSets = quote.productSets;
+    if (typeof productSets === 'string') {
+      try {
+        productSets = JSON.parse(productSets);
+      } catch (e) {
+        console.error('Failed to parse productSets in PDF generation:', e);
+        productSets = [];
+      }
+    }
+    // Ensure it's an array
+    if (!Array.isArray(productSets)) {
+      productSets = [];
+    }
 
-    // Helper to extract name from possible tier object
-    const getName = (obj) => {
-      if (!obj) return undefined;
-      return obj.name || obj.productName || obj.title || obj.label || undefined;
-    };
+    console.log('📄 PDF Generation Debug:', {
+      hasAreas: !!quote.areas,
+      areasLength: quote.areas?.length,
+      hasProductSets: !!productSets,
+      productSetsType: Array.isArray(productSets) ? 'array' : typeof productSets,
+      productSetsLength: Array.isArray(productSets) ? productSets.length : 0,
+      productSets: JSON.stringify(quote.productSets, null, 2)
+    });
+
+    // Load product configs to resolve product names
+    const ProductConfig = require('../models/ProductConfig');
+    const GlobalProduct = require('../models/GlobalProduct');
+    const Brand = require('../models/Brand');
+    const { Op } = require('sequelize');
+
+    // Collect all product IDs from productSets
+    const allProductIds = new Set();
+    if (Array.isArray(productSets)) {
+      productSets.forEach(set => {
+        if (set.products) {
+          if (set.products.good) allProductIds.add(set.products.good);
+          if (set.products.better) allProductIds.add(set.products.better);
+          if (set.products.best) allProductIds.add(set.products.best);
+          if (set.products.single) allProductIds.add(set.products.single);
+        }
+      });
+    }
+
+    // Fetch product details in one query
+    let productMap = {};
+    if (allProductIds.size > 0) {
+      const productConfigs = await ProductConfig.findAll({
+        where: {
+          [Op.or]: [
+            { id: { [Op.in]: Array.from(allProductIds) } },
+            { globalProductId: { [Op.in]: Array.from(allProductIds) } }
+          ]
+        },
+        include: [{
+          model: GlobalProduct,
+          as: 'globalProduct',
+          include: [{
+            model: Brand,
+            as: 'brand'
+          }]
+        }]
+      });
+
+      // Create lookup map for products by both config ID and global product ID
+      productMap = {};
+      productConfigs.forEach(config => {
+        const brandName = config.globalProduct?.brand?.name || '';
+        const productName = config.globalProduct?.name || 'Unknown Product';
+        const sheen = config.sheen || config.globalProduct?.sheen || '';
+        
+        // Create full name with sheen if available
+        let fullName = brandName ? `${brandName} - ${productName}` : productName;
+        if (sheen && sheen !== 'Not specified') {
+          fullName += ` (${sheen})`;
+        }
+
+        productMap[config.id] = fullName;
+        if (config.globalProductId) {
+          productMap[config.globalProductId] = fullName;
+        }
+      });
+      console.log('📄 Product map created:', productMap);
+    }
 
     // Collect surface types from areas as labels
     const surfaceSet = new Set();
@@ -2088,25 +2903,77 @@ exports.getProposalPdf = async (req, res) => {
     });
 
     const surfaceTypes = Array.from(surfaceSet);
+    console.log('📄 Surface types found:', surfaceTypes);
 
-    surfaceTypes.forEach((label) => {
-      let good, better, best;
+    // Check if this is area-wise pricing (flat rate, production-based, rate-based)
+    const isAreaWise = quote.pricingScheme && 
+      ['flat_rate_unit', 'production_based', 'rate_based'].includes(quote.pricingScheme.type);
 
-      if (Array.isArray(productSets)) {
-        const set = productSets.find(ps => ps.surfaceType === label) || {};
-        good = getName(set.good);
-        better = getName(set.better);
-        best = getName(set.best);
-      } else if (productSets && typeof productSets === 'object') {
-        const key = label;
-        const set = productSets[key] || {};
-        good = getName(set.good);
-        better = getName(set.better);
-        best = getName(set.best);
-      }
+    if (isAreaWise) {
+      // Build area-wise product table
+      const areaRows = [];
+      
+      (quote.areas || []).forEach(area => {
+        if (!area.laborItems || area.laborItems.length === 0) return;
+        
+        area.laborItems.forEach(item => {
+          if (!item.selected) return;
+          
+          const surfaceType = item.categoryName;
+          
+          // Find product set for this area+surface
+          const productSet = Array.isArray(productSets) && productSets.find(ps => 
+            ps.areaId === area.id && ps.surfaceType === surfaceType
+          );
+          
+          // Fallback to global selection
+          const selectedSet = productSet || (Array.isArray(productSets) && productSets.find(ps => 
+            !ps.areaId && ps.surfaceType === surfaceType
+          ));
+          
+          if (selectedSet) {
+            let good, better, best;
+            if (selectedSet.products) {
+              good = productMap[selectedSet.products.good] || undefined;
+              better = productMap[selectedSet.products.better] || undefined;
+              best = productMap[selectedSet.products.best] || undefined;
+            }
+            
+            areaRows.push({
+              area: area.name,
+              label: surfaceType,
+              good,
+              better,
+              best,
+              isOverridden: !!productSet
+            });
+          }
+        });
+      });
+      
+      rows.push(...areaRows);
+      console.log('📄 Area-wise product rows:', areaRows);
+    } else {
+      // Global product table (original logic for turnkey)
+      surfaceTypes.forEach((label) => {
+        let good, better, best;
 
-      rows.push({ label, good, better, best });
-    });
+        if (Array.isArray(productSets)) {
+          const set = productSets.find(ps => ps.surfaceType === label && !ps.areaId) || {};
+          // Look up product names by ID
+          if (set.products) {
+            good = productMap[set.products.good] || undefined;
+            better = productMap[set.products.better] || undefined;
+            best = productMap[set.products.best] || undefined;
+          }
+        }
+
+        console.log(`📄 Row for ${label}:`, { good, better, best });
+        rows.push({ label, good, better, best });
+      });
+    }
+
+    console.log('📄 Final rows for PDF:', rows);
 
     // Compute deposit from settings
     const depositPct = parseFloat(settings?.depositPercentage || 0);
@@ -2120,11 +2987,13 @@ exports.getProposalPdf = async (req, res) => {
         email: tenant?.email || '',
         phone: tenant?.phoneNumber || '',
         addressLine1: tenant?.businessAddress || '',
-        logoUrl: pDefaults?.companyLogo || '',
+        logoUrl: tenant?.companyLogoUrl || pDefaults?.companyLogo || '',
       },
       proposal: {
         invoiceNumber: quote.quoteNumber,
-        date: new Date().toLocaleDateString(),
+        date: new Date().toLocaleDateString("en-US",{
+        month: 'short', day: 'numeric', year: 'numeric'
+      }),
         customerName: quote.customerName,
         projectAddress,
         selectedOption: quote.productStrategy === 'GBB' ? 'Better' : 'Single',
@@ -2172,7 +3041,7 @@ exports.getProposalPdf = async (req, res) => {
       areaBreakdown: (quote.areas || []).map(a => a.name).filter(Boolean),
       gbb: {
         rows,
-        investment: {}, // Optional if we later add per-tier totals
+        investment: {},
       },
     };
 
@@ -2199,7 +3068,24 @@ exports.getProposalPdf = async (req, res) => {
  * Tax: Sales tax applied to final subtotal
  */
 exports.calculateQuoteData = async (quote) => {
-  const { areas, productSets, pricingScheme } = quote;
+  const { areas, productSets: rawProductSets, pricingScheme } = quote;
+  
+  // Parse productSets if it's a string
+  let productSets = rawProductSets;
+  if (typeof rawProductSets === 'string') {
+    try {
+      productSets = JSON.parse(rawProductSets);
+    } catch (e) {
+      console.error('Failed to parse productSets:', e);
+      productSets = [];
+    }
+  }
+  
+  // Ensure productSets is an array
+  if (!Array.isArray(productSets)) {
+    console.warn('productSets is not an array, converting:', typeof productSets);
+    productSets = [];
+  }
   
   let laborTotal = 0;
   let materialCost = 0; // Raw material cost
@@ -2260,33 +3146,103 @@ exports.calculateQuoteData = async (quote) => {
   // 2. Calculate Materials from Product Sets
   const productCosts = {};
   
-  for (const set of productSets || []) {
-    const productsList = Array.isArray(set.products) ? set.products : [];
+  // Load product configurations to get pricing
+  const ProductConfig = require('../models/ProductConfig');
+  const GlobalProduct = require('../models/GlobalProduct');
+  const Brand = require('../models/Brand');
+  const { Op } = require('sequelize');
+  
+  // Collect all product IDs from productSets (new structure)
+  const allProductIds = new Set();
+  if (Array.isArray(productSets)) {
+    productSets.forEach(set => {
+      if (set.products && typeof set.products === 'object') {
+        // New structure: products = { good: id, better: id, best: id }
+        Object.values(set.products).forEach(productId => {
+          if (productId) allProductIds.add(productId);
+        });
+      }
+    });
+  }
+  
+  // Fetch product details
+  let productDetailsMap = {};
+  if (allProductIds.size > 0) {
+    const productConfigs = await ProductConfig.findAll({
+      where: {
+        [Op.or]: [
+          { id: { [Op.in]: Array.from(allProductIds) } },
+          { globalProductId: { [Op.in]: Array.from(allProductIds) } }
+        ]
+      },
+      include: [{
+        model: GlobalProduct,
+        as: 'globalProduct',
+        include: [{ model: Brand, as: 'brand' }]
+      }]
+    });
     
-    for (const product of productsList) {
-      if (!product.selected) continue;
+    productConfigs.forEach(config => {
+      const brandName = config.globalProduct?.brand?.name || '';
+      const productName = config.globalProduct?.name || 'Unknown Product';
+      const pricePerGallon = parseFloat(config.pricePerGallon || config.globalProduct?.pricePerGallon || 35);
+      const coverage = parseInt(config.coverageSqftPerGal || config.globalProduct?.coverageSqftPerGal || 400);
       
-      const gallons = parseFloat(product.gallonsNeeded) || 0;
-      const pricePerGallon = parseFloat(product.pricePerGallon) || 0;
+      productDetailsMap[config.id] = {
+        name: brandName ? `${brandName} - ${productName}` : productName,
+        pricePerGallon,
+        coverage
+      };
       
-      if (!gallons || !pricePerGallon) continue;
+      if (config.globalProductId) {
+        productDetailsMap[config.globalProductId] = productDetailsMap[config.id];
+      }
+    });
+  }
+  
+  // Calculate material costs from productSets (new area+surface structure)
+  for (const set of productSets || []) {
+    if (!set.products || typeof set.products !== 'object') continue;
+    
+    const quantity = parseFloat(set.quantity) || 0;
+    const unit = set.unit || 'sqft';
+    
+    // Convert to sqft if needed
+    let sqft = quantity;
+    if (unit === 'linear_foot') {
+      sqft = quantity * 0.5; // Approximate conversion
+    } else if (unit === 'unit') {
+      sqft = quantity * 20; // Approximate: doors/cabinets = 20 sqft each
+    }
+    
+    // Process each tier's product
+    Object.entries(set.products).forEach(([tier, productId]) => {
+      if (!productId) return;
       
-      // Material cost (raw cost before any markup)
-      const productCost = gallons * pricePerGallon;
+      const productDetails = productDetailsMap[productId];
+      if (!productDetails) return;
+      
+      const coverage = productDetails.coverage || 400;
+      const pricePerGallon = productDetails.pricePerGallon || 35;
+      
+      // Calculate gallons needed (with 10% waste factor)
+      const gallonsNeeded = (sqft / coverage) * 1.1;
+      const productCost = gallonsNeeded * pricePerGallon;
+      
       materialCost += productCost;
       
-      if (!productCosts[product.productId]) {
-        productCosts[product.productId] = {
-          name: product.name || `Product ${product.productId}`,
+      if (!productCosts[productId]) {
+        productCosts[productId] = {
+          name: productDetails.name,
           gallons: 0,
           pricePerGallon: pricePerGallon,
           cost: 0
         };
       }
       
-      productCosts[product.productId].gallons += gallons;
-      productCosts[product.productId].cost += productCost;
-    }
+      productCosts[productId].gallons += gallonsNeeded;
+      productCosts[productId].cost += productCost;
+    });
   }
   
   // 3. Apply Markup to Materials (to cover material handling, storage, waste)

@@ -10,8 +10,69 @@ function safe(val, fallback = '') {
   return (val !== undefined && val !== null) ? val : fallback;
 }
 
-// rows: [{ label: 'Walls', good: '...', better: '...', best: '...' }]
+// rows: [{ label: 'Walls', good: '...', better: '...', best: '...', area: 'Living Room' (optional) }]
 function renderGBBTable(rows = [], investment = {}) {
+  // Check if rows have area grouping
+  const hasAreas = rows.some(r => r.area);
+  
+  if (hasAreas) {
+    // Group by area
+    const areaGroups = {};
+    rows.forEach(r => {
+      const areaName = r.area || 'General';
+      if (!areaGroups[areaName]) {
+        areaGroups[areaName] = [];
+      }
+      areaGroups[areaName].push(r);
+    });
+    
+    // Render area-grouped products
+    const areaHtml = Object.entries(areaGroups).map(([areaName, areaRows]) => `
+      <div class="area-group">
+        <div class="area-header">${areaName}</div>
+        <table class="gbb-area">
+          <thead>
+            <tr>
+              <th class="head-area">Surface</th>
+              <th class="head-area">Good</th>
+              <th class="head-area">Better</th>
+              <th class="head-area">Best</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${areaRows.map(r => `
+              <tr>
+                <td class="cell label">${safe(r.label)}</td>
+                <td class="cell">${safe(r.good, '-')}</td>
+                <td class="cell">${safe(r.better, '-')}</td>
+                <td class="cell">${safe(r.best, '-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `).join('');
+    
+    // Calculate product summary
+    const productSummary = {};
+    rows.forEach(r => {
+      if (r.good) {
+        productSummary[r.good] = (productSummary[r.good] || 0) + 1;
+      }
+      if (r.better) {
+        productSummary[r.better] = (productSummary[r.better] || 0) + 1;
+      }
+      if (r.best) {
+        productSummary[r.best] = (productSummary[r.best] || 0) + 1;
+      }
+    });
+    
+    
+    
+    return areaHtml ;
+  }
+  
+  // Original global table for turnkey pricing
   const rowHtml = rows.map(r => `
     <tr>
       <td class="cell label">${safe(r.label)}</td>
@@ -99,6 +160,25 @@ function renderProposalHtml(data) {
         .gbb { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
         .gbb .head { background: #1f4fb2; color: #fff; text-align: left; padding: 8px; font-weight: 600; font-size: 13px; }
         .gbb .cell { border: 1px solid #e5e7eb; padding: 8px; font-size: 13px; vertical-align: top; }
+        .area-group { margin-bottom: 20px; page-break-inside: avoid; }
+        .area-header { 
+          font-size: 15px; font-weight: 700; color: #1f4fb2; 
+          padding: 8px 12px; background: #e6f7ff; border-radius: 4px; margin-bottom: 8px;
+        }
+        .gbb-area { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+        .gbb-area .head-area { background: #91d5ff; color: #003a8c; text-align: left; padding: 6px 8px; font-weight: 600; font-size: 12px; }
+        .gbb-area .cell { border: 1px solid #e5e7eb; padding: 6px 8px; font-size: 12px; vertical-align: top; }
+        .product-summary {
+          margin-top: 24px; padding: 16px; background: #f0f5ff; border: 1px solid #adc6ff; border-radius: 6px;
+          page-break-inside: avoid;
+        }
+        .summary-title { font-size: 16px; font-weight: 700; color: #1f4fb2; margin-bottom: 12px; }
+        .summary-item { 
+          display: flex; justify-content: space-between; align-items: center;
+          padding: 8px 12px; margin-bottom: 6px; background: #fff; border: 1px solid #d9d9d9; border-radius: 4px;
+        }
+        .summary-product { font-weight: 600; font-size: 13px; }
+        .summary-count { font-size: 12px; color: #666; }
         .list { margin: 6px 0 6px 18px; }
         .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .sig { margin-top: 24px; }

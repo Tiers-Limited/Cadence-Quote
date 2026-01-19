@@ -441,9 +441,9 @@ function applyMarkupsAndTax(basePricing, settings = {}) {
   const profitAmount = subtotalBeforeProfit * (profitMarginPercent / 100);
   const subtotal = subtotalBeforeProfit + profitAmount;
   
-  // Step 6: Calculate tax
+  // Step 6: Calculate tax (applied on Material Markup only)
   const taxRate = parseFloat(taxRatePercentage) || 0;
-  const taxAmount = subtotal * (taxRate / 100);
+  const taxAmount = materialCostWithMarkup * (taxRate / 100);
   
   // Final total
   const total = subtotal + taxAmount;

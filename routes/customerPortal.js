@@ -1,17 +1,20 @@
 // routes/customerPortal.js
+// DEPRECATED: This file is being phased out in favor of customerPortalRoutes.js
+// which uses magic link authentication instead of JWT
+// Keeping for backward compatibility with existing JWT-authenticated flows
+
 const express = require('express');
 const router = express.Router();
 const customerPortalController = require('../controllers/customerPortalController');
 const brandController = require('../controllers/brandController');
 const globalProductController = require('../controllers/globalProductController');
 const globalColorController = require('../controllers/globalColorController');
-const { auth, authorize } = require('../middleware/auth');
-const { checkPortalAccess, checkFinishStandardsAcknowledged } = require('../middleware/portalAccess');
+const { customerSessionAuth } = require('../middleware/customerSessionAuth');
 
-// All routes require authentication and customer role
-router.use(auth);
-// router.use(authorize('customer', ));
+// All routes require magic link session authentication
+router.use(customerSessionAuth);
 
+// ===== PROPOSAL ROUTES (LEGACY - Use /quotes in new portal) =====
 // Get all proposals for customer
 router.get('/proposals', customerPortalController.getCustomerProposals);
 
@@ -30,23 +33,18 @@ router.post('/proposals/:proposalId/upgrade-tier', customerPortalController.upgr
 // Request tier change (downgrade or upgrade approval)
 router.post('/proposals/:proposalId/request-tier-change', customerPortalController.requestTierChange);
 
-// Acknowledge finish standards (requires portal access)
+// Acknowledge finish standards
 router.post('/proposals/:proposalId/acknowledge-finish-standards', 
-  checkPortalAccess, 
   customerPortalController.acknowledgeFinishStandards
 );
 
-// Save area selections (requires portal access + finish standards acknowledged)
+// Save area selections
 router.post('/proposals/:proposalId/areas/:areaId/selections', 
-  checkPortalAccess,
-  checkFinishStandardsAcknowledged,
   customerPortalController.saveAreaSelections
 );
 
-// Submit all selections (requires portal access + finish standards acknowledged)
+// Submit all selections
 router.post('/proposals/:proposalId/submit-selections', 
-  checkPortalAccess,
-  checkFinishStandardsAcknowledged,
   customerPortalController.submitAllSelections
 );
 
@@ -67,6 +65,13 @@ router.get('/proposals/:proposalId/payment-status', customerPortalController.che
 
 // Check portal status (auto-lock if expired)
 router.get('/proposals/:proposalId/portal-status', customerPortalController.checkPortalStatus);
+
+// ===== JOB ROUTES =====
+// Get all jobs for customer
+router.get('/jobs', customerPortalController.getCustomerJobs);
+
+// Get job detail with progress
+router.get('/jobs/:jobId', customerPortalController.getJobDetail);
 
 // ===== PRODUCT SELECTION DATA ROUTES =====
 // Get all brands (for product selection)

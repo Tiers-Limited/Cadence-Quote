@@ -33,9 +33,16 @@ const serviceTypesRouter = require('./routes/serviceTypes'); // NEW FEATURE: Ser
 const surfaceTypesRouter = require('./routes/surfaceTypes'); // NEW FEATURE: Surface Types
 const globalProductsRouter = require('./routes/globalProducts'); // Global Products API
 const laborCategoriesRouter = require('./routes/laborCategories'); // Labor Categories & Rates
-const customerPortalRouter = require('./routes/customerPortal'); // Customer Portal
+const customerPortalRouter = require('./routes/customerPortal'); // Customer Portal (LEGACY - JWT auth)
+const customerPortalAccessRouter = require('./routes/customerPortalRoutes'); // Customer Portal (NEW - Magic link auth)
 const contractorPortalRouter = require('./routes/contractorPortal'); // Contractor Portal Management
 const clientAuthRouter = require('./routes/clientAuth'); // Client Authentication
+const jobsRouter = require('./routes/jobs'); // Jobs Management
+const magicLinkManagementRouter = require('./routes/magicLinkManagement'); // Magic Link Management (Contractor)
+const proposalAcceptanceRouter = require('./routes/proposalAcceptance');
+const adminStatusRouter = require('./routes/adminStatus'); // Admin Status Management (Phase 1) // Proposal Acceptance (Customer)
+const customerSelectionsRouter = require('./routes/customerSelections'); // Customer Selections
+const jobSchedulingRouter = require('./routes/jobScheduling'); // Job Scheduling & Management
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 // Load all models and associations
@@ -48,8 +55,23 @@ require('./config/passport')(passport);
 app.use(passport.initialize());
 
 // Middleware
-app.use(helmet());  // Security headers
+// Configure helmet but allow iframe embedding from the frontend dev origin for document previews.
+const helmetOptions = {
+  // Disable frameguard so we can control frame-ancestors via CSP (modern browsers prefer CSP over X-Frame-Options)
+  frameguard: false,
+  // Disable the default CSP to avoid conflicting policies; we'll set a permissive frame-ancestors header below for dev.
+  contentSecurityPolicy: false
+};
+app.use(helmet(helmetOptions));  // Security headers with frameguard disabled
 app.use(cors());  // Enable CORS for frontend
+
+// Allow iframe embedding from the frontend dev server (adjust via CLIENT_ORIGIN env var in other environments)
+app.use((req, res, next) => {
+  const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+  // Use CSP frame-ancestors to allow iframe embedding from the client origin and self
+  res.setHeader('Content-Security-Policy', `frame-ancestors 'self' ${clientOrigin}`);
+  next();
+});
 
 // Webhook routes MUST come before JSON parser (needs raw body)
 app.use('/api/v1/webhooks', webhooksRouter);
@@ -102,9 +124,16 @@ app.use('/api/v1/service-types', serviceTypesRouter); // Service Types
 app.use('/api/v1/surface-types', surfaceTypesRouter); // Surface Types
 app.use('/api/v1/global-products', globalProductsRouter); // Global Products API
 app.use('/api/v1/labor-categories', laborCategoriesRouter); // Labor Categories & Rates
-app.use('/api/v1/customer', customerPortalRouter); // Customer Portal
+app.use('/api/v1/customer', customerPortalRouter); // Customer Portal (LEGACY - JWT auth, deprecated)
+app.use('/api/customer-portal', customerPortalAccessRouter); // Customer Portal (NEW - Magic link/session auth)
+app.use('/api/customer-portal/proposals', proposalAcceptanceRouter); // Proposal Acceptance with Payment
+app.use('/api/customer-portal/proposals', customerSelectionsRouter); // Customer Product Selections
 app.use('/api/v1/contractor-portal', contractorPortalRouter); // Contractor Portal Management
 app.use('/api/v1/client-auth', clientAuthRouter); // Client Authentication
+app.use('/api/v1/jobs', jobsRouter); // Jobs Management (CRUD)
+app.use('/api/jobs', jobSchedulingRouter); // Job Scheduling & Status Updates
+app.use('/api/v1/magic-links', magicLinkManagementRouter); // Magic Link Management (Contractor)
+app.use('/api/v1/admin/status', adminStatusRouter); // Admin Status Management (Phase 1)
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler
@@ -159,6 +188,15 @@ app.use(function(err, req, res, next) {
     } else {
       console.log('ℹ Lead Reminder Job disabled (ENABLE_LEAD_REMINDERS=false)');
     }
+
+      // Start Portal Lock Job (locks expired customer portals)
+      if (process.env.ENABLE_PORTAL_LOCK_JOB !== 'false') {
+        const portalLockJob = require('./jobs/portalLockJob');
+        portalLockJob.start();
+        console.log('✓ Portal Lock Job started');
+      } else {
+        console.log('ℹ Portal Lock Job disabled (ENABLE_PORTAL_LOCK_JOB=false)');
+      }
   } catch (error) {
     console.error('✗ Database sync failed:', error.message);
     console.error('💡 Try running the migration manually:');
