@@ -99,6 +99,8 @@ function MagicLinkCustomerDashboard() {
   const fetchProposalsWithToken = async (token) => {
     try {
       setLoading(true);
+      console.log('🔍 Fetching proposals with token...');
+      
       const response = await axios.get(
         `${API_BASE_URL.replace('/api/v1', '')}/api/customer-portal/quotes`,
         {
@@ -108,19 +110,60 @@ function MagicLinkCustomerDashboard() {
         }
       );
        
-      if (response.data.success) {
+      console.log('🔍 Proposals response:', response.data);
        
-        setProposals(response.data.quotes || []);
+      if (response.data.success) {
+        const quotes = response.data.quotes || [];
+        const verified = response.data.isVerified;
+        
+        console.log('🔍 Got quotes:', quotes.length, 'Verified:', verified);
+        
+        setProposals(quotes);
+        setIsVerified(verified);
+        
+        // Update localStorage with current verification status
+        localStorage.setItem('portalVerified', verified.toString());
+        
+        // Check if customer has multiple projects but isn't verified
+        // This indicates they should be offered verification
+        if (!verified && quotes.length > 0) {
+          // Check if this customer has more quotes available after verification
+          checkForMultipleProjects(token);
+        }
+        
+        // If we have no quotes and we're not verified, show a helpful message
+        if (quotes.length === 0 && !verified) {
+          console.warn('⚠️ No quotes found for unverified customer - possible session issue');
+          message.warning('No proposals found. This might be a session issue. Please try accessing your portal link again.');
+        }
       }
     } catch (error) {
       console.error('Failed to load proposals:', error);
       if (error.response?.status === 401) {
+        message.error('Your session has expired. Please access your portal link again.');
+        localStorage.removeItem('portalSession');
+        localStorage.removeItem('portalClient');
+        localStorage.removeItem('portalVerified');
         navigate('/portal/access');
       } else {
         message.error('Failed to load proposals');
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Check if customer has multiple projects that would be available after verification
+  const checkForMultipleProjects = async (token) => {
+    try {
+      // This is a simple heuristic - if allowMultiJobAccess was set during login,
+      // it means there are multiple projects available
+      const storedAllowMultiJob = localStorage.getItem('portalAllowMultiJob') === 'true';
+      if (storedAllowMultiJob) {
+        setAllowMultiJob(true);
+      }
+    } catch (error) {
+      console.error('Failed to check for multiple projects:', error);
     }
   };
 
@@ -173,18 +216,30 @@ function MagicLinkCustomerDashboard() {
         `${API_BASE_URL.replace('/api/v1', '')}/api/customer-portal/request-otp`,
         {
           sessionToken,
-          method: 'email', // or 'sms'
+          method: 'email',
           target: clientInfo?.email
         }
       );
       
       if (response.data.success) {
-        message.success('Verification code sent to your email!');
+        message.success({
+          content: `Verification code sent to ${clientInfo?.email}!`,
+          duration: 3,
+          style: { marginTop: '20vh' }
+        });
         setShowOTPModal(true);
       }
     } catch (error) {
       console.error('Failed to request OTP:', error);
-      message.error('Failed to send verification code');
+      const errorMessage = error.response?.data?.message || 'Failed to send verification code';
+      
+      if (errorMessage.includes('Too many')) {
+        message.error('Too many verification requests. Please wait 5 minutes and try again.');
+      } else if (errorMessage.includes('No email')) {
+        message.error('No email address found. Please contact support for assistance.');
+      } else {
+        message.error(errorMessage);
+      }
     } finally {
       setOtpLoading(false);
     }
@@ -202,21 +257,57 @@ function MagicLinkCustomerDashboard() {
       );
       
       if (response.data.success) {
-        message.success('Verification successful! You now have access to all your projects.');
+        // Show success message
+        message.success({
+          content: 'Verification successful! You now have access to all your projects.',
+          duration: 4,
+          style: { marginTop: '20vh' }
+        });
+        
+        // Update state
         setIsVerified(true);
+        setAllowMultiJob(false); // No longer need to show verification prompt
         localStorage.setItem('portalVerified', 'true');
+        
+        // Close modal
         setShowOTPModal(false);
         setOtpCode('');
+        
+        // Update session token if provided
+        if (response.data.session?.token) {
+          localStorage.setItem('portalSession', response.data.session.token);
+          setSessionToken(response.data.session.token);
+        }
+        
         // Refresh data to show all proposals/jobs
         if (activeTab === 'proposals') {
           fetchProposals();
         } else {
           fetchJobs();
         }
+        
+        // Show a celebration effect
+        setTimeout(() => {
+          message.info({
+            content: `🎉 Welcome! You can now see all your projects with ${branding?.companyName}.`,
+            duration: 3,
+            style: { marginTop: '20vh' }
+          });
+        }, 1000);
       }
     } catch (error) {
       console.error('Failed to verify OTP:', error);
-      message.error(error.response?.data?.message || 'Invalid verification code');
+      const errorMessage = error.response?.data?.message || 'Invalid verification code';
+      message.error(errorMessage);
+      
+      // If too many attempts, close modal and suggest requesting new code
+      if (errorMessage.includes('Too many') || errorMessage.includes('locked')) {
+        setShowOTPModal(false);
+        setOtpCode('');
+        setTimeout(() => {
+          message.warning('Please request a new verification code and try again.');
+        }, 500);
+      }
     } finally {
       setOtpLoading(false);
     }
@@ -392,14 +483,14 @@ function MagicLinkCustomerDashboard() {
               icon={<FiEye />}
               onClick={() => {
                 // Use new ProposalAcceptance route
-                if (record.status === 'sent' || record.status === 'pending') {
+                if (record.status === 'sent' || record.status === 'pending' || record.status === "viewed") {
                   navigate(`/portal/proposals/${record.id}/accept`);
                 } else if (record.depositVerified && record.portalOpen && !record.selectionsComplete) {
                   navigateToSelectionsGuarded(record, `/portal/proposals/${record.id}/selections`);
                 } else if (record.selectionsComplete && record.jobId) {
                   navigate(`/portal/job/${record.jobId}`);
                 } else {
-                  navigate(`/portal/job/${record.jobId}`);
+                  navigate(`/portal/proposals/${record.id}/accept`);
                 }
               }}
             >
@@ -415,7 +506,7 @@ function MagicLinkCustomerDashboard() {
               Documents
             </Button>
             
-            {(record.status === 'sent' || record.status === 'pending') && (
+            {(record.status === 'sent' || record.status === 'pending' || record.status === "viewed") && (
               <>
                 <Button
                   type="primary"
@@ -555,46 +646,115 @@ function MagicLinkCustomerDashboard() {
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
-                  <Title level={2} style={{ margin: 0, color: primaryColor }}>
-                    Welcome, {clientInfo?.name || 'Customer'}!
-                  </Title>
-                  <Paragraph type="secondary" style={{ margin: '8px 0 0 0' }}>
-                    View and manage your proposals and projects below.
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <Title level={2} style={{ margin: 0, color: primaryColor }}>
+                      Welcome, {clientInfo?.name || 'Customer'}!
+                    </Title>
+                    {isVerified && (
+                      <Tag 
+                        icon={<FiShield />} 
+                        color="success" 
+                        style={{ 
+                          fontSize: '12px', 
+                          padding: '4px 8px',
+                          borderRadius: '12px'
+                        }}
+                      >
+                        Verified
+                      </Tag>
+                    )}
+                  </div>
+                  <Paragraph type="secondary" style={{ margin: '0' }}>
+                    {isVerified 
+                      ? `You have full access to all your projects with ${branding?.companyName}.`
+                      : 'View and manage your proposals and projects below.'
+                    }
                   </Paragraph>
                 </div>
-                <Button
-                  type="primary"
-                  icon={<FiCalendar />}
-                  onClick={() => navigate('/portal/calendar')}
-                  size="large"
-                  style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
-                >
-                  View Calendar
-                </Button>
+                <Space>
+                  {!isVerified && (allowMultiJob || proposals.length > 0) && (
+                    <Button
+                      type="default"
+                      icon={<FiUnlock />}
+                      onClick={requestOTP}
+                      loading={otpLoading}
+                      style={{ 
+                        borderColor: primaryColor,
+                        color: primaryColor
+                      }}
+                    >
+                      Verify Identity
+                    </Button>
+                  )}
+                  <Button
+                    type="primary"
+                    icon={<FiCalendar />}
+                    onClick={() => navigate('/portal/calendar')}
+                    size="large"
+                    style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
+                  >
+                    View Calendar
+                  </Button>
+                </Space>
               </div>
 
-              {!isVerified && allowMultiJob && (
+              {!isVerified && (allowMultiJob || proposals.length > 0) && (
                 <Alert
                   message="Unlock All Your Projects"
                   description={
                     <Space direction="vertical" size="small">
                       <Text>
-                        You have multiple projects with {branding?.companyName}. 
-                        Verify your identity to access all of them.
+                        You may have multiple projects with {branding?.companyName}. 
+                        Verify your identity to access all of them and see your complete project history.
                       </Text>
-                      <Button
-                        type="primary"
-                        icon={<FiUnlock />}
-                        onClick={requestOTP}
-                        loading={otpLoading}
-                        style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
-                      >
-                        Verify to See All Projects
-                      </Button>
+                      <Space>
+                        <Button
+                          type="primary"
+                          icon={<FiUnlock />}
+                          onClick={requestOTP}
+                          loading={otpLoading}
+                          style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
+                        >
+                          Verify Identity
+                        </Button>
+                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                          We'll send a code to your email
+                        </Text>
+                      </Space>
                     </Space>
                   }
                   type="info"
                   icon={<FiShield />}
+                  showIcon
+                  style={{ marginBottom: '16px' }}
+                />
+              )}
+
+              {!isVerified && !allowMultiJob && filteredQuotes.length === 0 && (
+                <Alert
+                  message="No Proposals Found"
+                  description={
+                    <Space direction="vertical" size="small">
+                      <Text>
+                        We couldn't find any proposals for your account. This might be a session issue.
+                      </Text>
+                      <Text type="secondary">
+                        Please try accessing your portal link again, or contact {branding?.companyName} if you continue to have issues.
+                      </Text>
+                      <Button
+                        type="primary"
+                        onClick={() => {
+                          localStorage.clear();
+                          navigate('/portal/access');
+                        }}
+                        style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
+                      >
+                        Access Portal Again
+                      </Button>
+                    </Space>
+                  }
+                  type="warning"
+                  icon={<FiAlertCircle />}
                   showIcon
                 />
               )}
@@ -625,14 +785,59 @@ function MagicLinkCustomerDashboard() {
                     </span>
                   ),
                   children: (
-                    <Table
-                      columns={proposalColumns}
-                      dataSource={filteredQuotes}
-                      loading={loading}
-                      rowKey="id"
-                      pagination={{ pageSize: 10 }}
-                      scroll={{ x: 1200 }}
-                    />
+                    <div>
+                      {!isVerified && (allowMultiJob || proposals.length > 0) && (
+                        <Alert
+                          message="Limited View"
+                          description={
+                            <Space>
+                              <Text>You're seeing a limited view. Verify your identity to access all your projects.</Text>
+                              <Button 
+                                type="link" 
+                                size="small" 
+                                onClick={requestOTP}
+                                loading={otpLoading}
+                                style={{ padding: 0, height: 'auto' }}
+                              >
+                                Verify Now
+                              </Button>
+                            </Space>
+                          }
+                          type="warning"
+                          showIcon
+                          style={{ marginBottom: '16px' }}
+                        />
+                      )}
+                      <Table
+                        columns={proposalColumns}
+                        dataSource={filteredQuotes}
+                        loading={loading}
+                        rowKey="id"
+                        pagination={{ pageSize: 10 }}
+                        scroll={{ x: 1200 }}
+                        locale={{
+                          emptyText: !isVerified && (allowMultiJob || proposals.length === 0) 
+                            ? (
+                              <div style={{ padding: '40px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+                                <Title level={4} type="secondary">No Proposals Visible</Title>
+                                <Paragraph type="secondary">
+                                  You may have additional projects that require verification to view.
+                                </Paragraph>
+                                <Button 
+                                  type="primary" 
+                                  onClick={requestOTP}
+                                  loading={otpLoading}
+                                  style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
+                                >
+                                  Verify to See All Projects
+                                </Button>
+                              </div>
+                            )
+                            : 'No proposals found'
+                        }}
+                      />
+                    </div>
                   )
                 },
                 {
@@ -644,13 +849,58 @@ function MagicLinkCustomerDashboard() {
                     </span>
                   ),
                   children: (
-                    <Table
-                      columns={jobColumns}
-                      dataSource={filteredJobs}
-                      loading={loading}
-                      rowKey="id"
-                      pagination={{ pageSize: 10 }}
-                    />
+                    <div>
+                      {!isVerified && (allowMultiJob || jobs.length > 0) && (
+                        <Alert
+                          message="Limited View"
+                          description={
+                            <Space>
+                              <Text>You're seeing a limited view. Verify your identity to access all your jobs.</Text>
+                              <Button 
+                                type="link" 
+                                size="small" 
+                                onClick={requestOTP}
+                                loading={otpLoading}
+                                style={{ padding: 0, height: 'auto' }}
+                              >
+                                Verify Now
+                              </Button>
+                            </Space>
+                          }
+                          type="warning"
+                          showIcon
+                          style={{ marginBottom: '16px' }}
+                        />
+                      )}
+                      <Table
+                        columns={jobColumns}
+                        dataSource={filteredJobs}
+                        loading={loading}
+                        rowKey="id"
+                        pagination={{ pageSize: 10 }}
+                        locale={{
+                          emptyText: !isVerified && (allowMultiJob || jobs.length === 0)
+                            ? (
+                              <div style={{ padding: '40px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+                                <Title level={4} type="secondary">No Jobs Visible</Title>
+                                <Paragraph type="secondary">
+                                  You may have additional jobs that require verification to view.
+                                </Paragraph>
+                                <Button 
+                                  type="primary" 
+                                  onClick={requestOTP}
+                                  loading={otpLoading}
+                                  style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
+                                >
+                                  Verify to See All Jobs
+                                </Button>
+                              </div>
+                            )
+                            : 'No jobs found'
+                        }}
+                      />
+                    </div>
                   )
                 }
               ]}
@@ -672,35 +922,80 @@ function MagicLinkCustomerDashboard() {
           setShowOTPModal(false);
           setOtpCode('');
         }}
-        okText="Verify"
+        okText="Verify Code"
+        cancelText="Cancel"
         confirmLoading={otpLoading}
         okButtonProps={{ 
           style: { backgroundColor: primaryColor, borderColor: primaryColor },
           disabled: otpCode.length !== 6
         }}
+        width={500}
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <Paragraph>
-            A 6-digit code was sent to <Text strong>{clientInfo?.email}</Text>.
-            Enter it below to access all your projects.
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ 
+              fontSize: '48px', 
+              color: primaryColor, 
+              marginBottom: '16px' 
+            }}>
+              📧
+            </div>
+            <Title level={4} style={{ margin: 0, color: primaryColor }}>
+              Check Your Email
+            </Title>
+          </div>
+          
+          <Paragraph style={{ textAlign: 'center', fontSize: '16px' }}>
+            We sent a 6-digit verification code to:
+            <br />
+            <Text strong style={{ fontSize: '18px' }}>{clientInfo?.email}</Text>
           </Paragraph>
           
-          <Input
-            placeholder="Enter 6-digit code"
-            value={otpCode}
-            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            maxLength={6}
-            size="large"
-            style={{ 
-              fontSize: '24px',
-              textAlign: 'center',
-              letterSpacing: '8px'
-            }}
-          />
+          <div style={{ textAlign: 'center' }}>
+            <Text type="secondary" style={{ marginBottom: '8px', display: 'block' }}>
+              Enter the code below:
+            </Text>
+            <Input
+              placeholder="000000"
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              maxLength={6}
+              size="large"
+              style={{ 
+                fontSize: '32px',
+                textAlign: 'center',
+                letterSpacing: '8px',
+                fontWeight: 'bold',
+                height: '60px',
+                borderRadius: '8px',
+                border: `2px solid ${primaryColor}20`,
+                backgroundColor: '#fafafa'
+              }}
+              onPressEnter={verifyOTP}
+            />
+          </div>
           
-          <Button type="link" onClick={requestOTP} loading={otpLoading} block>
-            Didn't receive the code? Resend
-          </Button>
+          <div style={{ textAlign: 'center' }}>
+            <Text type="secondary" style={{ fontSize: '14px', marginBottom: '12px', display: 'block' }}>
+              Code expires in 10 minutes
+            </Text>
+            <Button 
+              type="link" 
+              onClick={requestOTP} 
+              loading={otpLoading}
+              style={{ padding: 0, height: 'auto' }}
+            >
+              Didn't receive the code? Send again
+            </Button>
+          </div>
+          
+          <Alert
+            message="Why verify?"
+            description="Verification allows you to see all your projects with this contractor in one place, track job progress, and access your complete project history."
+            type="info"
+            showIcon
+            style={{ marginTop: '16px' }}
+          />
         </Space>
       </Modal>
     </>

@@ -346,7 +346,7 @@ function SettingsPage () {
                       )}
                       <Upload
                         maxCount={1}
-                        accept='image/*'
+                        accept='.jpg,.png,.jpeg'
                         beforeUpload={handleLogoUpload}
                         showUploadList={false}
                         disabled={uploading}

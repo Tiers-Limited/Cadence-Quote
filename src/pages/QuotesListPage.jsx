@@ -501,10 +501,10 @@ const QuotesListPage = () => {
                 onClick={() => handleDuplicateQuote(record.id)}
                 size="small"
               >
-                Copy
+                Duplicate
               </Button>
 
-              {record.clientId && (
+              {/* {record.clientId && (
                 <Button
                   type="link"
                   icon={<MailOutlined />}
@@ -515,7 +515,7 @@ const QuotesListPage = () => {
                 >
                   {record.client?.hasPortalAccess ? 'Invited' : 'Invite'}
                 </Button>
-              )}
+              )} */}
               
               <Button
                 type="link"
@@ -551,7 +551,7 @@ const QuotesListPage = () => {
                 size="small"
                 title="Copy"
               />
-              {record.clientId && (
+              {/* {record.clientId && (
                 <Button
                   icon={<MailOutlined />}
                   onClick={() => handleInviteClient(record)}
@@ -559,7 +559,7 @@ const QuotesListPage = () => {
                   style={{ color: record.client?.hasPortalAccess ? '#52c41a' : '#1890ff' }}
                   title={record.client?.hasPortalAccess ? 'Portal access granted' : 'Invite to portal'}
                 />
-              )}
+              )} */}
               <Button
                 danger
                 icon={<DeleteOutlined />}

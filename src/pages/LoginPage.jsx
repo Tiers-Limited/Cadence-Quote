@@ -5,6 +5,7 @@ import { useLogin } from '../hooks/useLogin'
 import { message, Alert } from 'antd'
 import GoogleAuthButton from '../components/GoogleAuthButton'
 import AppleAuthButton from '../components/AppleAuthButton'
+import { useAuth } from '../hooks/useAuth'
 import Logo from '../components/Logo'
 
 function LoginPage () {
@@ -13,6 +14,7 @@ function LoginPage () {
   const [showPassword, setShowPassword] = useState(false)
   const [urlError, setUrlError] = useState(null)
   const { login, loading, error } = useLogin()
+   const { login: contextLogin } = useAuth()
   const navigate = useNavigate()
 
   // Handle error from URL params (OAuth redirects)
