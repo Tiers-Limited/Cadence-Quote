@@ -1,7 +1,5 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
-const User = require('./User');
-const Tenant = require('./Tenant');
 
 const AuditLog = sequelize.define('AuditLog', {
   id: {
@@ -12,19 +10,11 @@ const AuditLog = sequelize.define('AuditLog', {
   tenantId: {
     type: DataTypes.INTEGER,
     allowNull: true,
-    references: {
-      model: Tenant,
-      key: 'id',
-    },
     field: 'tenant_id',
   },
   userId: {
     type: DataTypes.INTEGER,
     allowNull: true,
-    references: {
-      model: User,
-      key: 'id',
-    },
     field: 'user_id',
   },
   action: {
@@ -85,7 +75,10 @@ const AuditLog = sequelize.define('AuditLog', {
   ],
 });
 
-AuditLog.belongsTo(Tenant, { foreignKey: 'tenantId', as: 'tenant' });
-AuditLog.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+// Associations will be set up in models/index.js
+AuditLog.associate = (models) => {
+  AuditLog.belongsTo(models.Tenant, { foreignKey: 'tenantId', as: 'tenant' });
+  AuditLog.belongsTo(models.User, { foreignKey: 'userId', as: 'user' });
+};
 
 module.exports = AuditLog;

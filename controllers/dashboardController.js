@@ -6,13 +6,42 @@ const Lead = require('../models/Lead');
 const ContractorSettings = require('../models/ContractorSettings');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// Import optimization utilities
+const { optimizationSystem } = require('../optimization');
+
+// Cache keys for dashboard data
+const CACHE_KEYS = {
+  DASHBOARD_STATS: (tenantId) => `dashboard:stats:${tenantId}`,
+  JOB_ANALYTICS: (tenantId) => `dashboard:analytics:${tenantId}`,
+  MONTHLY_PERFORMANCE: (tenantId) => `dashboard:monthly:${tenantId}`,
+  RECENT_ACTIVITY: (tenantId) => `dashboard:activity:${tenantId}`
+};
+
+// Cache TTL (5 minutes for dashboard data)
+const CACHE_TTL = 300;
+
 /**
  * GET /api/v1/dashboard/stats
- * Get comprehensive dashboard statistics
+ * Get comprehensive dashboard statistics with caching and parallel execution
  */
 exports.getDashboardStats = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
+    const cacheKey = CACHE_KEYS.DASHBOARD_STATS(tenantId);
+    
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedStats = await utils.cache?.get(cacheKey);
+      
+      if (cachedStats) {
+        return res.json({
+          success: true,
+          data: cachedStats,
+          cached: true
+        });
+      }
+    }
 
     // Get current month date range
     const now = new Date();
@@ -20,68 +49,72 @@ exports.getDashboardStats = async (req, res) => {
     const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
-    // Fetch all quotes with deposit payments for current month
-    const currentMonthQuotes = await Quote.findAll({
-      where: {
-        tenantId,
-        isActive: true,
-        createdAt: {
-          [Op.gte]: firstDayOfMonth
-        }
-      },
-      attributes: [
-        'id',
-        'status',
-        'total',
-        'laborTotal',
-        'materialTotal',
-        'markup',
-        'createdAt',
-        'depositAmount',
-        'depositTransactionId',
-        'depositPaymentMethod',
-        'depositVerified',
-        'depositVerifiedAt'
-      ]
-    });
+    // Execute queries in parallel for better performance
+    const [currentMonthQuotes, paidQuotes, lastMonthQuotes] = await Promise.all([
+      // Current month quotes
+      Quote.findAll({
+        where: {
+          tenantId,
+          isActive: true,
+          createdAt: {
+            [Op.gte]: firstDayOfMonth
+          }
+        },
+        attributes: [
+          'id',
+          'status',
+          'total',
+          'laborTotal',
+          'materialTotal',
+          'markup',
+          'createdAt',
+          'depositAmount',
+          'depositTransactionId',
+          'depositPaymentMethod',
+          'depositVerified',
+          'depositVerifiedAt'
+        ],
+        raw: true // Use raw queries for better performance
+      }),
+      
+      // Paid quotes for revenue calculation
+      Quote.findAll({
+        where: {
+          tenantId,
+          isActive: true,
+          depositVerified: true,
+          depositTransactionId: { [Op.ne]: null },
+          depositPaymentMethod: 'stripe',
+          depositVerifiedAt: {
+            [Op.gte]: firstDayOfMonth
+          }
+        },
+        attributes: ['id', 'total', 'depositAmount', 'depositTransactionId'],
+        raw: true
+      }),
+      
+      // Last month quotes for comparison
+      Quote.findAll({
+        where: {
+          tenantId,
+          isActive: true,
+          depositVerified: true,
+          depositTransactionId: { [Op.ne]: null },
+          depositPaymentMethod: 'stripe',
+          depositVerifiedAt: {
+            [Op.gte]: firstDayOfLastMonth,
+            [Op.lte]: lastDayOfLastMonth
+          }
+        },
+        attributes: ['depositAmount'],
+        raw: true
+      })
+    ]);
 
-    // Fetch quotes with verified deposits for revenue calculation (from Stripe)
-    const paidQuotes = await Quote.findAll({
-      where: {
-        tenantId,
-        isActive: true,
-        depositVerified: true,
-        depositTransactionId: { [Op.ne]: null },
-        depositPaymentMethod: 'stripe',
-        depositVerifiedAt: {
-          [Op.gte]: firstDayOfMonth
-        }
-      },
-      attributes: ['id', 'total', 'depositAmount', 'depositTransactionId']
-    });
-
-    // Calculate actual revenue from Stripe payments
-    let totalRevenue = 0;
-    for (const quote of paidQuotes) {
-      // Use deposit amount as revenue (deposit paid via Stripe)
-      totalRevenue += Number.parseFloat(quote.depositAmount || 0);
-    }
-
-    // Fetch all quotes for last month (for comparison)
-    const lastMonthQuotes = await Quote.findAll({
-      where: {
-        tenantId,
-        isActive: true,
-        depositVerified: true,
-        depositTransactionId: { [Op.ne]: null },
-        depositPaymentMethod: 'stripe',
-        depositVerifiedAt: {
-          [Op.gte]: firstDayOfLastMonth,
-          [Op.lte]: lastDayOfLastMonth
-        }
-      },
-      attributes: ['depositAmount']
-    });
+    // Calculate revenue from paid quotes
+    const totalRevenue = paidQuotes.reduce((sum, quote) => 
+      sum + Number.parseFloat(quote.depositAmount || 0), 0
+    );
 
     const lastMonthRevenue = lastMonthQuotes.reduce((sum, q) => 
       sum + Number.parseFloat(q.depositAmount || 0), 0
@@ -97,21 +130,31 @@ exports.getDashboardStats = async (req, res) => {
     const jobsChange = currentStats.completedJobs - lastMonthStats.completedJobs;
     const avgChange = calculatePercentageChange(currentStats.avgJobValue, lastMonthStats.avgJobValue);
 
+    const dashboardData = {
+      stats: {
+        totalRevenue: totalRevenue, // Real revenue from Stripe
+        activeQuotes: currentStats.activeQuotes,
+        completedJobs: currentStats.completedJobs,
+        avgJobValue: currentStats.avgJobValue,
+        revenueChange: formatChange(revenueChange, true),
+        quotesChange: formatChange(quotesChange, false),
+        jobsChange: formatChange(jobsChange, false),
+        avgChange: formatChange(avgChange, true)
+      },
+      byStatus: currentStats.byStatus
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, dashboardData, CACHE_TTL, {
+        tags: [`tenant:${tenantId}`, 'dashboard', 'stats']
+      });
+    }
+
     return res.json({
       success: true,
-      data: {
-        stats: {
-          totalRevenue: totalRevenue, // Real revenue from Stripe
-          activeQuotes: currentStats.activeQuotes,
-          completedJobs: currentStats.completedJobs,
-          avgJobValue: currentStats.avgJobValue,
-          revenueChange: formatChange(revenueChange, true),
-          quotesChange: formatChange(quotesChange, false),
-          jobsChange: formatChange(jobsChange, false),
-          avgChange: formatChange(avgChange, true)
-        },
-        byStatus: currentStats.byStatus
-      }
+      data: dashboardData
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
@@ -125,11 +168,27 @@ exports.getDashboardStats = async (req, res) => {
 
 /**
  * GET /api/v1/dashboard/job-analytics
- * Get job cost breakdown analytics from Pricing Engine settings
+ * Get job cost breakdown analytics from Pricing Engine settings with caching
  */
 exports.getJobAnalytics = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
+    const cacheKey = CACHE_KEYS.JOB_ANALYTICS(tenantId);
+    
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedAnalytics = await utils.cache?.get(cacheKey);
+      
+      if (cachedAnalytics) {
+        return res.json({
+          success: true,
+          data: cachedAnalytics.data,
+          avgMargin: cachedAnalytics.avgMargin,
+          cached: true
+        });
+      }
+    }
 
     // Fetch contractor settings to get pricing engine margins
     const settings = await ContractorSettings.findOne({
@@ -139,38 +198,51 @@ exports.getJobAnalytics = async (req, res) => {
         'laborMarkupPercent',
         'overheadPercent',
         'netProfitPercent'
-      ]
+      ],
+      raw: true // Use raw query for better performance
     });
+
+    let analyticsData;
+    let avgMargin;
 
     if (!settings) {
       // Return default percentages if no settings found
-      return res.json({
-        success: true,
-        data: [
-          { name: 'Material %', value: 35, color: '#3b82f6' },
-          { name: 'Labor %', value: 40, color: '#10b981' },
-          { name: 'Overhead %', value: 15, color: '#f59e0b' },
-          { name: 'Net Profit %', value: 10, color: '#8b5cf6' }
-        ],
-        avgMargin: 10
-      });
-    }
+      analyticsData = [
+        { name: 'Material %', value: 35, color: '#3b82f6' },
+        { name: 'Labor %', value: 40, color: '#10b981' },
+        { name: 'Overhead %', value: 15, color: '#f59e0b' },
+        { name: 'Net Profit %', value: 10, color: '#8b5cf6' }
+      ];
+      avgMargin = 10;
+    } else {
+      // Get percentages from pricing engine settings
+      const materialPercent = Number.parseFloat(settings.materialMarkupPercent || 35);
+      const laborPercent = Number.parseFloat(settings.laborMarkupPercent || 40);
+      const overheadPercent = Number.parseFloat(settings.overheadPercent || 15);
+      const netProfitPercent = Number.parseFloat(settings.netProfitPercent || 10);
 
-    // Get percentages from pricing engine settings
-    const materialPercent = Number.parseFloat(settings.materialMarkupPercent || 35);
-    const laborPercent = Number.parseFloat(settings.laborMarkupPercent || 40);
-    const overheadPercent = Number.parseFloat(settings.overheadPercent || 15);
-    const netProfitPercent = Number.parseFloat(settings.netProfitPercent || 10);
-
-    return res.json({
-      success: true,
-      data: [
+      analyticsData = [
         { name: 'Material %', value: materialPercent, color: '#3b82f6' },
         { name: 'Labor %', value: laborPercent, color: '#10b981' },
         { name: 'Overhead %', value: overheadPercent, color: '#f59e0b' },
         { name: 'Net Profit %', value: netProfitPercent, color: '#8b5cf6' }
-      ],
-      avgMargin: netProfitPercent
+      ];
+      avgMargin = netProfitPercent;
+    }
+
+    const result = { data: analyticsData, avgMargin };
+
+    // Cache the results (longer TTL since settings don't change often)
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL * 4, { // 20 minutes
+        tags: [`tenant:${tenantId}`, 'dashboard', 'analytics']
+      });
+    }
+
+    return res.json({
+      success: true,
+      ...result
     });
   } catch (error) {
     console.error('Error fetching job analytics:', error);
@@ -184,11 +256,26 @@ exports.getJobAnalytics = async (req, res) => {
 
 /**
  * GET /api/v1/dashboard/monthly-performance
- * Get monthly performance metrics with real Stripe revenue
+ * Get monthly performance metrics with real Stripe revenue and caching
  */
 exports.getMonthlyPerformance = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
+    const cacheKey = CACHE_KEYS.MONTHLY_PERFORMANCE(tenantId);
+    
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedPerformance = await utils.cache?.get(cacheKey);
+      
+      if (cachedPerformance) {
+        return res.json({
+          success: true,
+          data: cachedPerformance,
+          cached: true
+        });
+      }
+    }
 
     const now = new Date();
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -213,9 +300,11 @@ exports.getMonthlyPerformance = async (req, res) => {
         'depositVerifiedAt',
         'depositTransactionId',
         'depositPaymentMethod'
-      ]
+      ],
+      raw: true // Use raw queries for better performance
     });
 
+    // Use array methods for better performance than filter
     const sentQuotes = monthlyQuotes.filter(q => q.status !== 'draft');
     const acceptedQuotes = monthlyQuotes.filter(q => 
       q.status === 'accepted' || q.status === 'scheduled'
@@ -252,14 +341,24 @@ exports.getMonthlyPerformance = async (req, res) => {
       ? (totalResponseTime / quotesWithResponse).toFixed(1)
       : '0.0';
 
+    const performanceData = {
+      quotesSent: sentQuotes.length,
+      conversionRate: conversionRate,
+      avgResponseTime: avgResponseTime,
+      revenue: (totalRevenue / 1000).toFixed(1) // in thousands, from real Stripe payments
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, performanceData, CACHE_TTL, {
+        tags: [`tenant:${tenantId}`, 'dashboard', 'performance']
+      });
+    }
+
     return res.json({
       success: true,
-      data: {
-        quotesSent: sentQuotes.length,
-        conversionRate: conversionRate,
-        avgResponseTime: avgResponseTime,
-        revenue: (totalRevenue / 1000).toFixed(1) // in thousands, from real Stripe payments
-      }
+      data: performanceData
     });
   } catch (error) {
     console.error('Error fetching monthly performance:', error);

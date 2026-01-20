@@ -2,57 +2,91 @@ const Tenant = require('../models/Tenant');
 const User = require('../models/User');
 const TenantFeature = require('../models/TenantFeature');
 const FeatureFlag = require('../models/FeatureFlag');
+const CacheManager = require('../optimization/cache/CacheManager');
 const { Op } = require('sequelize');
 const { createAuditLog } = require('./auditLogController');
+
+// Initialize cache manager
+const cache = new CacheManager();
+cache.initialize();
+
+// Cache keys and TTL
+const CACHE_KEYS = {
+  ALL_TENANTS: (filters) => `tenants:all:${JSON.stringify(filters)}`,
+  TENANT_DETAIL: (id) => `tenant:${id}`,
+  TENANT_STATS: () => 'tenants:stats'
+};
+
+const CACHE_TTL = {
+  TENANTS: 300, // 5 minutes
+  TENANT_DETAIL: 600, // 10 minutes
+  STATS: 300 // 5 minutes
+};
 
 // Get all tenants
 exports.getAllTenants = async (req, res) => {
   try {
     const { status, search, page = 1, limit = 50 } = req.query;
     
-    const where = {
-      email: { [Op.ne]: 'admin@cadence.com' } // Exclude admin tenant
-    };
+    // Create cache key based on filters
+    const filters = { status, search, page, limit };
+    const cacheKey = CACHE_KEYS.ALL_TENANTS(filters);
     
-    if (status) where.status = status;
-    if (search) {
-      where[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { subdomain: { [Op.iLike]: `%${search}%` } },
-      ];
-    }
+    // Try to get from cache first
+    const cachedResult = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        const where = {
+          email: { [Op.ne]: 'admin@cadence.com' } // Exclude admin tenant
+        };
+        
+        if (status) where.status = status;
+        if (search) {
+          where[Op.or] = [
+            { companyName: { [Op.iLike]: `%${search}%` } },
+            { email: { [Op.iLike]: `%${search}%` } },
+          ];
+        }
 
-    const offset = (page - 1) * limit;
+        const offset = (page - 1) * limit;
 
-    const { count, rows } = await Tenant.findAndCountAll({
-      where,
-      include: [
-        { 
-          model: User, 
-          foreignKey: 'tenantId',
-          attributes: ['id', 'fullName', 'email', 'role', 'isActive'],
-        },
-        {
-          model: TenantFeature,
-          foreignKey: 'tenantId',
-          include: [{ model: FeatureFlag, as: 'feature' }],
-        },
-      ],
-      limit: Number.parseInt(limit),
-      offset,
-      order: [['id', 'DESC']],
-    });
+        const { count, rows } = await Tenant.findAndCountAll({
+          where,
+          attributes: [
+            'id', 'companyName', 'email', 'phoneNumber', 'tradeType', 
+            'subscriptionPlan', 'status', 'isActive', 'seatLimit', 
+            'paymentStatus', 'createdAt'
+          ],
+          include: [
+            { 
+              model: User, 
+              foreignKey: 'tenantId',
+              attributes: ['id', 'fullName', 'email', 'role', 'isActive'],
+              limit: 5, // Only show first 5 users for performance
+            }
+          ],
+          limit: Number.parseInt(limit),
+          offset,
+          order: [['id', 'DESC']],
+          subQuery: false
+        });
 
-    res.json({
-      success: true,
-      data: rows,
-      pagination: {
-        total: count,
-        page: Number.parseInt(page),
-        limit: Number.parseInt(limit),
-        pages: Math.ceil(count / limit),
+        return {
+          success: true,
+          data: rows,
+          pagination: {
+            total: count,
+            page: Number.parseInt(page),
+            limit: Number.parseInt(limit),
+            pages: Math.ceil(count / limit),
+          },
+        };
       },
-    });
+      CACHE_TTL.TENANTS,
+      ['tenants']
+    );
+
+    res.json(cachedResult);
   } catch (error) {
     console.error('Get all tenants error:', error);
     res.status(500).json({

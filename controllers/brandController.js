@@ -1,6 +1,11 @@
 const Brand = require('../models/Brand');
+const CacheManager = require('../optimization/cache/CacheManager');
 
 const { Op } = require('sequelize');
+
+// Initialize cache manager
+const cache = new CacheManager();
+cache.initialize();
 
 // Optimized: Get all brands with optional search and pagination
 exports.getAllBrands = async (req, res) => {
@@ -14,53 +19,64 @@ exports.getAllBrands = async (req, res) => {
       sortOrder = 'ASC'
     } = req.query;
 
-    const where = { isActive: true };
+    // Create cache key based on query parameters
+    const cacheKey = `brands:all:${JSON.stringify({ search, page, limit, includeProducts, sortBy, sortOrder })}`;
+    
+    // Use cache wrapper for the query
+    const result = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        const where = { isActive: true };
 
-    // Search functionality
-    if (search && search.trim()) {
-      where[Op.or] = [
-        { name: { [Op.iLike]: `%${search.trim()}%` } },
-        { description: { [Op.iLike]: `%${search.trim()}%` } },
-      ];
-    }
+        // Search functionality
+        if (search && search.trim()) {
+          where[Op.or] = [
+            { name: { [Op.iLike]: `%${search.trim()}%` } },
+            { description: { [Op.iLike]: `%${search.trim()}%` } },
+          ];
+        }
 
-    const queryOptions = {
-      where,
-      attributes: ['id', 'name', 'description', 'createdAt'],
-      order: [[sortBy, sortOrder.toUpperCase()]],
-    };
+        const queryOptions = {
+          where,
+          attributes: ['id', 'name', 'description', 'createdAt'],
+          order: [[sortBy, sortOrder.toUpperCase()]],
+        };
 
-   
+        // Pagination (optional - if not provided, return all)
+        if (page && limit) {
+          const offset = (parseInt(page) - 1) * parseInt(limit);
+          queryOptions.limit = parseInt(limit);
+          queryOptions.offset = offset;
+          queryOptions.distinct = true;
 
-    // Pagination (optional - if not provided, return all)
-    if (page && limit) {
-      const offset = (parseInt(page) - 1) * parseInt(limit);
-      queryOptions.limit = parseInt(limit);
-      queryOptions.offset = offset;
-      queryOptions.distinct = true;
+          const { count, rows } = await Brand.findAndCountAll(queryOptions);
 
-      const { count, rows } = await Brand.findAndCountAll(queryOptions);
+          return {
+            success: true,
+            data: rows,
+            pagination: {
+              total: count,
+              page: parseInt(page),
+              limit: parseInt(limit),
+              pages: Math.ceil(count / parseInt(limit)),
+              hasMore: offset + rows.length < count,
+            },
+          };
+        }
 
-      return res.json({
-        success: true,
-        data: rows,
-        pagination: {
-          total: count,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          pages: Math.ceil(count / parseInt(limit)),
-          hasMore: offset + rows.length < count,
-        },
-      });
-    }
+        // No pagination - return all (for dropdowns)
+        const brands = await Brand.findAll(queryOptions);
 
-    // No pagination - return all (for dropdowns)
-    const brands = await Brand.findAll(queryOptions);
+        return {
+          success: true,
+          data: brands
+        };
+      },
+      300, // 5 minutes TTL
+      ['brands'] // Cache tags for invalidation
+    );
 
-    res.json({
-      success: true,
-      data: brands
-    });
+    res.json(result);
   } catch (error) {
     console.error('Get all brands error:', error);
     res.status(500).json({
@@ -123,6 +139,9 @@ exports.createBrand = async (req, res) => {
       description
     });
 
+    // Invalidate brands cache
+    await cache.invalidateByTags(['brands']);
+
     res.status(201).json({
       success: true,
       data: brand,
@@ -168,6 +187,9 @@ exports.updateBrand = async (req, res) => {
       isActive: isActive !== undefined ? isActive : brand.isActive
     });
 
+    // Invalidate brands cache
+    await cache.invalidateByTags(['brands']);
+
     res.json({
       success: true,
       data: brand,
@@ -197,6 +219,9 @@ exports.deleteBrand = async (req, res) => {
 
     // Soft delete by setting isActive to false
     await brand.update({ isActive: false });
+
+    // Invalidate brands cache
+    await cache.invalidateByTags(['brands']);
 
     res.json({
       success: true,

@@ -2,11 +2,15 @@ const express = require('express');
 const router = express.Router();
 const customerPortalController = require('../controllers/customerPortalController');
 const { customerSessionAuth } = require('../middleware/customerSessionAuth');
-router.get('/proposals/:proposalId/documents/:docType/view', customerPortalController.viewDocument);
-router.use(customerSessionAuth);
+
 // ============================================================================
 // PUBLIC ROUTES (No Authentication Required)
 // ============================================================================
+
+// Public document access (supports ?token=... for magic-link iframe/viewing and download)
+// These must be defined BEFORE the authenticated middleware
+router.get('/proposals/:proposalId/documents/:docType/view', customerPortalController.viewDocument);
+
 
 /**
  * Access portal via magic link
@@ -24,7 +28,7 @@ router.route('/access/:token')
 router.get('/branding/:tenantId', customerPortalController.getBranding);
 
 // ============================================================================
-// SESSION MANAGEMENT ROUTES
+// SESSION MANAGEMENT ROUTES (No Session Auth Required - They Create/Validate Sessions)
 // ============================================================================
 
 /**
@@ -34,7 +38,7 @@ router.get('/branding/:tenantId', customerPortalController.getBranding);
 router.post('/validate-session', customerPortalController.validateSession);
 
 /**
- * Request OTP for multi-job verification
+ * Request OTP for multi-job access
  * Sends 6-digit code to customer's email/phone
  */
 router.post('/request-otp', customerPortalController.requestOTP);
@@ -45,19 +49,14 @@ router.post('/request-otp', customerPortalController.requestOTP);
  */
 router.post('/verify-otp', customerPortalController.verifyOTP);
 
-// Get documents
-router.get('/proposals/:proposalId/documents', customerPortalController.getDocuments);
-
-// Public document access (supports ?token=... for magic-link iframe/viewing and download)
-// These are defined before the authenticated middleware so the endpoints can accept a token
-router.get('/proposals/:proposalId/documents/:docType/download', customerPortalController.downloadDocument);
-router.get('/proposals/:proposalId/documents/:docType/view', customerPortalController.viewDocument);
-
 // ============================================================================
 // AUTHENTICATED ROUTES (Require Valid Session)
-// All routes below require Bearer token in Authorization header
 // ============================================================================
 
+// Apply session authentication middleware to all routes below this point
+router.use(customerSessionAuth);
+
+router.get('/proposals/:proposalId/documents/:docType/download', customerPortalController.downloadDocument);
 
 /**
  * Get all accessible quotes for current session
@@ -87,6 +86,15 @@ router.post('/quotes/:id/approve', customerPortalController.approveQuote);
  * Customer declines the proposal
  */
 router.post('/quotes/:id/reject', customerPortalController.rejectQuote);
+
+// ============================================================================
+// DOCUMENT MANAGEMENT ROUTES (Authenticated)
+// ============================================================================
+
+/**
+ * Get documents for a proposal (requires session)
+ */
+router.get('/proposals/:proposalId/documents', customerPortalController.getDocuments);
 
 // ============================================================================
 // JOB MANAGEMENT ROUTES
@@ -172,11 +180,7 @@ router.post('/proposals/:proposalId/areas/:areaId/selections', customerPortalCon
 // Get documents
 router.get('/proposals/:proposalId/documents', customerPortalController.getDocuments);
 
-// Public document access (supports ?token=... for magic-link iframe/viewing and download)
-// These are defined before the authenticated middleware so the endpoints can accept a token
-// in query string for preview access without a Bearer header.
-router.get('/proposals/:proposalId/documents/:docType/download', customerPortalController.downloadDocument);
-router.get('/proposals/:proposalId/documents/:docType/view', customerPortalController.viewDocument);
+// Note: Public document access routes are already defined above before authentication middleware
 
 // Create payment intent for deposit
 router.post('/proposals/:id/create-payment-intent', customerPortalController.createPaymentIntent);

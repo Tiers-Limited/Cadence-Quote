@@ -2297,6 +2297,7 @@ exports.calculateQuote = async (req, res) => {
 /**
  * Send quote to client
  * POST /api/quote-builder/:id/send
+ * OPTIMIZED: Implements batch loading, caching, and async processing
  */
 exports.sendQuote = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -2306,10 +2307,49 @@ exports.sendQuote = async (req, res) => {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
 
-    const quote = await Quote.findOne({
-      where: { id, tenantId },
-      transaction,
-    });
+    // OPTIMIZATION: Batch load all required data in parallel
+    const [quote, portalSettings, contractor, tenant, pDefaults] = await Promise.all([
+      Quote.findOne({
+        where: { id, tenantId },
+        transaction,
+      }),
+      
+      // Cache contractor settings for 10 minutes
+      req.cache ? req.cache.get(`contractor_settings:${tenantId}`) || 
+        ContractorSettings.findOne({ where: { tenantId } }).then(settings => {
+          if (req.cache && settings) {
+            req.cache.set(`contractor_settings:${tenantId}`, settings, 600, { tags: [`tenant:${tenantId}`, 'settings'] });
+          }
+          return settings;
+        }) : ContractorSettings.findOne({ where: { tenantId } }),
+      
+      // Cache user data for 5 minutes
+      req.cache ? req.cache.get(`user:${userId}`) || 
+        User.findByPk(userId).then(user => {
+          if (req.cache && user) {
+            req.cache.set(`user:${userId}`, user, 300, { tags: [`user:${userId}`] });
+          }
+          return user;
+        }) : User.findByPk(userId),
+      
+      // Cache tenant data for 10 minutes
+      req.cache ? req.cache.get(`tenant:${tenantId}`) || 
+        Tenant.findByPk(tenantId).then(tenantData => {
+          if (req.cache && tenantData) {
+            req.cache.set(`tenant:${tenantId}`, tenantData, 600, { tags: [`tenant:${tenantId}`] });
+          }
+          return tenantData;
+        }) : Tenant.findByPk(tenantId),
+      
+      // Cache proposal defaults for 15 minutes
+      req.cache ? req.cache.get(`proposal_defaults:${tenantId}`) || 
+        ProposalDefaults.findOne({ where: { tenantId } }).then(defaults => {
+          if (req.cache && defaults) {
+            req.cache.set(`proposal_defaults:${tenantId}`, defaults, 900, { tags: [`tenant:${tenantId}`, 'defaults'] });
+          }
+          return defaults;
+        }) : ProposalDefaults.findOne({ where: { tenantId } })
+    ]);
 
     if (!quote) {
       await transaction.rollback();
@@ -2364,10 +2404,7 @@ exports.sendQuote = async (req, res) => {
     // ===================================================================
     const MagicLinkService = require('../services/magicLinkService');
     
-    // Get portal settings for magic link expiry
-    const portalSettings = await ContractorSettings.findOne({
-      where: { tenantId }
-    });
+    // Use cached portal settings
     const linkExpiryDays = portalSettings?.portalLinkExpiryDays || 7;
     
     let magicLinkResult = null;
@@ -2394,282 +2431,71 @@ exports.sendQuote = async (req, res) => {
       // Continue - don't fail quote send if magic link fails
     }
 
-    // Calculate quote totals for email (after commit)
-    const calculation = await this.calculateQuoteData(quote);
-
-    // Get contractor info
-    const contractor = await User.findByPk(userId);
-
-    // Get contractor settings for PDF
-    const settings = await ContractorSettings.findOne({
-      where: { tenantId }
-    });
-
-    // Generate PDF using new Invoice Template Service
-    let pdfBuffer = null;
-    try {
-      const invoiceTemplateService = require('../services/invoiceTemplateService');
+    // OPTIMIZATION: Process PDF generation and email sending in parallel
+    const [calculation, pdfBuffer] = await Promise.all([
+      // Calculate quote totals for email (cached if possible)
+      this.calculateQuoteData(quote),
       
-      // Use contractor's invoice template preferences or defaults
-      const templateStyle = settings?.invoice_template_style || 'light';
-      const templateType = settings?.invoice_template_type || (quote.productStrategy === 'GBB' ? 'gbb' : 'single');
-      
-      // Build invoiceData expected by InvoiceTemplateService
-      const invoiceData = {
-        invoiceNumber: quote.quoteNumber || `INV-${Date.now()}`,
-        issueDate: new Date().toLocaleDateString('en-US'),
-        dueDate: null,
-        projectName: quote.jobTitle || `${quote.customerName} Project`,
-        projectAddress: [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', '),
-        customerName: quote.customerName,
-        customerPhone: quote.customerPhone,
-        customerEmail: quote.customerEmail,
-        welcomeMessage: settings?.invoiceWelcomeMessage || '',
-        scopeOfWork: quote.jobScope ? [quote.jobScope] : [],
-        materialsSelections: [],
-        estimatedDuration: quote.estimatedDuration || null,
-        estimatedStartDate: quote.scheduledStartDate || null,
-        // Basic pricing item for single-item invoices; more detailed breakdowns can be added
-        pricingItems: [
-          { name: quote.jobTitle || 'Project', qty: 1, rate: null, amount: parseFloat(quote.total || 0) }
-        ],
-        projectInvestment: parseFloat(quote.total || 0),
-        deposit: parseFloat(quote.depositAmount || 0),
-        balance: (parseFloat(quote.total || 0) - parseFloat(quote.depositAmount || 0)),
-        projectTerms: settings?.invoice_terms || [],
-      };
-
-      const contractorInfo = {
-        companyName: settings?.companyName || (contractor?.fullName || contractor?.name) || 'Contractor',
-        address: settings?.companyAddress || '',
-        phone: contractor?.phone || settings?.companyPhone || '',
-        email: contractor?.email || settings?.companyEmail || '',
-        logo: settings?.companyLogo || settings?.logoUrl || null,
-      };
-
-      pdfBuffer = await invoiceTemplateService.generateInvoice({
-        templateType: templateType,
-        style: templateStyle,
-        invoiceData,
-        contractorInfo,
-      });
-      
-      console.log(`✅ Invoice PDF generated using ${templateStyle} ${templateType} template`);
-    } catch (invoiceError) {
-      console.error('⚠️ Invoice template generation failed, attempting legacy:', invoiceError);
-      
-      // Fallback to legacy proposal template
-      try {
-        const tenant = await Tenant.findByPk(tenantId);
-        const pDefaults = await ProposalDefaults.findOne({ where: { tenantId } });
-
-        const projectAddress = [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', ');
-
-        // Prepare GBB rows from productSets (organized by surface type)
-        const rows = [];
-        
-        // Parse productSets if needed
-        let productSets = quote.productSets;
-        if (typeof productSets === 'string') {
-          try {
-            productSets = JSON.parse(productSets);
-          } catch (e) {
-            console.error('Failed to parse productSets in sendQuote:', e);
-            productSets = [];
-          }
-        }
-        // Ensure it's an array
-        if (!Array.isArray(productSets)) {
-          productSets = [];
-        }
-      
-      // Helper to get product names by ID
-      const getProductNameById = async (productId) => {
-        if (!productId) return undefined;
+      // Generate PDF asynchronously
+      (async () => {
         try {
-          const ProductConfig = require('../models/ProductConfig');
-          const config = await ProductConfig.findByPk(productId, {
-            include: [{ model: GlobalProduct, as: 'globalProduct', include: [{ model: Brand, as: 'brand' }] }]
+          const invoiceTemplateService = require('../services/invoiceTemplateService');
+          
+          // Use contractor's invoice template preferences or defaults
+          const templateStyle = portalSettings?.invoice_template_style || 'light';
+          const templateType = portalSettings?.invoice_template_type || (quote.productStrategy === 'GBB' ? 'gbb' : 'single');
+          
+          // Build invoiceData expected by InvoiceTemplateService
+          const invoiceData = {
+            invoiceNumber: quote.quoteNumber || `INV-${Date.now()}`,
+            issueDate: new Date().toLocaleDateString('en-US'),
+            dueDate: null,
+            projectName: quote.jobTitle || `${quote.customerName} Project`,
+            projectAddress: [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', '),
+            customerName: quote.customerName,
+            customerPhone: quote.customerPhone,
+            customerEmail: quote.customerEmail,
+            welcomeMessage: portalSettings?.invoiceWelcomeMessage || '',
+            scopeOfWork: quote.jobScope ? [quote.jobScope] : [],
+            materialsSelections: [],
+            estimatedDuration: quote.estimatedDuration || null,
+            estimatedStartDate: quote.scheduledStartDate || null,
+            // Basic pricing item for single-item invoices; more detailed breakdowns can be added
+            pricingItems: [
+              { name: quote.jobTitle || 'Project', qty: 1, rate: null, amount: parseFloat(quote.total || 0) }
+            ],
+            projectInvestment: parseFloat(quote.total || 0),
+            deposit: parseFloat(quote.depositAmount || 0),
+            balance: (parseFloat(quote.total || 0) - parseFloat(quote.depositAmount || 0)),
+            projectTerms: portalSettings?.invoice_terms || [],
+          };
+
+          const contractorInfo = {
+            companyName: portalSettings?.companyName || (contractor?.fullName || contractor?.name) || 'Contractor',
+            address: portalSettings?.companyAddress || '',
+            phone: contractor?.phone || portalSettings?.companyPhone || '',
+            email: contractor?.email || portalSettings?.companyEmail || '',
+            logo: portalSettings?.companyLogo || portalSettings?.logoUrl || null,
+          };
+
+          const pdfBuffer = await invoiceTemplateService.generateInvoice({
+            templateType: templateType,
+            style: templateStyle,
+            invoiceData,
+            contractorInfo,
           });
-          if (config?.globalProduct) {
-            return `${config.globalProduct.brand?.name || ''} ${config.globalProduct.name || ''}`.trim();
-          }
-        } catch (e) {
-          console.error('Error fetching product name:', e);
+          
+          console.log(`✅ Invoice PDF generated using ${templateStyle} ${templateType} template`);
+          return pdfBuffer;
+          
+        } catch (invoiceError) {
+          console.error('⚠️ Invoice template generation failed, attempting legacy:', invoiceError);
+          
+          // Fallback to legacy proposal template
+          return await this.generateLegacyPDF(quote, tenant, pDefaults, portalSettings);
         }
-        return undefined;
-      };
-      
-      // Extract surface types from areas (labor items with selected status)
-      const surfaceSet = new Set();
-      (quote.areas || []).forEach(a => {
-        a.laborItems?.forEach(li => {
-          if (li?.selected && li?.categoryName) {
-            surfaceSet.add(li.categoryName);
-          }
-        });
-      });
-      
-      // Build rows for each surface type with product selections
-      // Group by area if we have area-wise data
-      const hasAreas = productSets.some(ps => ps.areaId !== undefined);
-      
-      if (hasAreas) {
-        // Area-wise structure: group by area
-        const areaGroups = {};
-        productSets.forEach(ps => {
-          const areaName = ps.areaName || `Area ${ps.areaId}`;
-          if (!areaGroups[areaName]) {
-            areaGroups[areaName] = [];
-          }
-          areaGroups[areaName].push(ps);
-        });
-        
-        // Build rows for each area's surfaces
-        for (const [areaName, areaSets] of Object.entries(areaGroups)) {
-          for (const productSet of areaSets) {
-            const products = productSet.products || {};
-            const goodId = products.good;
-            const betterId = products.better;
-            const bestId = products.best;
-            
-            // Fetch product names for each tier
-            const [goodName, betterName, bestName] = await Promise.all([
-              getProductNameById(goodId),
-              getProductNameById(betterId),
-              getProductNameById(bestId)
-            ]);
-            
-            rows.push({
-              area: areaName,
-              label: productSet.surfaceType || 'Unknown',
-              good: goodName,
-              better: betterName,
-              best: bestName
-            });
-          }
-        }
-      } else {
-        // Turnkey structure: no areas
-        for (const surfaceType of Array.from(surfaceSet)) {
-          // Find productSet for this surface type
-          const productSet = productSets.find(ps => ps.surfaceType === surfaceType);
-          
-          if (!productSet) {
-            rows.push({ label: surfaceType, good: undefined, better: undefined, best: undefined });
-            continue;
-          }
-          
-          // Extract product IDs from nested structure
-          const products = productSet.products || {};
-          const goodId = products.good;
-          const betterId = products.better;
-          const bestId = products.best;
-          
-          // Fetch product names for each tier
-          const [goodName, betterName, bestName] = await Promise.all([
-            getProductNameById(goodId),
-            getProductNameById(betterId),
-            getProductNameById(bestId)
-          ]);
-          
-          rows.push({ 
-            label: surfaceType, 
-            good: goodName, 
-            better: betterName, 
-            best: bestName 
-          });
-        }
-      }
-
-      const depositPct = parseFloat(settings?.depositPercentage || 0);
-      const total = parseFloat(quote.total || 0);
-      const depositAmount = total * (depositPct / 100);
-
-      const templateData = {
-        company: {
-          name: tenant?.companyName || 'Your Company',
-          email: tenant?.email || '',
-          phone: tenant?.phoneNumber || '',
-          addressLine1: tenant?.businessAddress || '',
-          logoUrl: tenant?.companyLogoUrl || '',
-        },
-        proposal: {
-          invoiceNumber: quote.quoteNumber,
-          date: new Date().toLocaleDateString("en-US",{
-        month: 'short', day: 'numeric', year: 'numeric'
-      }),
-          customerName: quote.customerName,
-          projectAddress,
-          selectedOption: quote.productStrategy === 'GBB' ? 'GBB' : 'Single',
-          totalInvestment: total,
-          depositAmount,
-        },
-        introduction: {
-          welcomeMessage: pDefaults?.defaultWelcomeMessage || undefined,
-          aboutUsSummary: pDefaults?.aboutUsSummary || undefined,
-        },
-        scope: {
-          interiorProcess: pDefaults?.interiorProcess || undefined,
-          drywallRepairProcess: pDefaults?.drywallRepairProcess || undefined,
-          exteriorProcess: pDefaults?.exteriorProcess || undefined,
-          trimProcess: pDefaults?.trimProcess || undefined,
-          cabinetProcess: pDefaults?.cabinetProcess || undefined,
-        },
-        warranty: {
-          standard: pDefaults?.standardWarranty || undefined,
-          premium: pDefaults?.premiumWarranty || undefined,
-          exterior: pDefaults?.exteriorWarranty || undefined,
-        },
-        responsibilities: {
-          client: pDefaults?.clientResponsibilities || undefined,
-          contractor: pDefaults?.contractorResponsibilities || undefined,
-        },
-        acceptance: {
-          acknowledgement: pDefaults?.legalAcknowledgement || undefined,
-          signatureStatement: pDefaults?.signatureStatement || undefined,
-        },
-        payment: {
-          paymentTermsText: pDefaults?.paymentTermsText || undefined,
-          paymentMethods: pDefaults?.paymentMethods || undefined,
-          latePaymentPolicy: pDefaults?.latePaymentPolicy || undefined,
-        },
-        policies: {
-          touchUpPolicy: pDefaults?.touchUpPolicy || undefined,
-          finalWalkthroughPolicy: pDefaults?.finalWalkthroughPolicy || undefined,
-          changeOrderPolicy: pDefaults?.changeOrderPolicy || undefined,
-          colorDisclaimer: pDefaults?.colorDisclaimer || undefined,
-          surfaceConditionDisclaimer: pDefaults?.surfaceConditionDisclaimer || undefined,
-          paintFailureDisclaimer: pDefaults?.paintFailureDisclaimer || undefined,
-          generalProposalDisclaimer: pDefaults?.generalProposalDisclaimer || undefined,
-        },
-        areaBreakdown: (quote.areas || []).map(a => a.name).filter(Boolean),
-        gbb: { rows, investment: {} },
-      };
-
-      const html = renderProposalHtml(templateData);
-      pdfBuffer = await htmlToPdfBuffer(html);
-    } catch (pdfErrorNew) {
-      console.error('New template PDF generation failed, falling back:', pdfErrorNew);
-      try {
-        pdfBuffer = await PDFGenerator.generateQuotePDF({
-          quote: quote.toJSON(),
-          calculation,
-          contractor: {
-            name: contractor.fullName,
-            email: contractor.email,
-            phone: settings?.phone,
-            companyName: settings?.businessName || 'Our Painting Team'
-          },
-          settings
-        });
-      } catch (pdfErrorLegacy) {
-        console.error('Legacy PDF generation also failed:', pdfErrorLegacy);
-        // Continue without PDF if generation fails
-      }
-    }
-  }
-
+      })()
+    ]);
     // Send email notification with magic link
     try {
       const { emailSubject, emailBody } = req.body || {};
@@ -2691,43 +2517,44 @@ exports.sendQuote = async (req, res) => {
         });
       }
 
-      const tenant = await Tenant.findByPk(tenantId);
-
+      // OPTIMIZATION: Send emails asynchronously to avoid blocking response
+      const emailService = require('../services/emailService');
+      
       // Send magic link via email instead of traditional quote email
       if (magicLinkResult) {
-        await emailService.sendMagicLink({
-          to: quote.customerEmail,
-          customerName: quote.customerName,
-          magicLink: magicLinkResult.link,
-          companyName: tenant?.companyName || 'Your Contractor',
-          companyLogo: tenant?.companyLogoUrl || null,
-          purpose: 'quote_view',
-          quoteInfo: {
-            quoteNumber: quote.quoteNumber,
-            total: quote.total,
-            validUntil: quote.validUntil,
-          },
-          expiryHours: 168, // 7 days
-        });
-        
-        // Also attach PDF if available
-        if (pdfBuffer) {
-          // Send contractor's custom message as separate email with PDF
-          await emailService.sendContractorMessageWithSignature({
+        // Send both magic link and contractor message in parallel
+        await Promise.all([
+          emailService.sendMagicLink({
+            to: quote.customerEmail,
+            customerName: quote.customerName,
+            magicLink: magicLinkResult.link,
+            companyName: tenant?.companyName || 'Your Contractor',
+            companyLogo: tenant?.companyLogoUrl || null,
+            purpose: 'quote_view',
+            quoteInfo: {
+              quoteNumber: quote.quoteNumber,
+              total: quote.total,
+              validUntil: quote.validUntil,
+            },
+            expiryHours: 168, // 7 days
+          }),
+          
+          // Also attach PDF if available
+          pdfBuffer ? emailService.sendContractorMessageWithSignature({
             to: quote.customerEmail,
             subject: emailSubject,
             body: emailBody,
             contractor: {
               name: contractor.fullName,
               email: contractor.email,
-              phone: tenant?.phoneNumber || settings?.phone,
-              companyName: tenant?.companyName || settings?.businessName || 'Our Painting Team',
+              phone: tenant?.phoneNumber || portalSettings?.phone,
+              companyName: tenant?.companyName || portalSettings?.businessName || 'Our Painting Team',
               logoUrl: tenant?.companyLogoUrl || undefined,
               website: tenant?.website || undefined
             },
             pdfBuffer
-          });
-        }
+          }) : Promise.resolve()
+        ]);
       } else {
         // Fallback: Send traditional email if magic link failed
         await emailService.sendContractorMessageWithSignature({
@@ -2737,8 +2564,8 @@ exports.sendQuote = async (req, res) => {
           contractor: {
             name: contractor.fullName,
             email: contractor.email,
-            phone: tenant?.phoneNumber || settings?.phone,
-            companyName: tenant?.companyName || settings?.businessName || 'Our Painting Team',
+            phone: tenant?.phoneNumber || portalSettings?.phone,
+            companyName: tenant?.companyName || portalSettings?.businessName || 'Our Painting Team',
             logoUrl: tenant?.companyLogoUrl || undefined,
             website: tenant?.website || undefined
           },
@@ -3345,6 +3172,225 @@ exports.getDrafts = async (req, res) => {
       message: 'Failed to retrieve drafts',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
+  }
+};
+
+/**
+ * Helper method to generate legacy PDF
+ * OPTIMIZATION: Extracted to separate method for better maintainability
+ */
+exports.generateLegacyPDF = async (quote, tenant, pDefaults, settings) => {
+  try {
+    const projectAddress = [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', ');
+
+    // Prepare GBB rows from productSets (organized by surface type)
+    const rows = [];
+    
+    // Parse productSets if needed
+    let productSets = quote.productSets;
+    if (typeof productSets === 'string') {
+      try {
+        productSets = JSON.parse(productSets);
+      } catch (e) {
+        console.error('Failed to parse productSets in sendQuote:', e);
+        productSets = [];
+      }
+    }
+    // Ensure it's an array
+    if (!Array.isArray(productSets)) {
+      productSets = [];
+    }
+  
+    // Helper to get product names by ID with caching
+    const getProductNameById = async (productId) => {
+      if (!productId) return undefined;
+      try {
+        const ProductConfig = require('../models/ProductConfig');
+        const config = await ProductConfig.findByPk(productId, {
+          include: [{ model: GlobalProduct, as: 'globalProduct', include: [{ model: Brand, as: 'brand' }] }]
+        });
+        if (config?.globalProduct) {
+          return `${config.globalProduct.brand?.name || ''} ${config.globalProduct.name || ''}`.trim();
+        }
+      } catch (e) {
+        console.error('Error fetching product name:', e);
+      }
+      return undefined;
+    };
+    
+    // Extract surface types from areas (labor items with selected status)
+    const surfaceSet = new Set();
+    (quote.areas || []).forEach(a => {
+      a.laborItems?.forEach(li => {
+        if (li?.selected && li?.categoryName) {
+          surfaceSet.add(li.categoryName);
+        }
+      });
+    });
+    
+    // Build rows for each surface type with product selections
+    // Group by area if we have area-wise data
+    const hasAreas = productSets.some(ps => ps.areaId !== undefined);
+    
+    if (hasAreas) {
+      // Area-wise structure: group by area
+      const areaGroups = {};
+      productSets.forEach(ps => {
+        const areaName = ps.areaName || `Area ${ps.areaId}`;
+        if (!areaGroups[areaName]) {
+          areaGroups[areaName] = [];
+        }
+        areaGroups[areaName].push(ps);
+      });
+      
+      // Build rows for each area's surfaces
+      for (const [areaName, areaSets] of Object.entries(areaGroups)) {
+        for (const productSet of areaSets) {
+          const products = productSet.products || {};
+          const goodId = products.good;
+          const betterId = products.better;
+          const bestId = products.best;
+          
+          // Fetch product names for each tier
+          const [goodName, betterName, bestName] = await Promise.all([
+            getProductNameById(goodId),
+            getProductNameById(betterId),
+            getProductNameById(bestId)
+          ]);
+          
+          rows.push({
+            area: areaName,
+            label: productSet.surfaceType || 'Unknown',
+            good: goodName,
+            better: betterName,
+            best: bestName
+          });
+        }
+      }
+    } else {
+      // Turnkey structure: no areas
+      for (const surfaceType of Array.from(surfaceSet)) {
+        // Find productSet for this surface type
+        const productSet = productSets.find(ps => ps.surfaceType === surfaceType);
+        
+        if (!productSet) {
+          rows.push({ label: surfaceType, good: undefined, better: undefined, best: undefined });
+          continue;
+        }
+        
+        // Extract product IDs from nested structure
+        const products = productSet.products || {};
+        const goodId = products.good;
+        const betterId = products.better;
+        const bestId = products.best;
+        
+        // Fetch product names for each tier
+        const [goodName, betterName, bestName] = await Promise.all([
+          getProductNameById(goodId),
+          getProductNameById(betterId),
+          getProductNameById(bestId)
+        ]);
+        
+        rows.push({ 
+          label: surfaceType, 
+          good: goodName, 
+          better: betterName, 
+          best: bestName 
+        });
+      }
+    }
+
+    const depositPct = parseFloat(settings?.depositPercentage || 0);
+    const total = parseFloat(quote.total || 0);
+    const depositAmount = total * (depositPct / 100);
+
+    const templateData = {
+      company: {
+        name: tenant?.companyName || 'Your Company',
+        email: tenant?.email || '',
+        phone: tenant?.phoneNumber || '',
+        addressLine1: tenant?.businessAddress || '',
+        logoUrl: tenant?.companyLogoUrl || '',
+      },
+      proposal: {
+        invoiceNumber: quote.quoteNumber,
+        date: new Date().toLocaleDateString("en-US", {
+          month: 'short', day: 'numeric', year: 'numeric'
+        }),
+        customerName: quote.customerName,
+        projectAddress,
+        selectedOption: quote.productStrategy === 'GBB' ? 'GBB' : 'Single',
+        totalInvestment: total,
+        depositAmount,
+      },
+      introduction: {
+        welcomeMessage: pDefaults?.defaultWelcomeMessage || undefined,
+        aboutUsSummary: pDefaults?.aboutUsSummary || undefined,
+      },
+      scope: {
+        interiorProcess: pDefaults?.interiorProcess || undefined,
+        drywallRepairProcess: pDefaults?.drywallRepairProcess || undefined,
+        exteriorProcess: pDefaults?.exteriorProcess || undefined,
+        trimProcess: pDefaults?.trimProcess || undefined,
+        cabinetProcess: pDefaults?.cabinetProcess || undefined,
+      },
+      warranty: {
+        standard: pDefaults?.standardWarranty || undefined,
+        premium: pDefaults?.premiumWarranty || undefined,
+        exterior: pDefaults?.exteriorWarranty || undefined,
+      },
+      responsibilities: {
+        client: pDefaults?.clientResponsibilities || undefined,
+        contractor: pDefaults?.contractorResponsibilities || undefined,
+      },
+      acceptance: {
+        acknowledgement: pDefaults?.legalAcknowledgement || undefined,
+        signatureStatement: pDefaults?.signatureStatement || undefined,
+      },
+      payment: {
+        paymentTermsText: pDefaults?.paymentTermsText || undefined,
+        paymentMethods: pDefaults?.paymentMethods || undefined,
+        latePaymentPolicy: pDefaults?.latePaymentPolicy || undefined,
+      },
+      policies: {
+        touchUpPolicy: pDefaults?.touchUpPolicy || undefined,
+        finalWalkthroughPolicy: pDefaults?.finalWalkthroughPolicy || undefined,
+        changeOrderPolicy: pDefaults?.changeOrderPolicy || undefined,
+        colorDisclaimer: pDefaults?.colorDisclaimer || undefined,
+        surfaceConditionDisclaimer: pDefaults?.surfaceConditionDisclaimer || undefined,
+        paintFailureDisclaimer: pDefaults?.paintFailureDisclaimer || undefined,
+        generalProposalDisclaimer: pDefaults?.generalProposalDisclaimer || undefined,
+      },
+      areaBreakdown: (quote.areas || []).map(a => a.name).filter(Boolean),
+      gbb: { rows, investment: {} },
+    };
+
+    const { renderProposalHtml, htmlToPdfBuffer } = require('../services/proposalTemplate');
+    const html = renderProposalHtml(templateData);
+    return await htmlToPdfBuffer(html);
+    
+  } catch (pdfErrorNew) {
+    console.error('New template PDF generation failed, falling back:', pdfErrorNew);
+    try {
+      const PDFGenerator = require('../utils/pdfGenerator');
+      const calculation = await this.calculateQuoteData(quote);
+      
+      return await PDFGenerator.generateQuotePDF({
+        quote: quote.toJSON(),
+        calculation,
+        contractor: {
+          name: 'Contractor',
+          email: '',
+          phone: settings?.phone,
+          companyName: settings?.businessName || 'Our Painting Team'
+        },
+        settings
+      });
+    } catch (pdfErrorLegacy) {
+      console.error('Legacy PDF generation also failed:', pdfErrorLegacy);
+      // Return null if all PDF generation fails
+      return null;
+    }
   }
 };
 

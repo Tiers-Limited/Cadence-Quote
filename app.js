@@ -14,6 +14,9 @@ const passport = require('passport');
 const dotenv = require('dotenv');
 dotenv.config();
 
+// Import optimization system
+const { optimizationSystem } = require('./optimization');
+
 // Import routes
 const indexRouter = require('./routes/index');
 const authRouter = require('./routes/auth');
@@ -89,6 +92,21 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Initialize optimization system
+optimizationSystem.initialize().catch(error => {
+  console.error('Failed to initialize optimization system:', error);
+});
+
+// Add optimization middleware (after initialization)
+app.use((req, res, next) => {
+  // Add optimization utilities to request object
+  if (optimizationSystem.initialized) {
+    const utils = optimizationSystem.getUtils();
+    req.optimization = utils;
+  }
+  next();
+});
+
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
@@ -103,6 +121,116 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Optimization system health endpoint
+app.get('/health/optimization', async (req, res) => {
+  try {
+    const health = await optimizationSystem.getSystemHealth();
+    res.json(health);
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get optimization system health',
+      error: error.message
+    });
+  }
+});
+
+// Optimization metrics endpoint
+app.get('/metrics/optimization', async (req, res) => {
+  try {
+    if (!optimizationSystem.initialized) {
+      return res.status(503).json({
+        status: 'not_initialized',
+        message: 'Optimization system not initialized'
+      });
+    }
+
+    const utils = optimizationSystem.getUtils();
+    const metrics = {
+      performance: await utils.performanceMonitor.getMetrics(),
+      cache: utils.cache ? await utils.cache.getHealth() : { enabled: false },
+      database: utils.queryOptimizer ? await utils.queryOptimizer.getStats() : { enabled: false }
+    };
+
+    res.json({
+      status: 'success',
+      timestamp: new Date().toISOString(),
+      metrics
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get optimization metrics',
+      error: error.message
+    });
+  }
+});
+
+// Database index report endpoint (development only)
+app.get('/metrics/indexes', async (req, res) => {
+  try {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({
+        status: 'forbidden',
+        message: 'Index metrics not available in production'
+      });
+    }
+
+    if (!optimizationSystem.initialized) {
+      return res.status(503).json({
+        status: 'not_initialized',
+        message: 'Optimization system not initialized'
+      });
+    }
+
+    const utils = optimizationSystem.getUtils();
+    const indexReport = await utils.performanceMonitor.getIndexReport?.() || { enabled: false };
+
+    res.json({
+      status: 'success',
+      timestamp: new Date().toISOString(),
+      indexReport
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get index report',
+      error: error.message
+    });
+  }
+});
+
+// Initialize optimization system and apply middleware
+(async () => {
+  try {
+    await optimizationSystem.initialize();
+    console.log('✓ API Optimization System initialized');
+    
+    // Apply optimization middleware
+    const middleware = optimizationSystem.getMiddleware();
+    
+    // Apply performance monitoring middleware
+    if (middleware.performanceMonitoring) {
+      app.use(middleware.performanceMonitoring);
+    }
+    
+    // Apply compression middleware
+    if (middleware.compression) {
+      app.use(middleware.compression);
+    }
+    
+    // Apply cache middleware (if available)
+    if (middleware.cache) {
+      app.use(middleware.cache);
+    }
+    
+    console.log('✓ Optimization middleware applied');
+  } catch (error) {
+    console.error('⚠️  Failed to initialize optimization system:', error.message);
+    console.log('ℹ  Server will continue without optimizations');
+  }
+})();
 
 // Apply tenant resolution middleware (skips public routes)
 // app.use(resolveTenant);
@@ -156,15 +284,16 @@ app.use(function(err, req, res, next) {
 // Wrapped in async to handle errors gracefully
 (async () => {
   try {
-    // In development, validate models without altering tables
-    // Use migrations for schema changes to avoid Sequelize USING syntax errors
+    // Skip automatic sync to avoid foreign key constraint issues
+    // Use manual database setup instead
+    if (process.env.SKIP_DB_SYNC !== 'true') {
+      console.log('⚠️  Skipping automatic database sync to avoid foreign key issues');
+      console.log('💡 Database tables should already exist. If not, run manual setup.');
+    }
     
-   const syncOptions = process.env.NODE_ENV === 'development' 
-      ? { alter: true } // Don't alter - schema is now stable
-      : { force: false };
-    
-    await sequelize.sync(syncOptions);
-    console.log('✓ Database models synchronized');
+    // Test database connection with a simple query
+    await sequelize.query('SELECT 1 as test');
+    console.log('✓ Database connection verified');
     
     // Check for existing users (this runs at startup, not after registration)
     const userCount = await User.count();
@@ -197,6 +326,29 @@ app.use(function(err, req, res, next) {
       } else {
         console.log('ℹ Portal Lock Job disabled (ENABLE_PORTAL_LOCK_JOB=false)');
       }
+      
+    // Setup graceful shutdown for optimization system
+    const gracefulShutdown = async (signal) => {
+      console.log(`\n🔄 Received ${signal}, starting graceful shutdown...`);
+      
+      try {
+        if (optimizationSystem.initialized) {
+          await optimizationSystem.shutdown();
+        }
+        
+        await sequelize.close();
+        console.log('✅ Graceful shutdown completed');
+        process.exit(0);
+      } catch (error) {
+        console.error('❌ Error during shutdown:', error);
+        process.exit(1);
+      }
+    };
+    
+    // Handle shutdown signals
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    
   } catch (error) {
     console.error('✗ Database sync failed:', error.message);
     console.error('💡 Try running the migration manually:');

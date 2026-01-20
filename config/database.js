@@ -1,6 +1,42 @@
 // config/database.js
 const { Sequelize } = require('sequelize');
+const os = require('os');
 require('dotenv').config(); 
+
+// Calculate optimal pool size based on system resources
+function calculateOptimalPoolSize() {
+  const cpuCores = os.cpus().length;
+  const totalMemoryGB = os.totalmem() / (1024 * 1024 * 1024);
+  
+  // Base calculation: 2-4 connections per CPU core
+  let maxConnections = cpuCores * 3;
+  
+  // Adjust based on available memory
+  if (totalMemoryGB < 2) {
+    maxConnections = Math.min(maxConnections, 10);
+  } else if (totalMemoryGB < 4) {
+    maxConnections = Math.min(maxConnections, 15);
+  } else if (totalMemoryGB >= 8) {
+    maxConnections = Math.min(maxConnections, 30);
+  }
+  
+  // Environment-specific adjustments
+  if (process.env.NODE_ENV === 'production') {
+    maxConnections = Math.max(maxConnections, 20);
+  } else {
+    maxConnections = Math.min(maxConnections, 10);
+  }
+  
+  return {
+    min: 2,
+    max: maxConnections,
+    idle: 30000,    // 30 seconds
+    acquire: 60000, // 60 seconds
+    evict: 1000     // 1 second
+  };
+}
+
+const optimizedPool = calculateOptimalPoolSize();
 
 const sequelize = new Sequelize(
   process.env.DB_NAME,
@@ -10,40 +46,78 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST,
     port: process.env.DB_PORT,
     dialect: 'postgres',
-    logging:  false,
+    logging: false,
     timezone: '+00:00', // Force UTC timezone
+    
+    // Optimized connection pool configuration
     pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
+      max: optimizedPool.max,
+      min: optimizedPool.min,
+      acquire: optimizedPool.acquire,
+      idle: optimizedPool.idle,
+      evict: optimizedPool.evict,
+      handleDisconnects: true,
+      
+      // Enhanced connection validation
+      validate: (connection) => {
+        return connection && !connection.connection._ending;
+      }
     },
+    
     dialectOptions: {
       connectTimeout: 10000, // 10 seconds timeout
-      // --- ADDED SSL CONFIGURATION BELOW ---
+      statement_timeout: 30000, // 30 seconds query timeout
+      query_timeout: 30000,
+      
+      // SSL configuration for AWS RDS
       ssl: {
-        // AWS RDS requires SSL/encryption. 
-        // We set rejectUnauthorized to false because the node-postgres 
-        // driver doesn't automatically trust the RDS root certificate
-        // unless you download it and provide the path.
-        // For development/testing, setting this to false works.
-        // For production, it's best to configure the proper certificate path.
         rejectUnauthorized: false
       },
-      // --- END OF ADDED SSL CONFIGURATION ---
       useUTC: true, // Force UTC
     },
+    
+    // Enhanced retry configuration
     retry: {
-      max: 3 // Retry connection 3 times
+      max: 3,
+      backoff: 'exponential',
+      report: (message, obj) => {
+        console.warn('Database retry:', message, obj);
+      }
+    },
+    
+    // Query optimization
+    define: {
+      timestamps: true,
+      underscored: false,
+      freezeTableName: true
     }
   }
 );
 
-// Test connection with better error handling
+// Test connection with better error handling and pool monitoring
 sequelize.authenticate()
   .then(() => {
     console.log('✓ Database connected successfully');
     console.log(`✓ Connected to: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
+    console.log(`✓ Optimized pool: min=${optimizedPool.min}, max=${optimizedPool.max}`);
+    
+    // Log pool events for monitoring (if available)
+    const pool = sequelize.connectionManager.pool;
+    if (pool && typeof pool.on === 'function') {
+      pool.on('createSuccess', () => {
+        console.log('🔗 Database connection created');
+      });
+      
+      pool.on('destroySuccess', () => {
+        console.log('🔗 Database connection destroyed');
+      });
+      
+      pool.on('createError', (err) => {
+        console.error('❌ Database connection creation failed:', err.message);
+      });
+    } else {
+      console.log('📊 Pool event monitoring not available for this Sequelize version');
+    }
   })
   .catch(err => {
     console.error('✗ Database connection failed:', err.message);

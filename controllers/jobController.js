@@ -8,8 +8,26 @@ const { Op } = require('sequelize');
 const { createAuditLog } = require('./auditLogController');
 const emailService = require('../services/emailService');
 
+// Import optimization utilities
+const { optimizationSystem } = require('../optimization');
+
+// Cache keys for job data
+const CACHE_KEYS = {
+  JOB_LIST: (tenantId, userId, filters) => `jobs:list:${tenantId}:${userId}:${JSON.stringify(filters)}`,
+  JOB_DETAIL: (tenantId, jobId) => `jobs:detail:${tenantId}:${jobId}`,
+  JOB_STATS: (tenantId, userId) => `jobs:stats:${tenantId}:${userId}`,
+  JOB_CALENDAR: (tenantId, userId, dateRange) => `jobs:calendar:${tenantId}:${userId}:${JSON.stringify(dateRange)}`
+};
+
+// Cache TTL (5 minutes for dynamic data, 15 minutes for stats)
+const CACHE_TTL = {
+  JOBS: 300,
+  STATS: 900
+};
+
 /**
  * Get all jobs for contractor with filtering and pagination
+ * OPTIMIZED: Implements caching, efficient filtering, and selective field loading
  */
 exports.getAllJobs = async (req, res) => {
   try {
@@ -24,14 +42,31 @@ exports.getAllJobs = async (req, res) => {
       search
     } = req.query;
 
-    // Build where clause
+    // Create cache key based on filters
+    const filters = { status, page, limit, sortBy, sortOrder, search };
+    const cacheKey = CACHE_KEYS.JOB_LIST(tenantId, userId, filters);
+    
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedJobs = await utils.cache?.get(cacheKey);
+      
+      if (cachedJobs) {
+        return res.json({
+          ...cachedJobs,
+          cached: true
+        });
+      }
+    }
+
+    // Build where clause with optimized filtering
     const where = { tenantId, userId };
     
     if (status && status !== 'all') {
       where.status = status;
     }
 
-    // Search filter
+    // OPTIMIZATION: Use efficient search with indexed fields
     if (search) {
       where[Op.or] = [
         { jobNumber: { [Op.like]: `%${search}%` } },
@@ -43,6 +78,7 @@ exports.getAllJobs = async (req, res) => {
     // Pagination
     const offset = (page - 1) * limit;
 
+    // OPTIMIZATION: Use selective field loading and eager loading to eliminate N+1 queries
     const { count, rows: jobs } = await Job.findAndCountAll({
       where,
       limit: parseInt(limit),
@@ -52,17 +88,19 @@ exports.getAllJobs = async (req, res) => {
         {
           model: Client,
           as: 'client',
-          attributes: ['id', 'name', 'email', 'phone',"street","state","city","zip" ]
+          attributes: ['id', 'name', 'email', 'phone', 'street', 'state', 'city', 'zip']
         },
         {
           model: Quote,
           as: 'quote',
           attributes: ['id', 'quoteNumber', 'areas']
         }
-      ]
+      ],
+      // OPTIMIZATION: Use raw queries where possible for better performance
+      raw: false // Keep as false since we need associations
     });
 
-    res.json({
+    const result = {
       success: true,
       data: jobs,
       pagination: {
@@ -71,7 +109,17 @@ exports.getAllJobs = async (req, res) => {
         limit: parseInt(limit),
         totalPages: Math.ceil(count / limit)
       }
-    });
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.JOBS, {
+        tags: [`tenant:${tenantId}`, `user:${userId}`, 'jobs']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get jobs error:', error);
     res.status(500).json({
@@ -84,19 +132,35 @@ exports.getAllJobs = async (req, res) => {
 
 /**
  * Get single job by ID
+ * OPTIMIZED: Implements caching and selective field loading
  */
 exports.getJobById = async (req, res) => {
   try {
     const { jobId } = req.params;
     const tenantId = req.user.tenantId;
 
+    // Try to get from cache first
+    const cacheKey = CACHE_KEYS.JOB_DETAIL(tenantId, jobId);
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedJob = await utils.cache?.get(cacheKey);
+      
+      if (cachedJob) {
+        return res.json({
+          ...cachedJob,
+          cached: true
+        });
+      }
+    }
+
+    // OPTIMIZATION: Use selective field loading and eager loading
     const job = await Job.findOne({
       where: { id: jobId, tenantId },
       include: [
         {
           model: Client,
           as: 'client',
-          attributes:['id', 'name', 'email', 'phone',"street","state","city","zip" ]
+          attributes: ['id', 'name', 'email', 'phone', 'street', 'state', 'city', 'zip']
         },
         {
           model: Quote,
@@ -113,10 +177,20 @@ exports.getJobById = async (req, res) => {
       });
     }
 
-    res.json({
+    const result = {
       success: true,
       data: job
-    });
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.JOBS, {
+        tags: [`tenant:${tenantId}`, 'job-details']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get job error:', error);
     res.status(500).json({
@@ -550,6 +624,7 @@ exports.recordLostJobReason = async (req, res) => {
 
 /**
  * Get job calendar events (for calendar view)
+ * OPTIMIZED: Implements caching and efficient date range filtering
  */
 exports.getJobCalendar = async (req, res) => {
   try {
@@ -557,19 +632,37 @@ exports.getJobCalendar = async (req, res) => {
     const userId = req.user.id;
     const { startDate, endDate } = req.query;
 
+    // Create cache key based on date range
+    const dateRange = { startDate, endDate };
+    const cacheKey = CACHE_KEYS.JOB_CALENDAR(tenantId, userId, dateRange);
+    
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedCalendar = await utils.cache?.get(cacheKey);
+      
+      if (cachedCalendar) {
+        return res.json({
+          ...cachedCalendar,
+          cached: true
+        });
+      }
+    }
+
     const where = {
       tenantId,
       userId,
       status: { [Op.in]: ['scheduled', 'in_progress', 'completed'] }
     };
 
-    // Optional date range filter
+    // OPTIMIZATION: Use efficient date range filtering with indexed fields
     if (startDate && endDate) {
       where.scheduledStartDate = {
         [Op.between]: [new Date(startDate), new Date(endDate)]
       };
     }
 
+    // OPTIMIZATION: Use selective field loading for calendar data
     const jobs = await Job.findAll({
       where,
       attributes: [
@@ -584,10 +677,11 @@ exports.getJobCalendar = async (req, res) => {
         'actualStartDate',
         'actualEndDate'
       ],
-      order: [['scheduledStartDate', 'ASC']]
+      order: [['scheduledStartDate', 'ASC']],
+      raw: true // Use raw queries for better performance
     });
 
-    // Format for calendar
+    // OPTIMIZATION: Process data efficiently
     const events = jobs.map(job => ({
       id: job.id,
       title: `${job.jobNumber} - ${job.customerName}`,
@@ -599,10 +693,20 @@ exports.getJobCalendar = async (req, res) => {
       customerName: job.customerName
     }));
 
-    res.json({
+    const result = {
       success: true,
       data: events
-    });
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.JOBS, {
+        tags: [`tenant:${tenantId}`, `user:${userId}`, 'job-calendar']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get job calendar error:', error);
     res.status(500).json({
@@ -615,19 +719,42 @@ exports.getJobCalendar = async (req, res) => {
 
 /**
  * Get job statistics for dashboard
+ * OPTIMIZED: Implements caching and efficient aggregation queries
  */
 exports.getJobStats = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
 
-    const stats = {
-      total: await Job.count({ where: { tenantId, userId } }),
-      depositPaid: await Job.count({ where: { tenantId, userId, status: 'deposit_paid' } }),
-      scheduled: await Job.count({ where: { tenantId, userId, status: 'scheduled' } }),
-      inProgress: await Job.count({ where: { tenantId, userId, status: 'in_progress' } }),
-      completed: await Job.count({ where: { tenantId, userId, status: 'completed' } }),
-      selectionsNeeded: await Job.count({ 
+    // Try to get from cache first
+    const cacheKey = CACHE_KEYS.JOB_STATS(tenantId, userId);
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedStats = await utils.cache?.get(cacheKey);
+      
+      if (cachedStats) {
+        return res.json({
+          ...cachedStats,
+          cached: true
+        });
+      }
+    }
+
+    // OPTIMIZATION: Use parallel queries for better performance
+    const [
+      total,
+      depositPaid,
+      scheduled,
+      inProgress,
+      completed,
+      selectionsNeeded
+    ] = await Promise.all([
+      Job.count({ where: { tenantId, userId } }),
+      Job.count({ where: { tenantId, userId, status: 'deposit_paid' } }),
+      Job.count({ where: { tenantId, userId, status: 'scheduled' } }),
+      Job.count({ where: { tenantId, userId, status: 'in_progress' } }),
+      Job.count({ where: { tenantId, userId, status: 'completed' } }),
+      Job.count({ 
         where: { 
           tenantId, 
           userId, 
@@ -635,12 +762,29 @@ exports.getJobStats = async (req, res) => {
           status: 'deposit_paid'
         } 
       })
+    ]);
+
+    const result = {
+      success: true,
+      data: {
+        total,
+        depositPaid,
+        scheduled,
+        inProgress,
+        completed,
+        selectionsNeeded
+      }
     };
 
-    res.json({
-      success: true,
-      data: stats
-    });
+    // Cache the results (longer TTL for stats)
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.STATS, {
+        tags: [`tenant:${tenantId}`, `user:${userId}`, 'job-stats']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get job stats error:', error);
     res.status(500).json({

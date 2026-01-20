@@ -270,6 +270,10 @@ class MagicLinkService {
         if (magicLink.quoteId && (!Array.isArray(existingSession.quoteIds) || existingSession.quoteIds.length === 0)) {
           existingSession.quoteIds = [magicLink.quoteId];
           await existingSession.save();
+        } else if (magicLink.quoteId && Array.isArray(existingSession.quoteIds) && !existingSession.quoteIds.includes(magicLink.quoteId)) {
+          // If the magic link is for a different quote, replace it (unverified should only see one)
+          existingSession.quoteIds = [magicLink.quoteId];
+          await existingSession.save();
         }
         return existingSession;
       }

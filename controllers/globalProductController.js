@@ -1,9 +1,27 @@
 const GlobalProduct = require('../models/GlobalProduct');
 const Brand = require('../models/Brand');
+const CacheManager = require('../optimization/cache/CacheManager');
 
 const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const sequelize  = require('../config/database');
+
+// Initialize cache manager
+const cache = new CacheManager();
+cache.initialize();
+
+// Cache keys and TTL
+const CACHE_KEYS = {
+  GLOBAL_PRODUCTS: (filters) => `global-products:all:${JSON.stringify(filters)}`,
+  GLOBAL_PRODUCT: (id) => `global-product:${id}`,
+  BRANDS_LIST: () => 'global-products:brands'
+};
+
+const CACHE_TTL = {
+  PRODUCTS: 600, // 10 minutes
+  PRODUCT_DETAIL: 1800, // 30 minutes
+  BRANDS: 1800 // 30 minutes
+};
 
 // Get all global products (optimized with pagination and search)
 exports.getAllGlobalProducts = async (req, res) => {
@@ -19,73 +37,87 @@ exports.getAllGlobalProducts = async (req, res) => {
       sortOrder = 'DESC'
     } = req.query;
     
-    const where = { isActive: true };
+    // Create cache key based on all filters
+    const filters = { brandId, category, tier, search, page, limit, sortBy, sortOrder };
+    const cacheKey = CACHE_KEYS.GLOBAL_PRODUCTS(filters);
     
-    // Apply filters
-    if (brandId && brandId !== 'all') {
-      if (brandId === 'custom') {
-        where.brandId = null;
-        where.customBrand = { [Op.ne]: null };
-      } else {
-        where.brandId = brandId;
-      }
-    }
-    
-    if (category) where.category = category;
-    if (tier) where.tier = tier;
-    
-    // Optimized search - search in name, customBrand, and notes
-    if (search && search.trim()) {
-      where[Op.or] = [
-        { name: { [Op.iLike]: `%${search.trim()}%` } },
-        { customBrand: { [Op.iLike]: `%${search.trim()}%` } },
-        { notes: { [Op.iLike]: `%${search.trim()}%` } },
-      ];
-    }
+    // Try to get from cache first
+    const cachedResult = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        const where = { isActive: true };
+        
+        // Apply filters
+        if (brandId && brandId !== 'all') {
+          if (brandId === 'custom') {
+            where.brandId = null;
+            where.customBrand = { [Op.ne]: null };
+          } else {
+            where.brandId = brandId;
+          }
+        }
+        
+        if (category) where.category = category;
+        if (tier) where.tier = tier;
+        
+        // Optimized search - search in name, customBrand, and notes
+        if (search && search.trim()) {
+          where[Op.or] = [
+            { name: { [Op.iLike]: `%${search.trim()}%` } },
+            { customBrand: { [Op.iLike]: `%${search.trim()}%` } },
+            { notes: { [Op.iLike]: `%${search.trim()}%` } },
+          ];
+        }
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+        const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Separate count and data queries for better performance
-    // Use Promise.all to run them in parallel
-    const [count, rows] = await Promise.all([
-      GlobalProduct.count({ where }), // Fast count without joins
-      GlobalProduct.findAll({
-        where,
-        include: [{ 
-          model: Brand, 
-          as: 'brand',
-          attributes: ['id', 'name'], // Only fetch needed fields
-          required: false
-        }],
-        attributes: [
-          'id', 
-          'brandId', 
-          'customBrand', 
-          'name', 
-          'category', 
-          'tier', 
-          'sheenOptions', 
-          'notes',
-          'createdAt'
-        ],
-        limit: parseInt(limit),
-        offset,
-        order: [[sortBy, sortOrder.toUpperCase()]],
-        subQuery: false, // Disable subquery for better performance
-      })
-    ]);
+        // Separate count and data queries for better performance
+        // Use Promise.all to run them in parallel
+        const [count, rows] = await Promise.all([
+          GlobalProduct.count({ where }), // Fast count without joins
+          GlobalProduct.findAll({
+            where,
+            include: [{ 
+              model: Brand, 
+              as: 'brand',
+              attributes: ['id', 'name'], // Only fetch needed fields
+              required: false
+            }],
+            attributes: [
+              'id', 
+              'brandId', 
+              'customBrand', 
+              'name', 
+              'category', 
+              'tier', 
+              'sheenOptions', 
+              'notes',
+              'createdAt'
+            ],
+            limit: parseInt(limit),
+            offset,
+            order: [[sortBy, sortOrder.toUpperCase()]],
+            subQuery: false, // Disable subquery for better performance
+          })
+        ]);
 
-    res.json({
-      success: true,
-      data: rows,
-      pagination: {
-        total: count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(count / parseInt(limit)),
-        hasMore: offset + rows.length < count,
+        return {
+          success: true,
+          data: rows,
+          pagination: {
+            total: count,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: Math.ceil(count / parseInt(limit)),
+            hasMore: offset + rows.length < count,
+          },
+        };
       },
-    });
+      CACHE_TTL.PRODUCTS,
+      ['global-products']
+    );
+
+    res.json(cachedResult);
   } catch (error) {
     console.error('Get global products error:', error);
     res.status(500).json({
@@ -100,20 +132,40 @@ exports.getAllGlobalProducts = async (req, res) => {
 exports.getGlobalProductById = async (req, res) => {
   try {
     const { id } = req.params;
+    const cacheKey = CACHE_KEYS.GLOBAL_PRODUCT(id);
 
-    const product = await GlobalProduct.findByPk(id);
+    const result = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        const product = await GlobalProduct.findByPk(id, {
+          include: [{ 
+            model: Brand, 
+            as: 'brand',
+            attributes: ['id', 'name']
+          }]
+        });
 
-    if (!product) {
+        if (!product) {
+          return null;
+        }
+
+        return {
+          success: true,
+          data: product,
+        };
+      },
+      CACHE_TTL.PRODUCT_DETAIL,
+      ['global-products', `product:${id}`]
+    );
+
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: 'Global product not found',
       });
     }
 
-    res.json({
-      success: true,
-      data: product,
-    });
+    res.json(result);
   } catch (error) {
     console.error('Get global product error:', error);
     res.status(500).json({
@@ -158,6 +210,9 @@ exports.createGlobalProduct = async (req, res) => {
     const productWithBrand = await GlobalProduct.findByPk(product.id, {
       include: [{ model: Brand, as: 'brand' }],
     });
+
+    // Invalidate global products cache
+    await cache.invalidateByTags(['global-products']);
 
     res.status(201).json({
       success: true,
@@ -204,6 +259,9 @@ exports.updateGlobalProduct = async (req, res) => {
       include: [{ model: Brand, as: 'brand' }],
     });
 
+    // Invalidate global products cache
+    await cache.invalidateByTags(['global-products', `product:${id}`]);
+
     res.json({
       success: true,
       message: 'Global product updated successfully',
@@ -234,6 +292,9 @@ exports.deleteGlobalProduct = async (req, res) => {
     }
 
     await product.update({ isActive: false });
+
+    // Invalidate global products cache
+    await cache.invalidateByTags(['global-products', `product:${id}`]);
 
     res.json({
       success: true,

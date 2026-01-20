@@ -27,16 +27,16 @@ class DocumentService {
         </h3>
         ${area.sqft ? `<p><strong>Square Footage:</strong> ${area.sqft} sq ft</p>` : ''}
         
-        ${area.selections ? `
+        ${area.customerSelections ? `
           <div style="margin-left: 20px;">
             <p style="margin: 5px 0;"><strong>Product Specifications:</strong></p>
-            <p style="margin: 3px 0;">• Brand: ${area.selections.brand || 'Not selected'}</p>
-            <p style="margin: 3px 0;">• Product: ${area.selections.product || 'Not selected'}</p>
-            <p style="margin: 3px 0;">• Color: ${area.selections.color || 'Not selected'}</p>
-            <p style="margin: 3px 0;">• Sheen: ${area.selections.sheen || 'Not selected'}</p>
-            ${area.selections.selectedAt ? `
+            <p style="margin: 3px 0;">• Brand: ${area.customerSelections.brand || 'Not selected'}</p>
+            <p style="margin: 3px 0;">• Product: ${area.customerSelections.product || 'Not selected'}</p>
+            <p style="margin: 3px 0;">• Color: ${area.customerSelections.color || 'Not selected'}</p>
+            <p style="margin: 3px 0;">• Sheen: ${area.customerSelections.sheen || 'Not selected'}</p>
+            ${area.customerSelections.selectedAt ? `
               <p style="margin: 3px 0; font-size: 0.85em; color: #666;">
-                Selected: ${new Date(area.selections.selectedAt).toLocaleDateString("en-US",{
+                Selected: ${new Date(area.customerSelections.selectedAt).toLocaleDateString("en-US",{
         month: 'short', day: 'numeric', year: 'numeric'
       })}
               </p>
@@ -159,14 +159,14 @@ class DocumentService {
 
     // Aggregate materials across all areas
     areas.forEach(area => {
-      if (area.selections) {
-        const key = `${area.selections.brand}|${area.selections.product}|${area.selections.color}|${area.selections.sheen}`;
+      if (area.customerSelections) {
+        const key = `${area.customerSelections.brand}|${area.customerSelections.product}|${area.customerSelections.color}|${area.customerSelections.sheen}`;
         if (!materialMap.has(key)) {
           materialMap.set(key, {
-            brand: area.selections.brand,
-            product: area.selections.product,
-            color: area.selections.color,
-            sheen: area.selections.sheen,
+            brand: area.customerSelections.brand,
+            product: area.customerSelections.product,
+            color: area.customerSelections.color,
+            sheen: area.customerSelections.sheen,
             areas: [],
             totalSqft: 0
           });
@@ -284,14 +284,14 @@ class DocumentService {
 
     // Aggregate materials
     areas.forEach(area => {
-      if (area.selections) {
-        const key = `${area.selections.brand}|${area.selections.product}|${area.selections.color}|${area.selections.sheen}`;
+      if (area.customerSelections) {
+        const key = `${area.customerSelections.brand}|${area.customerSelections.product}|${area.customerSelections.color}|${area.customerSelections.sheen}`;
         if (!materialMap.has(key)) {
           materialMap.set(key, {
-            brand: area.selections.brand,
-            product: area.selections.product,
-            color: area.selections.color,
-            sheen: area.selections.sheen,
+            brand: area.customerSelections.brand,
+            product: area.customerSelections.product,
+            color: area.customerSelections.color,
+            sheen: area.customerSelections.sheen,
             totalSqft: 0
           });
         }

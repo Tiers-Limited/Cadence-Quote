@@ -1,8 +1,25 @@
 const GlobalColor = require('../models/GlobalColor');
 const Brand = require('../models/Brand');
+const CacheManager = require('../optimization/cache/CacheManager');
 const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const sequelize = require('../config/database');
+
+// Initialize cache manager
+const cache = new CacheManager();
+cache.initialize();
+
+// Cache keys and TTL
+const CACHE_KEYS = {
+  GLOBAL_COLORS: (filters) => `global-colors:all:${JSON.stringify(filters)}`,
+  GLOBAL_COLOR: (id) => `global-color:${id}`,
+  BRAND_COLORS: (brandId) => `global-colors:brand:${brandId}`
+};
+
+const CACHE_TTL = {
+  COLORS: 600, // 10 minutes
+  COLOR_DETAIL: 1800, // 30 minutes
+};
 
 // Get all global colors (optimized with pagination and search)
 exports.getAllGlobalColors = async (req, res) => {
@@ -16,66 +33,80 @@ exports.getAllGlobalColors = async (req, res) => {
       sortOrder = 'ASC'
     } = req.query;
     
-    const where = { isActive: true };
+    // Create cache key based on all filters
+    const filters = { brandId, search, page, limit, sortBy, sortOrder };
+    const cacheKey = CACHE_KEYS.GLOBAL_COLORS(filters);
     
-    // Apply filters
-    if (brandId && brandId !== 'all') {
-      where.brandId = brandId;
-    }
-    
-    // Optimized search - search in name and code
-    if (search && search.trim()) {
-      where[Op.or] = [
-        { name: { [Op.iLike]: `%${search.trim()}%` } },
-        { code: { [Op.iLike]: `%${search.trim()}%` } },
-      ];
-    }
+    // Try to get from cache first
+    const cachedResult = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        const where = { isActive: true };
+        
+        // Apply filters
+        if (brandId && brandId !== 'all') {
+          where.brandId = brandId;
+        }
+        
+        // Optimized search - search in name and code
+        if (search && search.trim()) {
+          where[Op.or] = [
+            { name: { [Op.iLike]: `%${search.trim()}%` } },
+            { code: { [Op.iLike]: `%${search.trim()}%` } },
+          ];
+        }
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+        const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Separate count and data queries for better performance
-    // Use Promise.all to run them in parallel
-    const [count, rows] = await Promise.all([
-      GlobalColor.count({ where }), // Fast count without joins
-      GlobalColor.findAll({
-        where,
-        include: [{ 
-          model: Brand, 
-          as: 'brand',
-          attributes: ['id', 'name'], // Only fetch needed fields
-          required: false
-        }],
-        attributes: [
-          'id',
-          'brandId',
-          'name',
-          'code',
-          'hexValue',
-          'red',
-          'green',
-          'blue',
-          'sampleImage',
-          'crossBrandMappings',
-          'createdAt'
-        ],
-        limit: parseInt(limit),
-        offset,
-        order: [[sortBy, sortOrder.toUpperCase()]],
-        subQuery: false, // Disable subquery for better performance
-      })
-    ]);
+        // Separate count and data queries for better performance
+        // Use Promise.all to run them in parallel
+        const [count, rows] = await Promise.all([
+          GlobalColor.count({ where }), // Fast count without joins
+          GlobalColor.findAll({
+            where,
+            include: [{ 
+              model: Brand, 
+              as: 'brand',
+              attributes: ['id', 'name'], // Only fetch needed fields
+              required: false
+            }],
+            attributes: [
+              'id',
+              'brandId',
+              'name',
+              'code',
+              'hexValue',
+              'red',
+              'green',
+              'blue',
+              'sampleImage',
+              'crossBrandMappings',
+              'createdAt'
+            ],
+            limit: parseInt(limit),
+            offset,
+            order: [[sortBy, sortOrder.toUpperCase()]],
+            subQuery: false, // Disable subquery for better performance
+          })
+        ]);
 
-    res.json({
-      success: true,
-      data: rows,
-      pagination: {
-        total: count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(count / parseInt(limit)),
-        hasMore: offset + rows.length < count,
+        return {
+          success: true,
+          data: rows,
+          pagination: {
+            total: count,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: Math.ceil(count / parseInt(limit)),
+            hasMore: offset + rows.length < count,
+          },
+        };
       },
-    });
+      CACHE_TTL.COLORS,
+      ['global-colors']
+    );
+
+    res.json(cachedResult);
   } catch (error) {
     console.error('Get global colors error:', error);
     res.status(500).json({

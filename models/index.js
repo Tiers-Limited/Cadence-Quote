@@ -27,6 +27,7 @@ const Job = require('./Job');
 const MagicLink = require('./MagicLink');
 const CustomerSession = require('./CustomerSession');
 const CustomerSelection = require('./CustomerSelection');
+const AuditLog = require('./AuditLog'); // Add AuditLog model
 
 // Store models in an object
 const models = {
@@ -53,6 +54,7 @@ const models = {
   MagicLink,
   CustomerSession,
   CustomerSelection,
+  AuditLog, // Add AuditLog to models object
   sequelize
 };
 

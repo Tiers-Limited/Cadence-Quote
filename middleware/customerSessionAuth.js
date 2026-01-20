@@ -51,15 +51,6 @@ async function customerSessionAuth(req, res, next) {
       });
     }
     
-    // Debug: Log what we got from validation
-    console.log('🔐 Session data:', {
-      sessionId: result.session?.id,
-      clientId: result.session?.clientId,
-      tenantId: result.session?.tenantId,
-      hasClient: !!result.client,
-      clientId2: result.client?.id
-    });
-    
     // Attach session and customer info to request
     req.customerSession = result.session;
     req.customer = result.client;

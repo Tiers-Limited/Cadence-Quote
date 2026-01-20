@@ -6,9 +6,14 @@ const ProductConfig = require('../models/ProductConfig');
 const GlobalProduct = require('../models/GlobalProduct');
 const Brand = require('../models/Brand');
 const ContractorSettings = require('../models/ContractorSettings');
+const CacheManager = require('../optimization/cache/CacheManager');
 const { DEFAULT_LABOR_RATES } = require('../utils/laborDefaults');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
+
+// Initialize cache manager
+const cache = new CacheManager();
+cache.initialize();
 
 /**
  * Get all product configurations for the authenticated contractor
@@ -37,85 +42,101 @@ const getAllProductConfigs = async (req, res) => {
       sortOrder = 'DESC',
     } = req.query;
 
-    // Build where clause
-    const where = {
-      tenantId,
-      isActive: true,
-    };
-    console.log('🔍 Fetching product configs with filters:', { brandId, jobType, search, page, limit, sortBy, sortOrder });
-    // Include filter for global product's brand and category
-    const includeWhere = {};
-    if (brandId) {
-      includeWhere.brandId = parseInt(brandId);
-    }
+    // Create cache key based on all parameters
+    const cacheKey = `product-configs:tenant:${tenantId}:${JSON.stringify({ brandId, jobType, search, page, limit, sortBy, sortOrder })}`;
+    
+    // Use cache wrapper for the query
+    const result = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        // Build where clause
+        const where = {
+          tenantId,
+          isActive: true,
+        };
+        console.log('🔍 Fetching product configs with filters:', { brandId, jobType, search, page, limit, sortBy, sortOrder });
+        
+        // Include filter for global product's brand and category
+        const includeWhere = {};
+        if (brandId) {
+          includeWhere.brandId = parseInt(brandId);
+        }
 
-    // Filter by jobType (interior/exterior) - map to product category
-    if (jobType) {
-      console.log('🔍 Filtering products by jobType:', jobType);
-      if (jobType.toLowerCase() === 'interior') {
-        includeWhere.category = 'Interior';
-      } else if (jobType.toLowerCase() === 'exterior') {
-        includeWhere.category = 'Exterior';
-      }
-      console.log('📋 Applied category filter:', includeWhere.category);
-    }
+        // Filter by jobType (interior/exterior) - map to product category
+        if (jobType) {
+          console.log('🔍 Filtering products by jobType:', jobType);
+          if (jobType.toLowerCase() === 'interior') {
+            includeWhere.category = 'Interior';
+          } else if (jobType.toLowerCase() === 'exterior') {
+            includeWhere.category = 'Exterior';
+          }
+          console.log('📋 Applied category filter:', includeWhere.category);
+        }
 
-    // Search in product name
-    if (search) {
-      includeWhere.name = {
-        [Op.iLike]: `%${search}%`,
-      };
-    }
+        // Search in product name
+        if (search) {
+          includeWhere.name = {
+            [Op.iLike]: `%${search}%`,
+          };
+        }
 
-    // Calculate pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const offset = (pageNum - 1) * limitNum;
+        // Calculate pagination
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const offset = (pageNum - 1) * limitNum;
 
-    // Build include configuration
-    const globalProductInclude = {
-      model: GlobalProduct,
-      as: 'globalProduct',
-      required: true,
-      include: [
-        {
-          model: Brand,
-          as: 'brand',
-          attributes: ['id', 'name'],
-        },
-      ],
-    };
+        // Build include configuration with optimized attributes
+        const globalProductInclude = {
+          model: GlobalProduct,
+          as: 'globalProduct',
+          required: true,
+          attributes: ['id', 'name', 'category', 'brandId'], // Only select needed fields
+          include: [
+            {
+              model: Brand,
+              as: 'brand',
+              attributes: ['id', 'name'],
+            },
+          ],
+        };
 
-    // Apply where clause only if we have filters
-    if (Object.keys(includeWhere).length > 0) {
-      globalProductInclude.where = includeWhere;
-    }
+        // Apply where clause only if we have filters
+        if (Object.keys(includeWhere).length > 0) {
+          globalProductInclude.where = includeWhere;
+        }
 
-    // Execute queries in parallel for performance
-    const [count, configs] = await Promise.all([
-      ProductConfig.count({
-        where,
-        include: [globalProductInclude],
-      }),
-      ProductConfig.findAll({
-        where,
-        include: [globalProductInclude],
-        limit: limitNum,
-        offset,
-        order: [[sortBy, sortOrder.toUpperCase()]],
-      }),
-    ]);
+        // Execute queries in parallel for performance
+        const [count, configs] = await Promise.all([
+          ProductConfig.count({
+            where,
+            include: [globalProductInclude],
+          }),
+          ProductConfig.findAll({
+            where,
+            attributes: ['id', 'tenantId', 'globalProductId', 'sheens', 'laborRates', 'defaultMarkup', 'taxRate', 'createdAt'], // Only select needed fields
+            include: [globalProductInclude],
+            limit: limitNum,
+            offset,
+            order: [[sortBy, sortOrder.toUpperCase()]],
+          }),
+        ]);
 
-    res.status(200).json({
-      success: true,
-      data: configs,
-      pagination: {
-        total: count,
-        page: pageNum,
-        limit: limitNum,
-        totalPages: Math.ceil(count / limitNum),
+        return {
+          success: true,
+          data: configs,
+          pagination: {
+            total: count,
+            page: pageNum,
+            limit: limitNum,
+            totalPages: Math.ceil(count / limitNum),
+          },
+        };
       },
-    });
+      300, // 5 minutes TTL
+      ['product-configs', `tenant:${tenantId}`] // Cache tags for invalidation
+    );
+
+    res.status(200).json(result);
   } catch (error) {
     console.error('Get all product configs error:', error);
     res.status(500).json({
@@ -279,6 +300,9 @@ const createProductConfig = async (req, res) => {
 
     await transaction.commit();
 
+    // Invalidate product configs cache for this tenant
+    await cache.invalidateByTags(['product-configs', `tenant:${tenantId}`]);
+
     // Fetch created config with includes (after commit to avoid transaction issues)
     const createdConfig = await ProductConfig.findByPk(config.id, {
       include: [
@@ -408,6 +432,9 @@ const updateProductConfig = async (req, res) => {
 
     await transaction.commit();
 
+    // Invalidate product configs cache for this tenant
+    await cache.invalidateByTags(['product-configs', `tenant:${tenantId}`]);
+
     // Fetch updated config with includes (after commit)
     const updatedConfig = await ProductConfig.findByPk(config.id, {
       include: [
@@ -512,78 +539,102 @@ const getDefaults = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
     
-    // Get contractor settings for this tenant
-    let settings = await ContractorSettings.findOne({
-      where: { tenantId },
-    });
+    // Create cache key for this tenant's defaults
+    const cacheKey = `product-config-defaults:tenant:${tenantId}`;
     
-    // If no settings exist, create default settings
-    if (!settings) {
-      settings = await ContractorSettings.create({ tenantId });
-    }
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        laborRates: settings.productConfigLaborRates || DEFAULT_LABOR_RATES,
-        defaultMarkup: Number(settings.productConfigDefaultMarkup) || 15,
-        defaultTaxRate: Number(settings.productConfigDefaultTaxRate) || 0,
-        defaultCoverage: 350,
-        // Global Pricing & Metrics
-        defaultLaborHourRate: Number(settings.defaultLaborHourRate) || 0,
-        laborMarkupPercent: Number(settings.laborMarkupPercent) || 0,
-        materialMarkupPercent: Number(settings.materialMarkupPercent) || 0,
-        overheadPercent: Number(settings.overheadPercent) || 0,
-        netProfitPercent: Number(settings.netProfitPercent) || 0,
-        // Quote Settings
-        depositPercentage: Number(settings.depositPercentage) || 50,
-        quoteValidityDays: Number(settings.quoteValidityDays) || 30,
-        // Turnkey Square Foot Rates
-        turnkeyInteriorRate: Number(settings.turnkeyInteriorRate) || 0,
-        turnkeyExteriorRate: Number(settings.turnkeyExteriorRate) || 0,
-        // Additional Hourly Labor Rates
-        prepRepairHourlyRate: Number(settings.prepRepairHourlyRate) || 0,
-        finishCabinetHourlyRate: Number(settings.finishCabinetHourlyRate) || 0,
-        // Production Rates - Interior
-        productionInteriorWalls: Number(settings.productionInteriorWalls) || 0,
-        productionInteriorCeilings: Number(settings.productionInteriorCeilings) || 0,
-        productionInteriorTrim: Number(settings.productionInteriorTrim) || 0,
-        // Production Rates - Exterior
-        productionExteriorWalls: Number(settings.productionExteriorWalls) || 0,
-        productionExteriorTrim: Number(settings.productionExteriorTrim) || 0,
-        productionSoffitFascia: Number(settings.productionSoffitFascia) || 0,
-        productionGutters: Number(settings.productionGutters) || 0,
-        // Production Rates - Optional
-        productionDoors: Number(settings.productionDoors) || 0,
-        productionCabinets: Number(settings.productionCabinets) || 0,
-        // Flat Rate Unit Prices
-        flatRateUnitPrices: {
-          // Interior surfaces
-          walls: settings.flatRateUnitPrices?.walls || 2.5,
-          ceilings: settings.flatRateUnitPrices?.ceilings || 2.0,
-          interior_trim: settings.flatRateUnitPrices?.interior_trim || settings.flatRateUnitPrices?.trim || 1.5,
-          // Exterior surfaces
-          siding: settings.flatRateUnitPrices?.siding || 3.0,
-          exterior_trim: settings.flatRateUnitPrices?.exterior_trim || settings.flatRateUnitPrices?.trim || 1.8,
-          soffit_fascia: settings.flatRateUnitPrices?.soffit_fascia || 2.0,
-          gutters: settings.flatRateUnitPrices?.gutters || 4.0,        deck: settings.flatRateUnitPrices?.deck || 2.5,          // Items
-          door: settings.flatRateUnitPrices?.door || 85,
-          window: settings.flatRateUnitPrices?.window || 75,
-          cabinet: settings.flatRateUnitPrices?.cabinet || 125,
-          // Rooms
-          room_small: settings.flatRateUnitPrices?.room_small || 350,
-          room_medium: settings.flatRateUnitPrices?.room_medium || 450,
-          room_large: settings.flatRateUnitPrices?.room_large || 600,
-        },
-        // Material Settings
-        includeMaterials: settings.includeMaterials !== undefined ? settings.includeMaterials : true,
-        coverage: Number(settings.coverage) || 350,
-        applicationMethod: settings.applicationMethod || 'roll',
-        coats: Number(settings.coats) || 2,
-        // Crew Size
-        crewSize: Number(settings.crewSize) || 2,
+    // Use cache wrapper for the query
+    const result = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        // Get contractor settings for this tenant
+        let settings = await ContractorSettings.findOne({
+          where: { tenantId },
+          attributes: [
+            'productConfigLaborRates', 'productConfigDefaultMarkup', 'productConfigDefaultTaxRate',
+            'defaultLaborHourRate', 'laborMarkupPercent', 'materialMarkupPercent', 'overheadPercent', 'netProfitPercent',
+            'depositPercentage', 'quoteValidityDays', 'turnkeyInteriorRate', 'turnkeyExteriorRate',
+            'prepRepairHourlyRate', 'finishCabinetHourlyRate', 'productionInteriorWalls', 'productionInteriorCeilings',
+            'productionInteriorTrim', 'productionExteriorWalls', 'productionExteriorTrim', 'productionSoffitFascia',
+            'productionGutters', 'productionDoors', 'productionCabinets', 'flatRateUnitPrices',
+            'includeMaterials', 'coverage', 'applicationMethod', 'coats', 'crewSize'
+          ]
+        });
+        
+        // If no settings exist, create default settings
+        if (!settings) {
+          settings = await ContractorSettings.create({ tenantId });
+        }
+        
+        return {
+          success: true,
+          data: {
+            laborRates: settings.productConfigLaborRates || DEFAULT_LABOR_RATES,
+            defaultMarkup: Number(settings.productConfigDefaultMarkup) || 15,
+            defaultTaxRate: Number(settings.productConfigDefaultTaxRate) || 0,
+            defaultCoverage: 350,
+            // Global Pricing & Metrics
+            defaultLaborHourRate: Number(settings.defaultLaborHourRate) || 0,
+            laborMarkupPercent: Number(settings.laborMarkupPercent) || 0,
+            materialMarkupPercent: Number(settings.materialMarkupPercent) || 0,
+            overheadPercent: Number(settings.overheadPercent) || 0,
+            netProfitPercent: Number(settings.netProfitPercent) || 0,
+            // Quote Settings
+            depositPercentage: Number(settings.depositPercentage) || 50,
+            quoteValidityDays: Number(settings.quoteValidityDays) || 30,
+            // Turnkey Square Foot Rates
+            turnkeyInteriorRate: Number(settings.turnkeyInteriorRate) || 0,
+            turnkeyExteriorRate: Number(settings.turnkeyExteriorRate) || 0,
+            // Additional Hourly Labor Rates
+            prepRepairHourlyRate: Number(settings.prepRepairHourlyRate) || 0,
+            finishCabinetHourlyRate: Number(settings.finishCabinetHourlyRate) || 0,
+            // Production Rates - Interior
+            productionInteriorWalls: Number(settings.productionInteriorWalls) || 0,
+            productionInteriorCeilings: Number(settings.productionInteriorCeilings) || 0,
+            productionInteriorTrim: Number(settings.productionInteriorTrim) || 0,
+            // Production Rates - Exterior
+            productionExteriorWalls: Number(settings.productionExteriorWalls) || 0,
+            productionExteriorTrim: Number(settings.productionExteriorTrim) || 0,
+            productionSoffitFascia: Number(settings.productionSoffitFascia) || 0,
+            productionGutters: Number(settings.productionGutters) || 0,
+            // Production Rates - Optional
+            productionDoors: Number(settings.productionDoors) || 0,
+            productionCabinets: Number(settings.productionCabinets) || 0,
+            // Flat Rate Unit Prices
+            flatRateUnitPrices: {
+              // Interior surfaces
+              walls: settings.flatRateUnitPrices?.walls || 2.5,
+              ceilings: settings.flatRateUnitPrices?.ceilings || 2.0,
+              interior_trim: settings.flatRateUnitPrices?.interior_trim || settings.flatRateUnitPrices?.trim || 1.5,
+              // Exterior surfaces
+              siding: settings.flatRateUnitPrices?.siding || 3.0,
+              exterior_trim: settings.flatRateUnitPrices?.exterior_trim || settings.flatRateUnitPrices?.trim || 1.8,
+              soffit_fascia: settings.flatRateUnitPrices?.soffit_fascia || 2.0,
+              gutters: settings.flatRateUnitPrices?.gutters || 4.0,
+              deck: settings.flatRateUnitPrices?.deck || 2.5,
+              // Items
+              door: settings.flatRateUnitPrices?.door || 85,
+              window: settings.flatRateUnitPrices?.window || 75,
+              cabinet: settings.flatRateUnitPrices?.cabinet || 125,
+              // Rooms
+              room_small: settings.flatRateUnitPrices?.room_small || 350,
+              room_medium: settings.flatRateUnitPrices?.room_medium || 450,
+              room_large: settings.flatRateUnitPrices?.room_large || 600,
+            },
+            // Material Settings
+            includeMaterials: settings.includeMaterials !== undefined ? settings.includeMaterials : true,
+            coverage: Number(settings.coverage) || 350,
+            applicationMethod: settings.applicationMethod || 'roll',
+            coats: Number(settings.coats) || 2,
+            // Crew Size
+            crewSize: Number(settings.crewSize) || 2,
+          },
+        };
       },
-    });
+      600, // 10 minutes TTL (defaults don't change often)
+      ['product-config-defaults', `tenant:${tenantId}`] // Cache tags for invalidation
+    );
+    
+    res.status(200).json(result);
   } catch (error) {
     console.error('Get defaults error:', error);
     res.status(500).json({
@@ -723,6 +774,9 @@ const updateDefaults = async (req, res) => {
     }
     
     await settings.update(updates);
+    
+    // Invalidate product config defaults cache for this tenant
+    await cache.invalidateByTags(['product-config-defaults', `tenant:${tenantId}`]);
     
     res.status(200).json({
       success: true,

@@ -129,6 +129,7 @@ const User = sequelize.define('User', {
     }
   }
 }, {
+  tableName: 'Users', // Explicitly set table name to match database
   timestamps: true,
   indexes: [
     { fields: ['tenantId'] },

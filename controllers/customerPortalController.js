@@ -1,4 +1,4 @@
-﻿// controllers/customerPortalController.js
+// controllers/customerPortalController.js
 // Customer Portal Controller - Handles customer portal access and selections
 
 const Quote = require('../models/Quote');
@@ -9,9 +9,193 @@ const { createAuditLog } = require('./auditLogController');
 const documentService = require('../services/documentService');
 const emailService = require('../services/emailService');
 const MagicLinkService = require('../services/magicLinkService');
+const CacheManager = require('../optimization/cache/CacheManager');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
 const path = require('path');
 const fs = require('fs');
+
+// Initialize cache manager
+const cache = new CacheManager();
+cache.initialize();
+
+// Helper function to resolve product IDs to actual product names from database
+async function resolveProductNamesFromIds(productIds, tenantId) {
+  try {
+    if (!productIds || productIds.length === 0) return new Map();
+    
+    const ProductConfig = require('../models/ProductConfig');
+    const GlobalProduct = require('../models/GlobalProduct');
+    const Brand = require('../models/Brand');
+    
+    const productConfigs = await ProductConfig.findAll({
+      where: { 
+        id: productIds,
+        tenantId: tenantId 
+      }
+    });
+    
+    // Get global product IDs
+    const globalProductIds = productConfigs.map(pc => pc.globalProductId).filter(Boolean);
+    
+    if (globalProductIds.length === 0) return new Map();
+    
+    const globalProducts = await GlobalProduct.findAll({
+      where: { id: globalProductIds },
+      include: [{ model: Brand, as: 'brand' }]
+    });
+    
+    // Create lookup map
+    const productLookup = new Map();
+    productConfigs.forEach(config => {
+      const globalProduct = globalProducts.find(gp => gp.id === config.globalProductId);
+      if (globalProduct) {
+        const productName = globalProduct.brand ? 
+          `${globalProduct.brand.name} ${globalProduct.name}` : 
+          globalProduct.name;
+        productLookup.set(config.id, productName);
+      }
+    });
+    
+    return productLookup;
+  } catch (error) {
+    console.warn('Failed to resolve product names from IDs:', error.message);
+    return new Map();
+  }
+}
+
+// Helper function to extract GBB options from productSets
+function extractGBBOptionsFromProductSets(productSets) {
+  try {
+    let parsedProductSets = productSets || [];
+    if (typeof parsedProductSets === 'string') {
+      try { 
+        parsedProductSets = JSON.parse(parsedProductSets); 
+      } catch (e) { 
+        parsedProductSets = []; 
+      }
+    }
+    if (!Array.isArray(parsedProductSets)) parsedProductSets = [];
+
+    const tiers = extractProductNamesFromProductSets(parsedProductSets);
+
+    return {
+      good: { price: null, features: Array.from(tiers.good) },
+      better: { price: null, features: Array.from(tiers.better) },
+      best: { price: null, features: Array.from(tiers.best) }
+    };
+  } catch (gbbErr) {
+    console.warn('GBB invoice options build failed, continuing with defaults:', gbbErr?.message || gbbErr);
+    return {};
+  }
+}
+
+// Helper function to add tier pricing data to invoice data
+function addTierPricingToInvoiceData(invoiceData, proposal) {
+  const baseTotal = parseFloat(proposal.total || 0);
+  const tierMultipliers = { good: 0.85, better: 1.0, best: 1.15 };
+  const depositPercentage = 50;
+  
+  const tierPricing = {};
+  Object.entries(tierMultipliers).forEach(([tier, multiplier]) => {
+    const tierTotal = parseFloat((baseTotal * multiplier).toFixed(2));
+    const tierDeposit = parseFloat((tierTotal * (depositPercentage / 100)).toFixed(2));
+    
+    tierPricing[tier] = {
+      total: tierTotal,
+      deposit: tierDeposit,
+    };
+    
+    // Update gbbOptions with pricing if it exists
+    if (invoiceData.gbbOptions && invoiceData.gbbOptions[tier]) {
+      invoiceData.gbbOptions[tier].price = tierTotal;
+    }
+  });
+
+  invoiceData.tiers = tierPricing;
+  invoiceData.selectedTier = proposal.selectedTier?.toLowerCase() || null;
+  
+  return invoiceData;
+}
+
+// Helper function to extract product names from productSets (DEPRECATED - use resolveProductNamesFromIds instead)
+function extractProductNamesFromProductSets(productSets) {
+  const tiers = { good: new Set(), better: new Set(), best: new Set() };
+  
+  if (!Array.isArray(productSets)) return tiers;
+  
+  productSets.forEach(ps => {
+    const products = ps.products || {};
+    Object.entries(products).forEach(([tier, prod]) => {
+      if (!tier || !tiers[tier]) return;
+      
+      let productName = null;
+      
+      // Extract product name from different possible structures
+      if (typeof prod === 'string') {
+        productName = prod;
+      } else if (prod && typeof prod === 'object') {
+        productName = prod.name || 
+                    prod.productName || 
+                    prod.globalProduct?.name ||
+                    (prod.brandName && prod.productName ? `${prod.brandName} ${prod.productName}` : null) ||
+                    (prod.id ? `Product ${prod.id}` : null);
+      }
+      
+      if (productName && productName !== 'Not selected') {
+        tiers[tier].add(productName);
+      }
+    });
+  });
+  
+  return tiers;
+}
+
+// Helper function to extract product IDs from productSets for database lookup
+function extractProductIdsFromProductSets(productSets, selectedTier = null) {
+  const productIds = [];
+  
+  if (!Array.isArray(productSets)) return productIds;
+  
+  productSets.forEach(ps => {
+    const products = ps.products || {};
+    Object.entries(products).forEach(([tier, prod]) => {
+      // If selectedTier is specified, only extract from that tier
+      if (selectedTier && tier !== selectedTier) return;
+      
+      let productId = null;
+      
+      // Extract product ID from different possible structures
+      if (prod && typeof prod === 'object' && prod.id) {
+        productId = prod.id;
+      }
+      
+      if (productId && !productIds.includes(productId)) {
+        productIds.push(productId);
+      }
+    });
+  });
+  
+  return productIds;
+}
+
+// Import optimization utilities
+const { optimizationSystem } = require('../optimization');
+
+// Cache keys for customer portal data
+const CACHE_KEYS = {
+  CUSTOMER_PROPOSALS: (customerId, filters) => `portal:proposals:${customerId}:${JSON.stringify(filters)}`,
+  PROPOSAL_DETAIL: (customerId, proposalId) => `portal:proposal:${customerId}:${proposalId}`,
+  TENANT_BRANDING: (tenantId) => `portal:branding:${tenantId}`,
+  CUSTOMER_JOBS: (customerId) => `portal:jobs:${customerId}`,
+  JOB_DETAIL: (customerId, jobId) => `portal:job:${customerId}:${jobId}`
+};
+
+// Cache TTL (5 minutes for dynamic data, 30 minutes for branding)
+const CACHE_TTL = {
+  PROPOSALS: 300,
+  BRANDING: 1800,
+  JOBS: 300
+};
 
 // ============================================================================
 // MAGIC LINK AUTHENTICATION (Passwordless Access)
@@ -20,6 +204,7 @@ const fs = require('fs');
 /**
  * Access portal via magic link
  * GET /api/customer-portal/access/:token
+ * OPTIMIZED: Implements caching for tenant branding and parallel processing
  */
 exports.accessPortal = async (req, res) => {
   try {
@@ -38,33 +223,50 @@ exports.accessPortal = async (req, res) => {
       });
     }
     
-    // Get tenant branding
-    const tenant = await Tenant.findByPk(result.magicLink.tenantId);
-    const branding = {
-      companyName: tenant?.companyName || 'Your Contractor',
-      logo: tenant?.companyLogoUrl || null,
-      primaryColor: tenant?.brandColor || '#2563eb',
-      email: tenant?.email || null,
-      phone: tenant?.phoneNumber || null,
-      website: tenant?.website || null,
-    };
-    
-    // Create audit log
-    await createAuditLog({
-      category: 'customer_portal',
-      action: 'Portal accessed via magic link',
-      userId: null,
-      tenantId: result.magicLink.tenantId,
-      entityType: 'MagicLink',
-      entityId: result.magicLink.id,
-      metadata: {
-        clientId: result.client.id,
-        clientEmail: result.client.email,
-        purpose: result.magicLink.purpose,
-      },
-      ipAddress,
-      userAgent,
-    });
+    // OPTIMIZATION: Cache tenant branding data and execute audit log in parallel
+    const [branding] = await Promise.all([
+      // Get tenant branding with caching
+      cache.cacheQuery(
+        `tenant-branding:${result.magicLink.tenantId}`,
+        async () => {
+          // OPTIMIZATION: Use selective field loading
+          const tenant = await Tenant.findByPk(result.magicLink.tenantId, {
+            attributes: ['companyName', 'companyLogoUrl', 'email', 'phoneNumber']
+          });
+          
+          return {
+            companyName: tenant?.companyName || 'Your Contractor',
+            logo: tenant?.companyLogoUrl || null,
+            primaryColor: tenant?.brandColor || '#2563eb',
+            email: tenant?.email || null,
+            phone: tenant?.phoneNumber || null,
+            website: tenant?.website || null,
+          };
+        },
+        1800, // 30 minutes TTL (branding doesn't change often)
+        [`tenant:${result.magicLink.tenantId}`, 'branding']
+      ),
+      
+      // Create audit log in parallel (don't wait for it)
+      createAuditLog({
+        category: 'customer_portal',
+        action: 'Portal accessed via magic link',
+        userId: null,
+        tenantId: result.magicLink.tenantId,
+        entityType: 'MagicLink',
+        entityId: result.magicLink.id,
+        metadata: {
+          clientId: result.client.id,
+          clientEmail: result.client.email,
+          purpose: result.magicLink.purpose,
+        },
+        ipAddress,
+        userAgent,
+      }).catch(error => {
+        // Don't fail the request if audit log fails
+        console.error('Audit log creation failed:', error);
+      })
+    ]);
     
     res.json({
       success: true,
@@ -103,6 +305,7 @@ exports.accessPortal = async (req, res) => {
 /**
  * Validate existing session
  * POST /api/customer-portal/validate-session
+ * OPTIMIZED: Implements caching for tenant branding
  */
 exports.validateSession = async (req, res) => {
   try {
@@ -128,16 +331,27 @@ exports.validateSession = async (req, res) => {
       });
     }
     
-    // Get tenant branding
-    const tenant = await Tenant.findByPk(result.session.tenantId);
-    const branding = {
-      companyName: tenant?.companyName || 'Your Contractor',
-      logo: tenant?.companyLogoUrl || null,
-      primaryColor: tenant?.brandColor || '#2563eb',
-      email: tenant?.email || null,
-      phone: tenant?.phoneNumber || null,
-      website: tenant?.website || null,
-    };
+    // OPTIMIZATION: Get tenant branding with caching
+    const branding = await cache.cacheQuery(
+      `tenant-branding:${result.session.tenantId}`,
+      async () => {
+        // OPTIMIZATION: Use selective field loading
+        const tenant = await Tenant.findByPk(result.session.tenantId, {
+          attributes: ['companyName', 'companyLogoUrl', 'brandColor', 'email', 'phoneNumber', 'website']
+        });
+        
+        return {
+          companyName: tenant?.companyName || 'Your Contractor',
+          logo: tenant?.companyLogoUrl || null,
+          primaryColor: tenant?.brandColor || '#2563eb',
+          email: tenant?.email || null,
+          phone: tenant?.phoneNumber || null,
+          website: tenant?.website || null,
+        };
+      },
+      1800, // 30 minutes TTL
+      [`tenant:${result.session.tenantId}`, 'branding']
+    );
     
     res.json({
       success: true,
@@ -385,12 +599,38 @@ exports.verifyOTP = async (req, res) => {
 /**
  * Get tenant branding
  * GET /api/customer-portal/branding/:tenantId
+ * OPTIMIZED: Implements caching for tenant branding data
  */
 exports.getBranding = async (req, res) => {
   try {
     const { tenantId } = req.params;
+    const cacheKey = CACHE_KEYS.TENANT_BRANDING(tenantId);
     
-    const tenant = await Tenant.findByPk(tenantId);
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedBranding = await utils.cache?.get(cacheKey);
+      
+      if (cachedBranding) {
+        return res.json({
+          ...cachedBranding,
+          cached: true
+        });
+      }
+    }
+    
+    // OPTIMIZATION: Use selective field loading
+    const tenant = await Tenant.findByPk(tenantId, {
+      attributes: [
+        'companyName',
+        'companyLogoUrl',
+        'brandColor',
+        'email',
+        'phoneNumber',
+        'website',
+        'businessAddress'
+      ]
+    });
     
     if (!tenant) {
       return res.status(404).json({
@@ -399,7 +639,7 @@ exports.getBranding = async (req, res) => {
       });
     }
     
-    res.json({
+    const result = {
       success: true,
       branding: {
         companyName: tenant.companyName || 'Your Contractor',
@@ -410,7 +650,17 @@ exports.getBranding = async (req, res) => {
         website: tenant.website || null,
         address: tenant.businessAddress || null,
       },
-    });
+    };
+
+    // Cache the results (longer TTL for branding data)
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.BRANDING, {
+        tags: [`tenant:${tenantId}`, 'branding']
+      });
+    }
+    
+    res.json(result);
     
   } catch (error) {
     console.error('Get branding error:', error);
@@ -428,11 +678,29 @@ exports.getBranding = async (req, res) => {
 
 /**
  * Get all proposals for the logged-in customer with pagination and search
+ * OPTIMIZED: Implements caching, selective field loading, and efficient pagination
  */
 exports.getCustomerProposals = async (req, res) => {
   try {
     const customerId = req.user?.id || 212; // Use authenticated user or test ID
     const { page = 1, limit = 10, search = '', status = '' } = req.query;
+
+    // Create cache key based on filters
+    const filters = { page, limit, search, status };
+    const cacheKey = CACHE_KEYS.CUSTOMER_PROPOSALS(customerId, filters);
+    
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedProposals = await utils.cache?.get(cacheKey);
+      
+      if (cachedProposals) {
+        return res.json({
+          ...cachedProposals,
+          cached: true
+        });
+      }
+    }
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
@@ -459,6 +727,7 @@ exports.getCustomerProposals = async (req, res) => {
       whereClause.status = status;
     }
 
+    // OPTIMIZATION: Use selective field loading to reduce data transfer
     const { count, rows: proposals } = await Quote.findAndCountAll({
       where: whereClause,
       order: [['createdAt', 'DESC']],
@@ -488,7 +757,7 @@ exports.getCustomerProposals = async (req, res) => {
       ]
     });
 
-    // Calculate portal status for each proposal
+    // OPTIMIZATION: Process data efficiently with minimal iterations
     const proposalsWithStatus = proposals.map(proposal => {
       const data = proposal.toJSON();
       
@@ -506,7 +775,7 @@ exports.getCustomerProposals = async (req, res) => {
       return data;
     });
 
-    res.json({
+    const result = {
       success: true,
       data: proposalsWithStatus,
       pagination: {
@@ -515,7 +784,17 @@ exports.getCustomerProposals = async (req, res) => {
         limit: parseInt(limit),
         totalPages: Math.ceil(count / parseInt(limit))
       }
-    });
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.PROPOSALS, {
+        tags: [`customer:${customerId}`, 'proposals']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get customer proposals error:', error);
     res.status(500).json({
@@ -528,6 +807,7 @@ exports.getCustomerProposals = async (req, res) => {
 
 /**
  * Get detailed proposal information
+ * OPTIMIZED: Implements caching and batch loading for proposal details
  */
 exports.getProposalDetail = async (req, res) => {
   try {
@@ -540,6 +820,20 @@ exports.getProposalDetail = async (req, res) => {
         success: false,
         message: 'Customer ID not found in session'
       });
+    }
+
+    // Try to get from cache first
+    const cacheKey = CACHE_KEYS.PROPOSAL_DETAIL(customerId, id);
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedDetail = await utils.cache?.get(cacheKey);
+      
+      if (cachedDetail) {
+        return res.json({
+          ...cachedDetail,
+          cached: true
+        });
+      }
     }
 
     const proposal = await Quote.findOne({
@@ -556,25 +850,107 @@ exports.getProposalDetail = async (req, res) => {
       });
     }
 
-    // Calculate tier pricing structure for customer portal
-    const ContractorSettings = require('../models/ContractorSettings');
-    const ProposalDefaults = require('../models/ProposalDefaults');
-    
-    const [settings, proposalDefaults] = await Promise.all([
-      ContractorSettings.findOne({ where: { tenantId: proposal.tenantId } }),
-      ProposalDefaults.findOne({ where: { tenantId: proposal.tenantId } })
+    // OPTIMIZATION: Batch load related data in parallel
+    const [settings, proposalDefaults, enrichedProductSets, job] = await Promise.all([
+      // Calculate tier pricing structure for customer portal
+      require('../models/ContractorSettings').findOne({ 
+        where: { tenantId: proposal.tenantId },
+        attributes: ['depositPercentage']
+      }),
+      
+      require('../models/ProposalDefaults').findOne({ 
+        where: { tenantId: proposal.tenantId },
+        attributes: ['defaultWelcomeMessage', 'interiorProcess', 'paymentTermsText']
+      }),
+      
+      // OPTIMIZATION: Batch load product details to avoid N+1 queries
+      (async () => {
+        if (!proposal.productSets || proposal.productSets.length === 0) {
+          return [];
+        }
+
+        const ProductConfig = require('../models/ProductConfig');
+        
+        // Collect all unique product IDs from all sets and tiers
+        const allProductIds = new Set();
+        proposal.productSets.forEach(set => {
+          ['good', 'better', 'best'].forEach(tier => {
+            const productId = set.products?.[tier];
+            if (productId) {
+              allProductIds.add(productId);
+            }
+          });
+        });
+
+        // OPTIMIZATION: Single batch query for all products
+        const productConfigs = await ProductConfig.findAll({
+          where: { id: Array.from(allProductIds) },
+          attributes: ['id', 'globalProductId', 'sheens'],
+          include: [
+            {
+              association: 'globalProduct',
+              attributes: ['name'],
+              include: [
+                {
+                  association: 'brand',
+                  attributes: ['name']
+                }
+              ]
+            }
+          ]
+        });
+
+        // Create lookup map for O(1) access
+        const productLookup = new Map();
+        productConfigs.forEach(config => {
+          productLookup.set(config.id, {
+            id: config.id,
+            productId: config.id,
+            globalProductId: config.globalProductId,
+            brandName: config.globalProduct?.brand?.name || 'Unknown',
+            productName: config.globalProduct?.name || 'Unknown',
+            pricePerGallon: config.sheens?.[0]?.price || 0
+          });
+        });
+
+        // OPTIMIZATION: Process sets efficiently using lookup map
+        return proposal.productSets.map(set => {
+          const enrichedProducts = {};
+          
+          ['good', 'better', 'best'].forEach(tier => {
+            const productId = set.products?.[tier];
+            if (productId) {
+              enrichedProducts[tier] = productLookup.get(productId) || {
+                id: productId,
+                productName: 'Product not found'
+              };
+            }
+          });
+          
+          return {
+            ...set,
+            products: enrichedProducts
+          };
+        });
+      })(),
+      
+      // Include any Job created from this quote (if exists) so customer portal can show progress
+      require('../models/Job').findOne({ 
+        where: { quoteId: proposal.id, clientId: customerId },
+        attributes: ['id', 'jobNumber', 'status', 'scheduledStartDate', 'scheduledEndDate']
+      })
     ]);
     
-    const depositPercent = settings?.depositPercent || 50;
+    const depositPercentage = settings?.depositPercentage || 50;
     const baseTotal = parseFloat(proposal.total || 0);
     
-    // Generate project scope from areas
+    // OPTIMIZATION: Generate project scope efficiently
     const generateProjectScope = (areas) => {
       if (!areas || areas.length === 0) {
         return proposalDefaults?.interiorProcess || 'Project scope will be defined based on your requirements.';
       }
 
-      let scope = 'This project includes:\n\n';
+      const scopeParts = ['This project includes:\n'];
       
       areas.forEach((area, index) => {
         const areaName = area.name || `Area ${index + 1}`;
@@ -582,57 +958,49 @@ exports.getProposalDetail = async (req, res) => {
         const selectedItems = items.filter(item => item.selected);
         
         if (selectedItems.length > 0) {
-          scope += `**${areaName}:**\n`;
+          scopeParts.push(`**${areaName}:**`);
+          
           selectedItems.forEach(item => {
             const qty = item.quantity || 0;
-            // Properly format unit based on measurement type
-            let unit = 'items';
-            if (item.measurementUnit === 'sqft') {
-              unit = 'sq ft';
-            } else if (item.measurementUnit === 'linear_foot') {
-              unit = 'linear feet';
-            } else if (item.measurementUnit === 'unit') {
-              unit = 'units';
-            } else if (item.measurementUnit === 'hour') {
-              unit = 'hours';
-            } else if (item.unit) {
-              // Fallback to item.unit if measurementUnit is not set
-              unit = item.unit === 'sqft' ? 'sq ft' : 
-                    item.unit === 'linear_foot' ? 'linear feet' : 
-                    item.unit === 'unit' ? 'units' : 
-                    item.unit === 'hour' ? 'hours' : 
-                    item.unit;
-            }
+            
+            // OPTIMIZATION: Use lookup table for unit conversion
+            const unitMap = {
+              'sqft': 'sq ft',
+              'linear_foot': 'linear feet',
+              'unit': 'units',
+              'hour': 'hours'
+            };
+            
+            let unit = unitMap[item.measurementUnit] || unitMap[item.unit] || 'items';
             
             const coats = item.numberOfCoats > 0 ? ` (${item.numberOfCoats} coat${item.numberOfCoats > 1 ? 's' : ''})` : '';
             
-            scope += `  • ${item.categoryName}: ${qty} ${unit}${coats}\n`;
+            scopeParts.push(`  � ${item.categoryName}: ${qty} ${unit}${coats}`);
           });
-          scope += '\n';
+          
+          scopeParts.push(''); // Empty line
         }
       });
 
-      return scope.trim();
+      return scopeParts.join('\n').trim();
     };
     
-    // Calculate all three tier options
-    const tiers = {
-      good: {
-        total: parseFloat((baseTotal * 0.85).toFixed(2)),
-        deposit: parseFloat((baseTotal * 0.85 * (depositPercent / 100)).toFixed(2)),
-        description: 'Basic preparation focused on repainting the space cleanly. Spot patching only.'
-      },
-      better: {
-        total: baseTotal,
-        deposit: parseFloat((baseTotal * (depositPercent / 100)).toFixed(2)),
-        description: 'Expanded surface preparation including feather sanding. Recommended for most homes.'
-      },
-      best: {
-        total: parseFloat((baseTotal * 1.15).toFixed(2)),
-        deposit: parseFloat((baseTotal * 1.15 * (depositPercent / 100)).toFixed(2)),
-        description: 'Advanced surface correction including skim coating. Best for luxury spaces.'
-      }
-    };
+    // OPTIMIZATION: Pre-calculate tier multipliers
+    const tierMultipliers = { good: 0.85, better: 1.0, best: 1.15 };
+    const tiers = {};
+    
+    Object.entries(tierMultipliers).forEach(([tier, multiplier]) => {
+      const tierTotal = parseFloat((baseTotal * multiplier).toFixed(2));
+      const tierDeposit = parseFloat((tierTotal * (depositPercentage / 100)).toFixed(2));
+      
+      tiers[tier] = {
+        total: tierTotal,
+        deposit: tierDeposit,
+        description: tier === 'good' ? 'Basic preparation focused on repainting the space cleanly. Spot patching only.' :
+                    tier === 'better' ? 'Expanded surface preparation including feather sanding. Recommended for most homes.' :
+                    'Advanced surface correction including skim coating. Best for luxury spaces.'
+      };
+    });
 
     // If tier is already selected, ensure depositAmount matches that tier
     let effectiveDepositAmount = proposal.depositAmount;
@@ -640,66 +1008,7 @@ exports.getProposalDetail = async (req, res) => {
       effectiveDepositAmount = tiers[proposal.selectedTier.toLowerCase()].deposit;
     }
 
-    // Populate product details for productSets instead of just product IDs
-    const ProductConfig = require('../models/ProductConfig');
-    
-    const enrichedProductSets = await Promise.all(
-      (proposal.productSets || []).map(async (set) => {
-        const enrichedProducts = {};
-        
-        // Process each tier (good, better, best)
-        for (const tier of ['good', 'better', 'best']) {
-          const productId = set.products?.[tier];
-          if (productId) {
-            try {
-              // Fetch the product config with global product details
-              const productConfig = await ProductConfig.findOne({
-                where: { id: productId },
-                include: [
-                  {
-                    association: 'globalProduct',
-                    include: [
-                      {
-                        association: 'brand',
-                        attributes: ['id', 'name']
-                      }
-                    ]
-                  }
-                ]
-              });
-              
-              if (productConfig) {
-                enrichedProducts[tier] = {
-                  id: productConfig.id,
-                  productId: productConfig.id,
-                  globalProductId: productConfig.globalProductId,
-                  brandName: productConfig.globalProduct?.brand?.name || 'Unknown',
-                  productName: productConfig.globalProduct?.name || 'Unknown',
-                  pricePerGallon: productConfig.sheens?.[0]?.price || 0
-                };
-              } else {
-                // Fallback if product not found
-                enrichedProducts[tier] = { id: productId, productName: 'Product not found' };
-              }
-            } catch (err) {
-              console.error(`Error fetching product ${productId}:`, err);
-              enrichedProducts[tier] = { id: productId, productName: 'Product unavailable' };
-            }
-          }
-        }
-        
-        return {
-          ...set,
-          products: enrichedProducts
-        };
-      })
-    );
-
-    // Include any Job created from this quote (if exists) so customer portal can show progress
-    const Job = require('../models/Job');
-    const job = await Job.findOne({ where: { quoteId: proposal.id, clientId: customerId } });
-
-    res.json({
+    const result = {
       success: true,
       data: {
         ...proposal.toJSON(),
@@ -714,7 +1023,17 @@ exports.getProposalDetail = async (req, res) => {
         productSets: enrichedProductSets,
         job: job ? job.toJSON() : null
       }
-    });
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.PROPOSALS, {
+        tags: [`customer:${customerId}`, 'proposal-details']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get proposal detail error:', error);
     res.status(500).json({
@@ -771,7 +1090,7 @@ exports.acceptProposal = async (req, res) => {
       where: { tenantId: proposal.tenantId }
     });
     
-    const depositPercent = settings?.depositPercent || 50;
+    const depositPercentage = settings?.depositPercentage || 50;
     const baseTotal = parseFloat(proposal.total || 0);
     
     // Calculate tier pricing
@@ -783,7 +1102,7 @@ exports.acceptProposal = async (req, res) => {
     
     const multiplier = tierMultipliers[selectedTier.toLowerCase()] || 1.0;
     const tierTotal = baseTotal * multiplier;
-    const depositAmount = parseFloat((tierTotal * (depositPercent / 100)).toFixed(2));
+    const depositAmount = parseFloat((tierTotal * (depositPercentage / 100)).toFixed(2));
 
     // Update proposal status - mark as accepted but portal remains closed until deposit
     await proposal.update({
@@ -839,6 +1158,12 @@ exports.acceptProposal = async (req, res) => {
       console.error('Error sending proposal accepted email:', emailError);
       // Don't fail the request if email fails
     }
+
+    // OPTIMIZATION: Invalidate related caches
+    await Promise.all([
+      cache.invalidateByTags([`customer:${customerId}`, 'proposals', 'proposal-details']),
+      cache.invalidateByTags([`tenant:${proposal.tenantId}`])
+    ]);
 
     res.json({
       success: true,
@@ -933,6 +1258,12 @@ exports.declineProposal = async (req, res) => {
     } catch (emailError) {
       console.error('Error sending proposal declined email:', emailError);
     }
+
+    // OPTIMIZATION: Invalidate related caches
+    await Promise.all([
+      cache.invalidateByTags([`customer:${customerId}`, 'proposals', 'proposal-details']),
+      cache.invalidateByTags([`tenant:${proposal.tenantId}`])
+    ]);
 
     res.json({
       success: true,
@@ -1397,6 +1728,85 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
       }
     });
 
+    // Collect all product IDs that need to be resolved (from both customer selections and productSets)
+    const productIdsToResolve = new Set();
+    
+    // Add product IDs from customer selections
+    selections.forEach(sel => {
+      if (sel.productId) {
+        productIdsToResolve.add(sel.productId);
+      }
+    });
+    
+    // Add product IDs from productSets
+    if (quote.productSets) {
+      let productSets;
+      try {
+        productSets = typeof quote.productSets === 'string' ? JSON.parse(quote.productSets) : quote.productSets;
+        if (Array.isArray(productSets)) {
+          productSets.forEach(ps => {
+            const products = ps.products || {};
+            Object.values(products).forEach(productId => {
+              if (productId && typeof productId === 'number') {
+                productIdsToResolve.add(productId);
+              }
+            });
+          });
+        }
+      } catch (e) {
+        console.error('Error parsing productSets in buildEnrichedQuoteWithSelections:', e);
+      }
+    }
+
+    // Resolve product names and sheen information from database
+    let productLookup = new Map();
+    let productSheenLookup = new Map();
+    if (productIdsToResolve.size > 0) {
+      try {
+        const ProductConfig = require('../models/ProductConfig');
+        const GlobalProduct = require('../models/GlobalProduct');
+        const Brand = require('../models/Brand');
+        
+        const productConfigs = await ProductConfig.findAll({
+          where: { 
+            id: Array.from(productIdsToResolve),
+            tenantId: quote.tenantId 
+          }
+        });
+        
+        const globalProductIds = productConfigs.map(pc => pc.globalProductId).filter(Boolean);
+        
+        if (globalProductIds.length > 0) {
+          const globalProducts = await GlobalProduct.findAll({
+            where: { id: globalProductIds },
+            include: [{ model: Brand, as: 'brand' }]
+          });
+          
+          // Create lookup maps
+          productConfigs.forEach(config => {
+            const globalProduct = globalProducts.find(gp => gp.id === config.globalProductId);
+            if (globalProduct) {
+              const productName = globalProduct.brand ? 
+                `${globalProduct.brand.name} ${globalProduct.name}` : 
+                globalProduct.name;
+              productLookup.set(config.id, productName);
+              
+              // Extract sheen information
+              if (config.sheens && Array.isArray(config.sheens) && config.sheens.length > 0) {
+                // Get the first/default sheen
+                const defaultSheen = config.sheens[0];
+                if (defaultSheen && defaultSheen.sheen) {
+                  productSheenLookup.set(config.id, defaultSheen.sheen);
+                }
+              }
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error resolving product names and sheens in buildEnrichedQuoteWithSelections:', error);
+      }
+    }
+
     let enrichedAreas = [];
     try {
       let ps = quote.productSets;
@@ -1406,39 +1816,118 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
         for (const p of ps) {
           const key = `${String(p.areaId || p.areaName)}::${String((p.surfaceType || '').trim().toLowerCase())}`;
           const sel = csMap.get(key);
-          const fallbackProduct =
-            sel?.productName ||
-            p.productName ||
-            p.product ||
-            p.products?.single?.name ||
-            p.products?.good?.name ||
-            p.products?.better?.name ||
-            p.products?.best?.name ||
-            null;
+          
+          // Determine the best product name to use
+          let resolvedProductName = null;
+          let resolvedProductId = null;
+          
+          // First, try customer selection product ID
+          if (sel?.productId && productLookup.has(sel.productId)) {
+            resolvedProductName = productLookup.get(sel.productId);
+            resolvedProductId = sel.productId;
+          }
+          // If no customer selection product ID, try customer selection product name
+          else if (sel?.productName && sel.productName !== 'null' && sel.productName.trim() !== '') {
+            resolvedProductName = sel.productName;
+          }
+          // If no valid customer selection product, fall back to productSets
+          else if (p.products && quote.selectedTier) {
+            const tierProductId = p.products[quote.selectedTier.toLowerCase()];
+            if (tierProductId && productLookup.has(tierProductId)) {
+              resolvedProductName = productLookup.get(tierProductId);
+              resolvedProductId = tierProductId;
+            }
+          }
+          // If no selected tier, try any tier from productSets
+          else if (p.products) {
+            const tiers = ['better', 'good', 'best'];
+            for (const tier of tiers) {
+              const tierProductId = p.products[tier];
+              if (tierProductId && productLookup.has(tierProductId)) {
+                resolvedProductName = productLookup.get(tierProductId);
+                resolvedProductId = tierProductId;
+                break;
+              }
+            }
+          }
+          
+          // Final fallback to any available product name
+          if (!resolvedProductName) {
+            resolvedProductName = 
+              p.productName ||
+              p.product ||
+              p.products?.single?.name ||
+              p.products?.good?.name ||
+              p.products?.better?.name ||
+              p.products?.best?.name ||
+              'Not selected';
+          }
+          
+          // Determine the best sheen to use
+          let resolvedSheen = null;
+          
+          // First, try to get sheen from the resolved product
+          if (resolvedProductId && productSheenLookup.has(resolvedProductId)) {
+            resolvedSheen = productSheenLookup.get(resolvedProductId);
+          }
+          // If customer selection has a valid sheen (not the placeholder), use it
+          else if (sel?.sheen && sel.sheen !== 'Various Specialty Finishes' && sel.sheen.trim() !== '') {
+            resolvedSheen = sel.sheen;
+          }
+          // If the product's default sheen is "Various Specialty Finishes", that's actually valid for some products
+          else if (resolvedProductId && productSheenLookup.has(resolvedProductId)) {
+            const productSheen = productSheenLookup.get(resolvedProductId);
+            // Only use "Various Specialty Finishes" if it's the actual product sheen, not a placeholder
+            if (productSheen === 'Various Specialty Finishes') {
+              resolvedSheen = productSheen;
+            }
+          }
+            
           enrichedAreas.push({
             name: p.areaName || p.name || `Area ${p.areaId || ''}`,
             surface: p.surfaceType,
-            sqft: p.sqft || null,
-            customerSelections: sel ? {
-              product: sel.productName || fallbackProduct || 'Not selected',
-              sheen: sel.sheen || null,
-              color: sel.colorName || null,
-              colorNumber: sel.colorNumber || null,
-              swatch: sel.colorHex || null,
-              quantityGallons: sel.quantityGallons || null,
-            } : null,
+            sqft: p.sqft || p.quantity || null,
+            customerSelections: {
+              product: resolvedProductName,
+              sheen: resolvedSheen || 'Not specified',
+              color: sel?.colorName || null,
+              colorNumber: sel?.colorNumber || null,
+              swatch: sel?.colorHex || null,
+              quantityGallons: sel?.quantityGallons || null,
+            },
           });
         }
       } else {
+        // Handle case where there are customer selections but no productSets
         csMap.forEach((r) => {
-          const fallbackProduct = r.productName || quote.defaultProductName || null;
+          // Use database lookup for product name if available, otherwise fallback to stored name
+          let resolvedProductName = null;
+          let resolvedProductId = null;
+          
+          if (r.productId && productLookup.has(r.productId)) {
+            resolvedProductName = productLookup.get(r.productId);
+            resolvedProductId = r.productId;
+          } else if (r.productName && r.productName !== 'null' && r.productName.trim() !== '') {
+            resolvedProductName = r.productName;
+          }
+          
+          const fallbackProduct = resolvedProductName || quote.defaultProductName || 'Not selected';
+          
+          // Determine sheen
+          let resolvedSheen = null;
+          if (resolvedProductId && productSheenLookup.has(resolvedProductId)) {
+            resolvedSheen = productSheenLookup.get(resolvedProductId);
+          } else if (r.sheen && r.sheen !== 'Various Specialty Finishes' && r.sheen.trim() !== '') {
+            resolvedSheen = r.sheen;
+          }
+          
           enrichedAreas.push({
             name: r.areaName || `Area ${r.areaId || ''}`,
             surface: r.surfaceType,
             sqft: r.sqft || null,
             customerSelections: {
-              product: r.productName || fallbackProduct || 'Not selected',
-              sheen: r.sheen || null,
+              product: fallbackProduct,
+              sheen: resolvedSheen || 'Not specified',
               color: r.colorName || null,
               colorNumber: r.colorNumber || null,
               swatch: r.colorHex || null,
@@ -1448,6 +1937,7 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
         });
       }
     } catch (e) {
+      console.error('Error processing areas in buildEnrichedQuoteWithSelections:', e);
       enrichedAreas = [];
     }
 
@@ -1460,6 +1950,7 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
 
 /**
  * Download document
+ * OPTIMIZED: Implements caching for PDF generation to improve performance
  */
 exports.downloadDocument = async (req, res) => {
   try {
@@ -1469,16 +1960,30 @@ exports.downloadDocument = async (req, res) => {
     let tenantId = req.customerTenantId;
     const { token } = req.query;
 
-    // Support token-based access (magic link) for downloads when Authorization header not present
+    // Support token-based access (magic link or session token) for downloads when Authorization header not present
     if (!customerId && token) {
       try {
         const MagicLinkService = require('../services/magicLinkService');
-        const result = await MagicLinkService.validateMagicLink(token, req.ip, req.headers['user-agent']);
-        if (result.valid && result.magicLink) {
-          customerId = result.magicLink.clientId;
-          tenantId = result.magicLink.tenantId;
-        } else if (!result.valid) {
-          return res.status(401).json({ success: false, message: result.message });
+        
+        // First try to validate as a session token (JWT)
+        try {
+          const sessionResult = await MagicLinkService.validateSession(token, req.ip, req.headers['user-agent']);
+          if (sessionResult.valid) {
+            customerId = sessionResult.client.id;
+            tenantId = sessionResult.session.tenantId;
+            console.log('? Document access via session token');
+          }
+        } catch (sessionErr) {
+          // If session validation fails, try magic link validation
+          console.log('Session token validation failed, trying magic link:', sessionErr.message);
+          const result = await MagicLinkService.validateMagicLink(token, req.ip, req.headers['user-agent']);
+          if (result.valid && result.magicLink) {
+            customerId = result.magicLink.clientId;
+            tenantId = result.magicLink.tenantId;
+            console.log('? Document access via magic link token');
+          } else if (!result.valid) {
+            return res.status(401).json({ success: false, message: result.message });
+          }
         }
       } catch (tokenErr) {
         console.error('Token validation error (download):', tokenErr);
@@ -1493,13 +1998,43 @@ exports.downloadDocument = async (req, res) => {
       });
     }
 
-    const proposal = await Quote.findOne({
-      where: { 
-        id: proposalId,
-        clientId: customerId,
-        tenantId
+    // OPTIMIZATION: Check cache first for PDF documents
+    const cacheKey = `pdf:${docType}:${proposalId}:${tenantId}`;
+    
+    
+    
+    if (req.cache) {
+      const cached = await req.cache.get(cacheKey);
+      if (cached) {
+        console.log(`?? PDF cache hit for ${docType}:${proposalId}`);
+        pdfBuffer = Buffer.from(cached.buffer);
+        fileName = cached.fileName;
+        
+        // Set headers and send cached PDF
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        return res.send(pdfBuffer);
       }
-    });
+    }
+
+    // OPTIMIZATION: Batch load all required data
+    const [proposal, job, contractor] = await Promise.all([
+      Quote.findOne({
+        where: { 
+          id: proposalId,
+          clientId: customerId,
+          tenantId
+        }
+      }),
+      
+      // Get related job if exists
+      require('../models/Job').findOne({
+        where: { quoteId: proposalId, tenantId }
+      }),
+      
+      // Get contractor info
+      require('../models/Tenant').findByPk(tenantId)
+    ]);
 
     if (!proposal) {
       return res.status(404).json({
@@ -1508,15 +2043,6 @@ exports.downloadDocument = async (req, res) => {
       });
     }
 
-    // Get related job if exists
-    const Job = require('../models/Job');
-    const job = await Job.findOne({
-      where: { quoteId: proposal.id, tenantId }
-    });
-
-    // Get contractor info
-    const Tenant = require('../models/Tenant');
-    const contractor = await Tenant.findByPk(tenantId);
     const contractorInfo = {
       companyName: contractor?.companyName || 'Professional Painting Co.',
       address: contractor?.address || '',
@@ -1556,11 +2082,86 @@ exports.downloadDocument = async (req, res) => {
               .filter(a => a.customerSelections)
               .map(a => {
                 const cs = a.customerSelections || {};
-                const colorLabel = [cs.color, cs.colorNumber].filter(Boolean).join(' ');
-                return [cs.product, cs.sheen, colorLabel].filter(Boolean).join(' – ');
+                const parts = [];
+                
+                // Add product name if available
+                if (cs.product && cs.product !== 'Not selected') {
+                  parts.push(cs.product);
+                }
+                
+                // Add sheen if available
+                if (cs.sheen) {
+                  parts.push(cs.sheen);
+                }
+                
+                // Add color info if available
+                const colorParts = [];
+                if (cs.color && cs.color !== 'Not selected') {
+                  colorParts.push(cs.color);
+                }
+                if (cs.colorNumber) {
+                  colorParts.push(cs.colorNumber);
+                }
+                if (colorParts.length > 0) {
+                  parts.push(colorParts.join(' '));
+                }
+                
+                return parts.length > 0 ? parts.join(' - ') : null;
               })
               .filter(Boolean)
             : [];
+          
+          // If no materials from customer selections, try to extract from productSets using helper function
+          if (materialsSelections.length === 0 && proposal.productSets) {
+            try {
+              const selectedTier = proposal.selectedTier?.toLowerCase();
+              const productIds = extractProductIdsFromProductSets(proposal.productSets, selectedTier);
+              
+              if (productIds.length > 0) {
+                const productLookup = await resolveProductNamesFromIds(productIds, proposal.tenantId);
+                productIds.forEach(productId => {
+                  const productName = productLookup.get(productId);
+                  if (productName) {
+                    materialsSelections.push(productName);
+                  }
+                });
+              }
+              
+              // If still no products found and we had a specific tier, try all tiers
+              if (materialsSelections.length === 0 && selectedTier) {
+                const allProductIds = extractProductIdsFromProductSets(proposal.productSets);
+                if (allProductIds.length > 0) {
+                  const productLookup = await resolveProductNamesFromIds(allProductIds, proposal.tenantId);
+                  allProductIds.forEach(productId => {
+                    const productName = productLookup.get(productId);
+                    if (productName) {
+                      materialsSelections.push(productName);
+                    }
+                  });
+                }
+              }
+            } catch (error) {
+              console.error('Error resolving product names from database:', error);
+              // Fallback to old method if database lookup fails
+              const extractedProducts = extractProductNamesFromProductSets(proposal.productSets);
+              const selectedTier = proposal.selectedTier?.toLowerCase();
+              
+              if (selectedTier && extractedProducts[selectedTier]) {
+                extractedProducts[selectedTier].forEach(productName => {
+                  materialsSelections.push(productName);
+                });
+              } else {
+                // Fallback to any available products
+                ['better', 'good', 'best'].forEach(tier => {
+                  if (extractedProducts[tier] && extractedProducts[tier].size > 0) {
+                    extractedProducts[tier].forEach(productName => {
+                      materialsSelections.push(productName);
+                    });
+                  }
+                });
+              }
+            }
+          }
           
           const invoiceData = {
             invoiceNumber: proposal.quoteNumber || `INV-${Date.now()}`,
@@ -1590,34 +2191,12 @@ exports.downloadDocument = async (req, res) => {
             projectTerms: []
           };
 
-          // If GBB invoice, attempt to synthesize gbbOptions from proposal.productSets (safe defaults)
+          // If GBB invoice, extract gbbOptions from proposal.productSets
           if (templateType === 'gbb') {
-            try {
-              let productSets = proposal.productSets || [];
-              if (typeof productSets === 'string') {
-                try { productSets = JSON.parse(productSets); } catch (e) { productSets = []; }
-              }
-              if (!Array.isArray(productSets)) productSets = [];
-
-              const tiers = { good: new Set(), better: new Set(), best: new Set() };
-              productSets.forEach(ps => {
-                const products = ps.products || {};
-                Object.entries(products).forEach(([tier, prod]) => {
-                  if (!tier) return;
-                  const name = (prod && prod.name) ? prod.name : (typeof prod === 'string' ? prod : (prod && prod.id ? `${prod.id}` : null));
-                  if (name && tiers[tier]) tiers[tier].add(name);
-                });
-              });
-
-              invoiceData.gbbOptions = {
-                good: { price: null, features: Array.from(tiers.good) },
-                better: { price: null, features: Array.from(tiers.better) },
-                best: { price: null, features: Array.from(tiers.best) }
-              };
-            } catch (gbbErr) {
-              console.warn('GBB invoice options build failed, continuing with defaults:', gbbErr?.message || gbbErr);
-              invoiceData.gbbOptions = {};
-            }
+            invoiceData.gbbOptions = extractGBBOptionsFromProductSets(proposal.productSets);
+            
+            // Add tier pricing data for GBB invoices
+            addTierPricingToInvoiceData(invoiceData, proposal);
           }
 
           try {
@@ -1648,7 +2227,26 @@ exports.downloadDocument = async (req, res) => {
               console.warn('Fallback invoice PDF generated successfully');
             } catch (fallbackErr) {
               console.error('Fallback invoice PDF generation failed:', fallbackErr && fallbackErr.message);
-              return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF' });
+              
+              // Final fallback: Return a simple text response with invoice data
+              const textInvoice = `
+INVOICE - ${proposal.quoteNumber}
+
+Company: ${contractorInfo.companyName}
+Customer: ${proposal.customerName}
+Email: ${proposal.customerEmail}
+
+Project Total: $${proposal.total}
+Status: ${proposal.status}
+
+Generated: ${new Date().toLocaleDateString()}
+
+Note: PDF generation is temporarily unavailable. Please contact us for a formatted invoice.
+              `.trim();
+              
+              res.setHeader('Content-Type', 'text/plain');
+              res.setHeader('Content-Disposition', `attachment; filename="Invoice-${proposal.quoteNumber}.txt"`);
+              return res.send(textInvoice);
             }
           }
 
@@ -1720,6 +2318,17 @@ exports.downloadDocument = async (req, res) => {
           });
       }
 
+      // OPTIMIZATION: Cache the generated PDF for 30 minutes
+      if (req.cache && pdfBuffer) {
+        await req.cache.set(cacheKey, {
+          buffer: pdfBuffer.toString('base64'), // Store as base64 string
+          fileName
+        }, 1800, { // 30 minutes TTL
+          tags: [`tenant:${tenantId}`, `proposal:${proposalId}`, 'pdf']
+        });
+        console.log(`?? PDF cached for ${docType}:${proposalId}`);
+      }
+
       // Set headers for PDF response (download)
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -1762,10 +2371,22 @@ exports.viewDocument = async (req, res) => {
     if (token) {
       try {
         const MagicLinkService = require('../services/magicLinkService');
-        const result = await MagicLinkService.validateMagicLink(token, req.ip, req.headers['user-agent']);
-        console.log('Magic link validation result (view):', result);
-        if (result.valid && result.magicLink) {
-          customerId = result.magicLink.clientId;
+        
+        // First try to validate as a session token (JWT)
+        try {
+          const sessionResult = await MagicLinkService.validateSession(token, req.ip, req.headers['user-agent']);
+          if (sessionResult.valid) {
+            customerId = sessionResult.client.id;
+            tenantId = sessionResult.session.tenantId;
+            console.log('? Document view via session token');
+          }
+        } catch (sessionErr) {
+          // If session validation fails, try magic link validation
+          console.log('Session token validation failed, trying magic link:', sessionErr.message);
+          const result = await MagicLinkService.validateMagicLink(token, req.ip, req.headers['user-agent']);
+          console.log('Magic link validation result (view):', result);
+          if (result.valid && result.magicLink) {
+            customerId = result.magicLink.clientId;
           const sessionQuote = await Quote.findOne({
             where: { id: proposalId, clientId: result.magicLink.clientId }
           });
@@ -1775,6 +2396,7 @@ exports.viewDocument = async (req, res) => {
             tenantId = result.magicLink.tenantId;
           }
         }
+    }
       } catch (tokenError) {
         console.error('Token validation error:', tokenError);
       }
@@ -1828,6 +2450,100 @@ exports.viewDocument = async (req, res) => {
           const templateType = proposal.productStrategy === 'GBB' ? 'gbb' : 'single';
           const templateStyle = settings?.invoice_template_style || 'light';
           
+          // Enrich for scope/materials generation (does not affect invoice pricing)
+          const enrichedForInvoice = await buildEnrichedQuoteWithSelections(proposal);
+
+          const derivedScope = (proposal.scopeOfWork && proposal.scopeOfWork.length > 0)
+            ? proposal.scopeOfWork
+            : (proposal.jobScope ? [proposal.jobScope] : []);
+
+          // Build a simple materials/selections list from enriched areas
+          const materialsSelections = Array.isArray(enrichedForInvoice?.areas)
+            ? enrichedForInvoice.areas
+              .filter(a => a.customerSelections)
+              .map(a => {
+                const cs = a.customerSelections || {};
+                const parts = [];
+                
+                // Add product name if available
+                if (cs.product && cs.product !== 'Not selected') {
+                  parts.push(cs.product);
+                }
+                
+                // Add sheen if available
+                if (cs.sheen) {
+                  parts.push(cs.sheen);
+                }
+                
+                // Add color info if available
+                const colorParts = [];
+                if (cs.color && cs.color !== 'Not selected') {
+                  colorParts.push(cs.color);
+                }
+                if (cs.colorNumber) {
+                  colorParts.push(cs.colorNumber);
+                }
+                if (colorParts.length > 0) {
+                  parts.push(colorParts.join(' '));
+                }
+                
+                return parts.length > 0 ? parts.join(' � ') : null;
+              })
+              .filter(Boolean)
+            : [];
+          
+          // If no materials from customer selections, try to extract from productSets using helper function
+          if (materialsSelections.length === 0 && proposal.productSets) {
+            try {
+              const selectedTier = proposal.selectedTier?.toLowerCase();
+              const productIds = extractProductIdsFromProductSets(proposal.productSets, selectedTier);
+              
+              if (productIds.length > 0) {
+                const productLookup = await resolveProductNamesFromIds(productIds, proposal.tenantId);
+                productIds.forEach(productId => {
+                  const productName = productLookup.get(productId);
+                  if (productName) {
+                    materialsSelections.push(productName);
+                  }
+                });
+              }
+              
+              // If still no products found and we had a specific tier, try all tiers
+              if (materialsSelections.length === 0 && selectedTier) {
+                const allProductIds = extractProductIdsFromProductSets(proposal.productSets);
+                if (allProductIds.length > 0) {
+                  const productLookup = await resolveProductNamesFromIds(allProductIds, proposal.tenantId);
+                  allProductIds.forEach(productId => {
+                    const productName = productLookup.get(productId);
+                    if (productName) {
+                      materialsSelections.push(productName);
+                    }
+                  });
+                }
+              }
+            } catch (error) {
+              console.error('Error resolving product names from database:', error);
+              // Fallback to old method if database lookup fails
+              const extractedProducts = extractProductNamesFromProductSets(proposal.productSets);
+              const selectedTier = proposal.selectedTier?.toLowerCase();
+              
+              if (selectedTier && extractedProducts[selectedTier]) {
+                extractedProducts[selectedTier].forEach(productName => {
+                  materialsSelections.push(productName);
+                });
+              } else {
+                // Fallback to any available products
+                ['better', 'good', 'best'].forEach(tier => {
+                  if (extractedProducts[tier] && extractedProducts[tier].size > 0) {
+                    extractedProducts[tier].forEach(productName => {
+                      materialsSelections.push(productName);
+                    });
+                  }
+                });
+              }
+            }
+          }
+          
           const invoiceData = {
             invoiceNumber: proposal.quoteNumber || `INV-${Date.now()}`,
             issueDate: new Date().toLocaleDateString('en-US'),
@@ -1856,46 +2572,44 @@ exports.viewDocument = async (req, res) => {
             projectTerms: []
           };
 
-          // If GBB invoice, attempt to synthesize gbbOptions from proposal.productSets (safe defaults)
+          // If GBB invoice, extract gbbOptions from proposal.productSets
           if (templateType === 'gbb') {
-            try {
-              let productSets = proposal.productSets || [];
-              if (typeof productSets === 'string') {
-                try { productSets = JSON.parse(productSets); } catch (e) { productSets = []; }
-              }
-              if (!Array.isArray(productSets)) productSets = [];
-
-              const tiers = { good: new Set(), better: new Set(), best: new Set() };
-              productSets.forEach(ps => {
-                const products = ps.products || {};
-                Object.entries(products).forEach(([tier, prod]) => {
-                  if (!tier) return;
-                  const name = (prod && prod.name) ? prod.name : (typeof prod === 'string' ? prod : (prod && prod.id ? `${prod.id}` : null));
-                  if (name && tiers[tier]) tiers[tier].add(name);
-                });
-              });
-
-              invoiceData.gbbOptions = {
-                good: { price: null, features: Array.from(tiers.good) },
-                better: { price: null, features: Array.from(tiers.better) },
-                best: { price: null, features: Array.from(tiers.best) }
-              };
-            } catch (gbbErr) {
-              console.warn('GBB invoice options build failed, continuing with defaults:', gbbErr?.message || gbbErr);
-              invoiceData.gbbOptions = {};
-            }
+            invoiceData.gbbOptions = extractGBBOptionsFromProductSets(proposal.productSets);
+            
+            // Add tier pricing data for GBB invoices
+            addTierPricingToInvoiceData(invoiceData, proposal);
           }
 
-          pdfBuffer = await invoiceTemplateService.generateInvoice({
-            templateType,
-            style: templateStyle,
-            invoiceData,
-            contractorInfo
-          });
+          try {
+            pdfBuffer = await invoiceTemplateService.generateInvoice({
+              templateType,
+              style: templateStyle,
+              invoiceData,
+              contractorInfo
+            });
 
-          if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer)) {
-            console.error('Invoice PDF generation returned invalid buffer (view)', { proposalId: proposal.id, templateType, templateStyle });
-            return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF (invalid buffer)' });
+            if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer)) {
+              console.error('Invoice PDF generation returned invalid buffer (view)', { proposalId: proposal.id, templateType, templateStyle });
+              throw new Error('Invalid PDF buffer');
+            }
+          } catch (invoiceErr) {
+            console.error('Invoice generation failed for view, attempting fallback:', invoiceErr && invoiceErr.message);
+            try {
+              // Fallback: render single-item invoice HTML and convert to PDF
+              const fallbackHtml = invoiceTemplateService.generateSingleItemInvoiceHTML({ style: templateStyle, invoiceData, contractorInfo });
+              const { htmlToPdfBuffer } = require('../services/pdfService');
+              const fallbackPdf = await htmlToPdfBuffer(fallbackHtml, { waitUntil: 'load' });
+              if (!fallbackPdf || !Buffer.isBuffer(fallbackPdf)) {
+                console.error('Fallback PDF generation also failed (invalid buffer) for view');
+                return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF (fallback failed)' });
+              }
+
+              pdfBuffer = fallbackPdf;
+              console.warn('Fallback invoice PDF generated successfully for view');
+            } catch (fallbackErr) {
+              console.error('Fallback invoice PDF generation failed for view:', fallbackErr && fallbackErr.message);
+              return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF' });
+            }
           }
 
           break;
@@ -2268,7 +2982,7 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
         }, { transaction });
       }
 
-      // CRITICAL: CREATE JOB RECORD (Quote → Job transition)
+      // CRITICAL: CREATE JOB RECORD (Quote ? Job transition)
       // This is the key pipeline hand-off from quoting to job management
       const Job = require('../models/Job');
       
@@ -2703,16 +3417,33 @@ exports.requestTierChange = async (req, res) => {
 
 /**
  * Get all jobs for customer (quotes that have been converted to jobs)
+ * OPTIMIZED: Implements caching and selective field loading
  */
 exports.getCustomerJobs = async (req, res) => {
   try {
     const customerId = req.customer?.id;
     const tenantId = req.customerTenantId;
+    
+    // Try to get from cache first
+    const cacheKey = CACHE_KEYS.CUSTOMER_JOBS(customerId);
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedJobs = await utils.cache?.get(cacheKey);
+      
+      if (cachedJobs) {
+        return res.json({
+          ...cachedJobs,
+          cached: true
+        });
+      }
+    }
+
     const Job = require('../models/Job');
 
     const whereClause = { clientId: customerId };
     if (tenantId) whereClause.tenantId = tenantId;
 
+    // OPTIMIZATION: Use selective field loading and eager loading
     const jobs = await Job.findAll({
       where: whereClause,
       order: [['createdAt', 'DESC']],
@@ -2742,10 +3473,20 @@ exports.getCustomerJobs = async (req, res) => {
       ]
     });
 
-    res.json({
+    const result = {
       success: true,
       data: jobs
-    });
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.JOBS, {
+        tags: [`customer:${customerId}`, 'jobs']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get customer jobs error:', error);
     res.status(500).json({
@@ -2758,14 +3499,31 @@ exports.getCustomerJobs = async (req, res) => {
 
 /**
  * Get job detail with progress for customer
+ * OPTIMIZED: Implements caching and selective field loading
  */
 exports.getJobDetail = async (req, res) => {
   try {
-     const customerId = req.customer?.id;
+    const customerId = req.customer?.id;
     const tenantId = req.customerTenantId;
     const { jobId } = req.params;
+    
+    // Try to get from cache first
+    const cacheKey = CACHE_KEYS.JOB_DETAIL(customerId, jobId);
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedDetail = await utils.cache?.get(cacheKey);
+      
+      if (cachedDetail) {
+        return res.json({
+          ...cachedDetail,
+          cached: true
+        });
+      }
+    }
+
     const Job = require('../models/Job');
 
+    // OPTIMIZATION: Use selective field loading and eager loading
     const job = await Job.findOne({
       where: { 
         id: jobId, 
@@ -2792,10 +3550,20 @@ exports.getJobDetail = async (req, res) => {
       });
     }
 
-    res.json({
+    const result = {
       success: true,
       data: job
-    });
+    };
+
+    // Cache the results
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, result, CACHE_TTL.JOBS, {
+        tags: [`customer:${customerId}`, 'job-details']
+      });
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('Get job detail error:', error);
     res.status(500).json({
@@ -2892,8 +3660,37 @@ exports.getQuotes = async (req, res) => {
     
     // If not verified, only show quote from magic link (first/only quoteId in session)
     const primaryQuoteId = Array.isArray(req.customerSession.quoteIds) ? req.customerSession.quoteIds[0] : null;
-    if (!isVerified && primaryQuoteId) {
-      whereClause.id = primaryQuoteId;
+    
+    if (!isVerified) {
+      if (primaryQuoteId) {
+        whereClause.id = primaryQuoteId;
+      } else {
+        // Emergency fallback: if no primary quote ID, find the most recent quote for this client
+        // This handles edge cases where session might not have proper quote IDs
+        console.warn('?? No primary quote ID found in session for unverified customer');
+        
+        const allClientQuotes = await Quote.findAll({
+          where: { tenantId, clientId },
+          attributes: ['id', 'quoteNumber', 'status', 'createdAt'],
+          order: [['createdAt', 'DESC']],
+          limit: 1
+        });
+        
+        if (allClientQuotes.length === 1) {
+          whereClause.id = allClientQuotes[0].id;
+          console.log('?? Using fallback quote ID:', allClientQuotes[0].id);
+          
+          // Update the session to include this quote ID for future requests
+          if (req.customerSession) {
+            try {
+              req.customerSession.quoteIds = [allClientQuotes[0].id];
+              await req.customerSession.save();
+            } catch (error) {
+              console.error('Failed to update session:', error);
+            }
+          }
+        }
+      }
     }
     
     const quotes = await Quote.findAll({
@@ -3358,3 +4155,5 @@ exports.markQuoteViewed = async (req, res) => {
 };
 
 module.exports = exports;
+
+

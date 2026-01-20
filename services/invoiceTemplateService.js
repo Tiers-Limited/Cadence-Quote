@@ -1,5 +1,5 @@
 // services/invoiceTemplateService.js
-// Invoice Template System - Light/Dark, Single Item/GBB variants
+// Invoice Template System - Updated to match professional template design
 // Implements professional invoice generation based on attached templates
 
 const { htmlToPdfBuffer } = require('./pdfService');
@@ -40,10 +40,9 @@ class InvoiceTemplateService {
   }
 
   /**
-   * Generate Single Item Invoice HTML
+   * Generate Single Item Invoice HTML - Updated to match template design
    */
   generateSingleItemInvoiceHTML({ style, invoiceData, contractorInfo }) {
-    const colors = this.getStyleColors(style);
     const {
       invoiceNumber,
       issueDate,
@@ -64,10 +63,15 @@ class InvoiceTemplateService {
       balance,
       projectTerms = [],
     } = invoiceData;
+    
 
     const logoBox = contractorInfo.logo 
-      ? `<img src="${contractorInfo.logo}" alt="Logo" style="max-height: 60px;" />`
-      : `<div style="padding: 20px; font-size: 12px; color: ${colors.headerText}; opacity: 0.7;">LOGO PLACEHOLDER</div>`;
+      ? `<div class="logo-container">
+           <img src="${contractorInfo.logo}" alt="Logo" onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'logo-placeholder\\'>LOGO</div>';" />
+         </div>`
+      : `<div class="logo-container">
+           <div class="logo-placeholder">LOGO</div>
+         </div>`;
 
     return `
       <!DOCTYPE html>
@@ -75,45 +79,38 @@ class InvoiceTemplateService {
       <head>
         <meta charset="UTF-8">
         <style>
-          ${this.getCommonStyles(style)}
-          .header { background: ${colors.headerBg}; color: ${colors.headerText}; padding: 30px 25px; display: flex; justify-content: space-between; align-items: center; }
-          .logo-box { background-color: ${colors.logoBoxBg}; padding: 15px 20px; border-radius: 4px; min-width: 140px; display: flex; align-items: center; justify-content: center; }
-          .header-center { flex: 1; text-align: center; }
-          .header-center h1 { margin: 0; font-size: 36px; font-weight: 700; letter-spacing: 1px; }
-          .header-right-box { background-color: ${colors.logoBoxBg}; padding: 15px 20px; border-radius: 4px; min-width: 180px; text-align: left; }
-          .header-right-box div { font-size: 12px; margin: 4px 0; line-height: 1.4; }
-          .highlight-box { background-color: ${colors.highlightBg}; border: 2px solid ${colors.highlightBorder}; }
+          ${this.getNewCommonStyles()}
         </style>
       </head>
       <body>
         <div class="container">
           <!-- Header -->
           <div class="header">
-            <div class="logo-box">
+            <div class="logo-section">
               ${logoBox}
             </div>
-            <div class="header-center">
+            <div class="title-section">
               <h1>INVOICE</h1>
             </div>
-            <div class="header-right-box">
-              <div><strong>Invoice #:</strong> ${invoiceNumber}</div>
-              <div><strong>Issue Date:</strong> ${issueDate || new Date().toLocaleDateString("en-US",{
-        month: '2-digit', day: '2-digit', year: 'numeric'
-      })}</div>
-              <div><strong>Due Date:</strong> ${dueDate || 'MM/DD/YYYY'}</div>
+            <div class="invoice-details">
+              <div class="detail-line"><strong>Invoice #:</strong> ${invoiceNumber}</div>
+              <div class="detail-line"><strong>Issue Date:</strong> ${issueDate || new Date().toLocaleDateString("en-US", { month: '2-digit', day: '2-digit', year: 'numeric' })}</div>
+              <div class="detail-line"><strong>Due Date:</strong> ${dueDate || new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString("en-US", { month: '2-digit', day: '2-digit', year: 'numeric' })}</div>
             </div>
           </div>
 
           <div class="content">
             <!-- Project & Customer Information -->
-            <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
-              <div style="flex: 1;">
-                <h3 style="margin: 0 0 10px 0; color: ${colors.primary};">Project</h3>
-                <div>${projectName || 'Painting Project'}</div>
-                <div style="color: #666;">${projectAddress || ''}</div>
+            <div class="info-row">
+              <div class="info-section">
+                <h3 class="section-title">Project</h3>
+                <div class="info-content">
+                  <div class="project-name">${projectName || 'Painting Project'}</div>
+                  <div class="project-address">${projectAddress || ''}</div>
+                </div>
               </div>
               <div style="flex: 1; text-align: right;">
-                <h3 style="margin: 0 0 10px 0; color: ${colors.primary};">Customer</h3>
+                <h3 style="margin: 0 0 10px 0; color: #1fb6cc;">Customer</h3>
                 <div>${customerName}</div>
                 ${customerPhone ? `<div>${customerPhone}</div>` : ''}
                 ${customerEmail ? `<div>${customerEmail}</div>` : ''}
@@ -122,118 +119,119 @@ class InvoiceTemplateService {
 
             ${welcomeMessage ? `
               <div class="section">
-                <h3>Welcome Message</h3>
-                <p>${welcomeMessage}</p>
+                <h3 class="section-header">Welcome Message</h3>
+                <div class="section-content">
+                  <p>${welcomeMessage}</p>
+                </div>
               </div>
             ` : ''}
 
             <!-- Scope of Work -->
             <div class="section">
-              <h3>Scope of Work</h3>
-              <ul>
-                ${scopeOfWork.map(item => `<li>${item}</li>`).join('')}
-              </ul>
+              <h3 class="section-header">Scope of Work</h3>
+              <div class="section-content">
+                <ul class="work-list">
+                  ${scopeOfWork.map(item => `<li>${item}</li>`).join('')}
+                </ul>
+              </div>
             </div>
 
             <!-- Materials / Selections -->
             ${materialsSelections.length > 0 ? `
               <div class="section">
-                <h3>Materials / Selections</h3>
-                <ul>
-                  ${materialsSelections.map(item => `<li>${item}</li>`).join('')}
-                </ul>
+                <h3 class="section-header">Materials / Selections</h3>
+                <div class="section-content">
+                  <ul class="materials-list">
+                    ${materialsSelections.map(item => `<li>${item}</li>`).join('-')}
+                  </ul>
+                </div>
               </div>
             ` : ''}
 
             <!-- Estimated Schedule -->
             ${estimatedDuration || estimatedStartDate ? `
               <div class="section">
-                <h3>Estimated Schedule</h3>
-                ${estimatedDuration ? `<p>Estimated duration: ${estimatedDuration}</p>` : ''}
-                ${estimatedStartDate ? `<p>Estimated start date: ${estimatedStartDate}</p>` : ''}
+                <h3 class="section-header">Estimated Schedule</h3>
+                <div class="section-content">
+                  ${estimatedDuration ? `<div class="schedule-item">Estimated duration: ${estimatedDuration}</div>` : ''}
+                  ${estimatedStartDate ? `<div class="schedule-item">Estimated start date: ${estimatedStartDate}</div>` : ''}
+                </div>
               </div>
             ` : ''}
 
             <!-- Pricing Section (Single Item) -->
             <div class="section">
-              <h3>Pricing</h3>
-              <table style="width: 100%; border-collapse: collapse;">
-                <thead>
-                  <tr style="background: #f9fafb;">
-                    <th style="text-align: left; padding: 12px; border-bottom: 2px solid #e5e7eb;">Item</th>
-                    <th style="text-align: center; padding: 12px; border-bottom: 2px solid #e5e7eb;">Qty</th>
-                    <th style="text-align: right; padding: 12px; border-bottom: 2px solid #e5e7eb;">Rate</th>
-                    <th style="text-align: right; padding: 12px; border-bottom: 2px solid #e5e7eb;">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${pricingItems.map(item => `
+              <h3 class="section-header">Pricing</h3>
+              <div class="section-content">
+                <table class="pricing-table">
+                  <thead>
                     <tr>
-                      <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.name}</td>
-                      <td style="text-align: center; padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.qty || ''}</td>
-                      <td style="text-align: right; padding: 10px; border-bottom: 1px solid #e5e7eb;">
-                        ${item.rate ? `$${parseFloat(item.rate).toFixed(2)}` : ''}
-                      </td>
-                      <td style="text-align: right; padding: 10px; border-bottom: 1px solid #e5e7eb;">
-                        $${parseFloat(item.amount).toFixed(2)}
-                      </td>
+                      <th>Item</th>
+                      <th>Qty</th>
+                      <th>Rate</th>
+                      <th>Amount</th>
                     </tr>
-                  `).join('')}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    ${pricingItems.map(item => `
+                      <tr>
+                        <td>${item.name}</td>
+                        <td>${item.qty || ''}</td>
+                        <td>${item.rate ? `$${parseFloat(item.rate).toFixed(2)}` : ''}</td>
+                        <td>$${parseFloat(item.amount).toFixed(2)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
 
-              <!-- Project Investment Highlight -->
-              <div class="highlight-box" style="margin-top: 30px; padding: 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-size: 18px; font-weight: 700; color: ${colors.primary};">Project Investment</div>
-                <div style="text-align: center; flex: 1;">
-                  <div style="font-size: 36px; font-weight: 700; color: ${colors.primary};">
-                    $${parseFloat(projectInvestment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
+                <!-- Project Investment Highlight -->
+                <div class="investment-highlight">
+                  <div class="investment-label">Project Investment</div>
+                  <div class="investment-amount">$${parseFloat(projectInvestment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  ${deposit ? `
+                    <div class="investment-details">
+                      <div>Deposit: $${parseFloat(deposit).toFixed(2)}</div>
+                      <div>Balance: $${parseFloat(balance).toFixed(2)}</div>
+                    </div>
+                  ` : ''}
                 </div>
-                ${deposit ? `
-                  <div style="text-align: right; font-size: 13px;">
-                    <div style="margin: 3px 0;">Deposit: $${parseFloat(deposit).toFixed(2)}</div>
-                    <div style="margin: 3px 0;">Balance: $${parseFloat(balance).toFixed(2)}</div>
-                  </div>
-                ` : ''}
               </div>
             </div>
 
             <!-- Project Terms -->
             ${projectTerms.length > 0 ? `
               <div class="section">
-                <h3>Project Terms</h3>
-                <ul>
-                  ${projectTerms.map(term => `<li>${term}</li>`).join('')}
-                </ul>
+                <h3 class="section-header">Project Terms</h3>
+                <div class="section-content">
+                  <ul class="terms-list">
+                    ${projectTerms.map(term => `<li>${term}</li>`).join('')}
+                  </ul>
+                </div>
               </div>
             ` : ''}
 
             <!-- Invoice Acknowledgement -->
             <div class="section">
-              <h3>Invoice Acknowledgement</h3>
-              <div style="margin-top: 20px;">
-                <div style="margin-bottom: 15px;">
-                  <strong>Signature:</strong> <span style="border-bottom: 2px solid #000; display: inline-block; min-width: 300px; margin-left: 10px;"></span>
+              <h3 class="section-header">Invoice Acknowledgement</h3>
+              <div class="acknowledgement-table">
+                <div class="ack-row">
+                  <div class="ack-label">Signature</div>
+                  <div class="ack-line"></div>
                 </div>
-                <div>
-                  <strong>Date:</strong> <span style="border-bottom: 2px solid #000; display: inline-block; min-width: 300px; margin-left: 10px;"></span>
+                <div class="ack-row">
+                  <div class="ack-label">Date</div>
+                  <div class="ack-line"></div>
                 </div>
               </div>
             </div>
 
             <!-- Payment Options -->
             <div class="section">
-              <h3>Payment Options</h3>
-              <p>Secure payment link, QR code, or manual payment instructions appear here.</p>
+              <h3 class="section-header">Payment Options</h3>
+              <div class="section-content">
+                <p>Secure payment link, QR code, or manual payment instructions appear here.</p>
+              </div>
             </div>
-          </div>
-
-          <!-- Footer -->
-          <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e5e7eb; color: #6b7280; font-size: 12px;">
-            <div>${contractorInfo.companyName}</div>
-            <div>${contractorInfo.address || ''}</div>
-            <div>${contractorInfo.phone || ''} • ${contractorInfo.email || ''}</div>
           </div>
         </div>
       </body>
@@ -242,10 +240,9 @@ class InvoiceTemplateService {
   }
 
   /**
-   * Generate Good/Better/Best Invoice HTML
+   * Generate Good/Better/Best Invoice HTML - Updated to match template design
    */
   generateGBBInvoiceHTML({ style, invoiceData, contractorInfo }) {
-    const colors = this.getStyleColors(style);
     const {
       invoiceNumber,
       issueDate,
@@ -260,13 +257,22 @@ class InvoiceTemplateService {
       materialsSelections = [],
       estimatedDuration,
       estimatedStartDate,
-      gbbOptions = {}, // { good, better, best }
+      gbbOptions = {}, // Legacy format
+      tiers = {}, // New format: { good: {total, deposit}, better: {total, deposit}, best: {total, deposit} }
+      selectedTier = null,
       projectTerms = [],
     } = invoiceData;
 
+    // Use tiers data if available, fallback to gbbOptions for backward compatibility
+    const tierData = Object.keys(tiers).length > 0 ? tiers : gbbOptions;
+
     const logoBox = contractorInfo.logo 
-      ? `<img src="${contractorInfo.logo}" alt="Logo" style="max-height: 60px;" />`
-      : `<div style="padding: 20px; font-size: 12px; color: ${colors.headerText}; opacity: 0.7;">LOGO PLACEHOLDER</div>`;
+      ? `<div class="logo-container">
+           <img src="${contractorInfo.logo}" alt="Logo" onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'logo-placeholder\\'>LOGO</div>';" />
+         </div>`
+      : `<div class="logo-container">
+           <div class="logo-placeholder">LOGO</div>
+         </div>`;
 
     return `
       <!DOCTYPE html>
@@ -274,152 +280,157 @@ class InvoiceTemplateService {
       <head>
         <meta charset="UTF-8">
         <style>
-          ${this.getCommonStyles(style)}
-          .header { background: ${colors.headerBg}; color: ${colors.headerText}; padding: 30px 25px; display: flex; justify-content: space-between; align-items: center; }
-          .logo-box { background-color: ${colors.logoBoxBg}; padding: 15px 20px; border-radius: 4px; min-width: 140px; display: flex; align-items: center; justify-content: center; }
-          .header-center { flex: 1; text-align: center; }
-          .header-center h1 { margin: 0; font-size: 36px; font-weight: 700; letter-spacing: 1px; }
-          .header-right-box { background-color: ${colors.logoBoxBg}; padding: 15px 20px; border-radius: 4px; min-width: 180px; text-align: left; }
-          .header-right-box div { font-size: 12px; margin: 4px 0; line-height: 1.4; }
-          .option-card { border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; text-align: center; position: relative; }
-          .option-card.popular { border-color: ${colors.primary}; }
-          .option-card.popular::before { content: 'Most Popular'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: ${colors.primary}; color: white; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+          ${this.getNewCommonStyles()}
         </style>
       </head>
       <body>
         <div class="container">
           <!-- Header -->
           <div class="header">
-            <div class="logo-box">
+            <div class="logo-section">
               ${logoBox}
             </div>
-            <div class="header-center">
+            <div class="title-section">
               <h1>INVOICE</h1>
             </div>
-            <div class="header-right-box">
-              <div><strong>Invoice #:</strong> ${invoiceNumber}</div>
-              <div><strong>Issue Date:</strong> ${issueDate || new Date().toLocaleDateString("en-US",{
-        month: '2-digit', day: '2-digit', year: 'numeric'
-      })}</div>
-              <div><strong>Due Date:</strong> ${dueDate || 'MM/DD/YYYY'}</div>
+            <div class="invoice-details">
+              <div class="detail-line"><strong>Invoice #:</strong> ${invoiceNumber}</div>
+              <div class="detail-line"><strong>Issue Date:</strong> ${issueDate || new Date().toLocaleDateString("en-US", { month: '2-digit', day: '2-digit', year: 'numeric' })}</div>
+              <div class="detail-line"><strong>Due Date:</strong> ${dueDate || new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString("en-US", { month: '2-digit', day: '2-digit', year: 'numeric' })}</div>
             </div>
           </div>
 
           <div class="content">
             <!-- Project & Customer Information -->
-            <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
-              <div style="flex: 1;">
-                <h3 style="margin: 0 0 10px 0; color: ${colors.primary};">Project</h3>
-                <div>${projectName || 'Painting Project'}</div>
-                <div style="color: #666;">${projectAddress || ''}</div>
+            <div class="info-row">
+              <div class="info-section">
+                <h3 class="section-title">Project</h3>
+                <div class="info-content">
+                  <div class="project-name">${projectName || 'Painting Project'}</div>
+                  <div class="project-address">${projectAddress || ''}</div>
+                </div>
               </div>
-              <div style="flex: 1; text-align: right;">
-                <h3 style="margin: 0 0 10px 0; color: ${colors.primary};">Customer</h3>
-                <div>${customerName}</div>
-                ${customerPhone ? `<div>${customerPhone}</div>` : ''}
-                ${customerEmail ? `<div>${customerEmail}</div>` : ''}
+              <div class="info-section customer-section">
+                <h3 class="section-title">Customer</h3>
+                <div class="info-content">
+                  <div class="customer-name">${customerName}</div>
+                  ${customerPhone ? `<div class="customer-phone">${customerPhone}</div>` : ''}
+                  ${customerEmail ? `<div class="customer-email">${customerEmail}</div>` : ''}
+                </div>
               </div>
             </div>
 
             ${welcomeMessage ? `
               <div class="section">
-                <h3>Welcome Message</h3>
-                <p>${welcomeMessage}</p>
+                <h3 class="section-header">Welcome Message</h3>
+                <div class="section-content">
+                  <p>${welcomeMessage}</p>
+                </div>
               </div>
             ` : ''}
 
             <!-- Scope of Work -->
             <div class="section">
-              <h3>Scope of Work</h3>
-              <ul>
-                ${scopeOfWork.map(item => `<li>${item}</li>`).join('')}
-              </ul>
+              <h3 class="section-header">Scope of Work</h3>
+              <div class="section-content">
+                <ul class="work-list">
+                  ${scopeOfWork.map(item => `<li>${item}</li>`).join('')}
+                </ul>
+              </div>
             </div>
 
             <!-- Materials / Selections -->
             ${materialsSelections.length > 0 ? `
               <div class="section">
-                <h3>Materials / Selections</h3>
-                <ul>
-                  ${materialsSelections.map(item => `<li>${item}</li>`).join('')}
-                </ul>
+                <h3 class="section-header">Materials / Selections</h3>
+                <div class="section-content">
+                  <ul class="materials-list">
+                    ${materialsSelections.map(item => `<li>${item}</li>`).join('')}
+                  </ul>
+                </div>
               </div>
             ` : ''}
 
             <!-- Estimated Schedule -->
             ${estimatedDuration || estimatedStartDate ? `
               <div class="section">
-                <h3>Estimated Schedule</h3>
-                ${estimatedDuration ? `<p>Estimated duration: ${estimatedDuration}</p>` : ''}
-                ${estimatedStartDate ? `<p>Estimated start date: ${estimatedStartDate}</p>` : ''}
+                <h3 class="section-header">Estimated Schedule</h3>
+                <div class="section-content">
+                  ${estimatedDuration ? `<div class="schedule-item">Estimated duration: ${estimatedDuration}</div>` : ''}
+                  ${estimatedStartDate ? `<div class="schedule-item">Estimated start date: ${estimatedStartDate}</div>` : ''}
+                </div>
               </div>
             ` : ''}
 
             <!-- Project Options (GBB) -->
             <div class="section">
-              <h3>Project Options</h3>
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px;">
-                ${this.renderGBBOption('GOOD', gbbOptions.good, false)}
-                ${this.renderGBBOption('BETTER', gbbOptions.better, true)}
-                ${this.renderGBBOption('BEST', gbbOptions.best, false)}
+              <h3 class="section-header">Project Options</h3>
+              <div class="options-container">
+                ${this.renderNewGBBOption('GOOD', tierData.good, false, selectedTier === 'good')}
+                ${this.renderNewGBBOption('BETTER', tierData.better, true, selectedTier === 'better')}
+                ${this.renderNewGBBOption('BEST', tierData.best, false, selectedTier === 'best')}
               </div>
+              ${selectedTier ? `
+                <div class="selected-option">
+                  <div class="selected-title">Selected Option: ${selectedTier.toUpperCase()}</div>
+                  ${tierData[selectedTier] ? `
+                    <div class="selected-details">
+                      <div class="selected-total">Total: <strong>$${parseFloat(tierData[selectedTier].total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                      <div class="selected-deposit">Deposit: $${parseFloat(tierData[selectedTier].deposit || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    </div>
+                  ` : ''}
+                </div>
+              ` : ''}
             </div>
 
             <!-- Project Terms -->
             ${projectTerms.length > 0 ? `
               <div class="section">
-                <h3>Project Terms</h3>
-                <ul>
-                  ${projectTerms.map(term => `<li>${term}</li>`).join('')}
-                </ul>
+                <h3 class="section-header">Project Terms</h3>
+                <div class="section-content">
+                  <ul class="terms-list">
+                    ${projectTerms.map(term => `<li>${term}</li>`).join('')}
+                  </ul>
+                </div>
               </div>
             ` : ''}
 
             <!-- Invoice Acknowledgement -->
             <div class="section">
-              <h3>Invoice Acknowledgement</h3>
-              <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-                <tr>
-                  <td style="padding: 10px; border: 1px solid #e5e7eb; width: 30%;"><strong>Selected Option</strong></td>
-                  <td style="padding: 10px; border: 1px solid #e5e7eb;">
-                    <label style="display: inline-flex; align-items: center; margin-right: 20px;">
-                      <input type="checkbox" style="margin-right: 5px;" /> GOOD
+              <h3 class="section-header">Invoice Acknowledgement</h3>
+              <div class="acknowledgement-table">
+                <div class="ack-row">
+                  <div class="ack-label">Selected Option</div>
+                  <div class="ack-checkboxes">
+                    <label class="checkbox-label">
+                      <input type="checkbox" ${selectedTier === 'good' ? 'checked' : ''} /> GOOD
                     </label>
-                    <label style="display: inline-flex; align-items: center; margin-right: 20px;">
-                      <input type="checkbox" style="margin-right: 5px;" /> BETTER
+                    <label class="checkbox-label">
+                      <input type="checkbox" ${selectedTier === 'better' ? 'checked' : ''} /> BETTER
                     </label>
-                    <label style="display: inline-flex; align-items: center;">
-                      <input type="checkbox" style="margin-right: 5px;" /> BEST
+                    <label class="checkbox-label">
+                      <input type="checkbox" ${selectedTier === 'best' ? 'checked' : ''} /> BEST
                     </label>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; border: 1px solid #e5e7eb;"><strong>Signature</strong></td>
-                  <td style="padding: 10px; border: 1px solid #e5e7eb;">
-                    <div style="border-bottom: 2px solid #000; padding-bottom: 5px; min-height: 20px;"></div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; border: 1px solid #e5e7eb;"><strong>Date</strong></td>
-                  <td style="padding: 10px; border: 1px solid #e5e7eb;">
-                    <div style="border-bottom: 2px solid #000; padding-bottom: 5px; min-height: 20px;"></div>
-                  </td>
-                </tr>
-              </table>
+                  </div>
+                </div>
+                <div class="ack-row">
+                  <div class="ack-label">Signature</div>
+                  <div class="ack-line"></div>
+                </div>
+                <div class="ack-row">
+                  <div class="ack-label">Date</div>
+                  <div class="ack-line"></div>
+                </div>
+              </div>
             </div>
 
             <!-- Payment Options -->
             <div class="section">
-              <h3>Payment Options</h3>
-              <p>Secure payment link, QR code, or manual payment instructions appear here.</p>
+              <h3 class="section-header">Payment Options</h3>
+              <div class="section-content">
+                <p>Secure payment link, QR code, or manual payment instructions appear here.</p>
+              </div>
             </div>
-          </div>
-
-          <!-- Footer -->
-          <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e5e7eb; color: #6b7280; font-size: 12px;">
-            <div>${contractorInfo.companyName}</div>
-            <div>${contractorInfo.address || ''}</div>
-            <div>${contractorInfo.phone || ''} • ${contractorInfo.email || ''}</div>
           </div>
         </div>
       </body>
@@ -428,70 +439,516 @@ class InvoiceTemplateService {
   }
 
   /**
-   * Render GBB Option Card
+   * Render New GBB Option Card - Updated to match template design
    */
-  renderGBBOption(tier, option, isPopular) {
+  renderNewGBBOption(tier, option, isPopular, isSelected = false) {
     if (!option || typeof option !== 'object') return '';
 
-    const price = (option.price !== undefined && option.price !== null) ? parseFloat(option.price) : null;
-    const priceHtml = price ? `\n        <div style="font-size: 32px; font-weight: 700; color: #06b6d4; margin-bottom: 15px;">\n          $${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n        </div>` : '';
+    // Handle both legacy format (option.price) and new format (option.total)
+    const price = option.total !== undefined ? parseFloat(option.total) : 
+                  (option.price !== undefined && option.price !== null) ? parseFloat(option.price) : null;
+    const deposit = option.deposit !== undefined ? parseFloat(option.deposit) : null;
 
     const features = Array.isArray(option.features) ? option.features : [];
+    
+    // Determine card styling
+    let cardClass = 'option-card';
+    let badgeHtml = '';
+    
+    if (isPopular) {
+      cardClass += ' popular';
+      badgeHtml = '<div class="popular-badge">Most Popular</div>';
+    }
+    
+    if (isSelected) {
+      cardClass += ' selected';
+      badgeHtml += '<div class="selected-badge">SELECTED</div>';
+    }
 
     return `
-      <div class="option-card ${isPopular ? 'popular' : ''}">
-        <h4 style="margin: 0 0 15px 0; font-size: 18px; font-weight: 700;">${tier}</h4>
-        ${isPopular ? '<div style="font-size: 12px; color: #666; margin-bottom: 10px;">(Most Popular)</div>' : ''}
-        ${priceHtml}
-        <ul style="text-align: left; padding-left: 20px; font-size: 14px; line-height: 1.8; margin-top: 15px;">
-          ${features.map(f => `<li>${f}</li>`).join('')}
-        </ul>
+      <div class="${cardClass}">
+        ${badgeHtml}
+        <div class="tier-name">${tier}</div>
+        ${isPopular && !isSelected ? '<div class="tier-subtitle">(Most Popular)</div>' : ''}
+        <div class="tier-price">
+          ${price ? `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Price TBD'}
+        </div>
+        ${deposit ? `
+          <div class="tier-deposit">Deposit: $${deposit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        ` : ''}
       </div>
     `;
   }
 
   /**
-   * Get style-specific colors
+   * New Common CSS styles to match template design
    */
-  getStyleColors(style) {
-    if (style === 'dark') {
-      return {
-        headerBg: '#1e3a8a',
-        headerText: '#ffffff',
-        primary: '#2563eb',
-        highlightBg: '#dbeafe',
-        highlightBorder: '#3b82f6',
-        logoBoxBg: 'rgba(255, 255, 255, 0.15)',
-      };
-    }
-    // Light style (default)
-    return {
-      headerBg: '#06b6d4',
-      headerText: '#ffffff',
-      primary: '#06b6d4',
-      highlightBg: '#cffafe',
-      highlightBorder: '#06b6d4',
-      logoBoxBg: 'rgba(255, 255, 255, 0.2)',
-    };
+  getNewCommonStyles() {
+    return `
+      * { 
+        margin: 0; 
+        padding: 0; 
+        box-sizing: border-box; 
+      }
+      
+      body { 
+        font-family: 'Arial', 'Helvetica', sans-serif; 
+        color: #333; 
+        line-height: 1.5; 
+        background: #fff; 
+        font-size: 14px;
+      }
+      
+      .container { 
+        max-width: 8.5in; 
+        margin: 0 auto; 
+        background: white; 
+      }
+      
+      /* Header Styles */
+      .header {
+        background: #1fb6cc;
+        color: white;
+        padding: 30px 35px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0;
+        min-height: 120px;
+      }
+      
+      .logo-section {
+        flex: 0 0 auto;
+        margin-right: 30px;
+      }
+      
+      .logo-section {
+        flex: 0 0 auto;
+        margin-right: 30px;
+      }
+      
+      .logo-section .logo-container {
+        background: transparent;
+        padding: 20px 25px;
+        border-radius: 8px;
+        min-width: 140px;
+        min-height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      .logo-section img {
+        max-height: 70px !important;
+        max-width: 130px !important;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain !important;
+        display: block !important;
+      }
+      
+      .logo-section .logo-placeholder {
+        color: rgba(255,255,255,0.7);
+        font-size: 11px;
+        text-align: center;
+        font-weight: 500;
+      }
+      
+      .title-section {
+        flex: 1;
+        text-align: center;
+      }
+      
+      .title-section h1 {
+        font-size: 48px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        margin: 0;
+        color: white;
+        text-transform: uppercase;
+      }
+      
+      .invoice-details {
+        background: transparent;
+        padding: 18px 22px;
+        border-radius: 8px;
+        min-width: 220px;
+        text-align: left;
+      }
+      
+      .detail-line {
+        font-size: 13px;
+        margin: 6px 0;
+        line-height: 1.3;
+        color: white;
+      }
+      
+      .detail-line strong {
+        font-weight: 600;
+        margin-right: 8px;
+      }
+      
+      /* Content Styles */
+      .content {
+        padding: 30px;
+      }
+      
+      /* Info Row */
+      .info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 35px;
+        gap: 40px;
+      }
+      
+      .info-section {
+        flex: 1;
+      }
+      
+      .customer-section {
+        text-align: right;
+      }
+      
+      .section-title {
+        color: #1fb6cc;
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 12px;
+        border-bottom: none;
+      }
+      
+      .info-content {
+        color: #555;
+      }
+      
+      .project-name, .customer-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 5px;
+      }
+      
+      .project-address, .customer-phone, .customer-email {
+        color: #666;
+        font-size: 14px;
+        margin-bottom: 3px;
+      }
+      
+      /* Section Styles */
+      .section {
+        margin-bottom: 30px;
+        page-break-inside: avoid;
+      }
+      
+      .section-header {
+        font-size: 18px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 15px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e9ecef;
+      }
+      
+      .section-content {
+        color: #555;
+      }
+      
+      /* Lists */
+      .work-list, .materials-list, .terms-list {
+        margin-left: 20px;
+        margin-top: 10px;
+      }
+      
+      .work-list li, .materials-list li, .terms-list li {
+        margin-bottom: 8px;
+        line-height: 1.6;
+      }
+      
+      .schedule-item {
+        margin-bottom: 8px;
+      }
+      
+      /* Pricing Table */
+      .pricing-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+      }
+      
+      .pricing-table th {
+        background: #f8f9fa;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #dee2e6;
+        color: #495057;
+      }
+      
+      .pricing-table th:nth-child(2),
+      .pricing-table th:nth-child(3),
+      .pricing-table th:nth-child(4) {
+        text-align: right;
+      }
+      
+      .pricing-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #dee2e6;
+      }
+      
+      .pricing-table td:nth-child(2),
+      .pricing-table td:nth-child(3),
+      .pricing-table td:nth-child(4) {
+        text-align: right;
+      }
+      
+      /* Investment Highlight */
+      .investment-highlight {
+        margin-top: 25px;
+        padding: 20px;
+        background: linear-gradient(135deg, #e8f8f5 0%, #d1ecf1 100%);
+        border: 2px solid #17a2b8;
+        border-radius: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .investment-label {
+        font-size: 18px;
+        font-weight: 600;
+        color: #1fb6cc;
+      }
+      
+      .investment-amount {
+        font-size: 32px;
+        font-weight: 700;
+        color: #1fb6cc;
+        text-align: center;
+        flex: 1;
+      }
+      
+      .investment-details {
+        text-align: right;
+        font-size: 13px;
+        color: #666;
+      }
+      
+      .investment-details div {
+        margin: 3px 0;
+      }
+      
+      /* GBB Options */
+      .options-container {
+        display: flex;
+        gap: 20px;
+        margin-top: 20px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      
+      .option-card {
+        flex: 1;
+        min-width: 180px;
+        max-width: 220px;
+        border: 2px solid #dee2e6;
+        border-radius: 12px;
+        padding: 20px;
+        padding-top:25px;
+        text-align: center;
+        position: relative;
+        background: white;
+        transition: all 0.3s ease;
+      }
+      
+      .option-card.popular {
+        border-color: #17a2b8;
+        transform: scale(1.05);
+      }
+      
+      .option-card.selected {
+        border-color: #17a2b8;
+        background: #f0f9ff;
+      }
+      
+      .popular-badge {
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #17a2b8;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        width:max-content;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+      
+      .selected-badge {
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #17a2b8;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+      
+      .tier-name {
+        font-size: 16px;
+        font-weight: 700;
+        margin-bottom: 8px;
+        color: #333;
+      }
+      
+      .tier-subtitle {
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 12px;
+      }
+      
+      .tier-price {
+        font-size: 24px;
+        font-weight: 700;
+        color: #17a2b8;
+        margin-bottom: 8px;
+      }
+      
+      .tier-deposit {
+        font-size: 12px;
+        color: #666;
+      }
+      
+      /* Selected Option */
+      .selected-option {
+        margin-top: 25px;
+        padding: 20px;
+        background: linear-gradient(135deg, #e8f8f5 0%, #d1ecf1 100%);
+        border: 2px solid #17a2b8;
+        border-radius: 8px;
+        text-align: center;
+      }
+      
+      .selected-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #17a2b8;
+        margin-bottom: 10px;
+      }
+      
+      .selected-details {
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+        margin-top: 10px;
+      }
+      
+      .selected-total {
+        font-size: 18px;
+        color: #17a2b8;
+      }
+      
+      .selected-deposit {
+        font-size: 14px;
+        color: #666;
+      }
+      
+      /* Acknowledgement */
+      .acknowledgement-table {
+        margin-top: 20px;
+      }
+      
+      .ack-row {
+        display: flex;
+        align-items: center;
+        padding: 12px 0;
+        border-bottom: 1px solid #dee2e6;
+      }
+      
+      .ack-row:last-child {
+        border-bottom: none;
+      }
+      
+      .ack-label {
+        width: 150px;
+        font-weight: 600;
+        color: #333;
+      }
+      
+      .ack-line {
+        flex: 1;
+        border-bottom: 2px solid #333;
+        height: 20px;
+        margin-left: 20px;
+      }
+      
+      .ack-checkboxes {
+        display: flex;
+        gap: 20px;
+        margin-left: 20px;
+      }
+      
+      .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      
+      .checkbox-label input[type="checkbox"] {
+        margin: 0;
+        transform: scale(1.2);
+      }
+      
+      /* Print Styles */
+      @media print {
+        .container {
+          max-width: none;
+          margin: 0;
+        }
+        
+        .content {
+          padding: 20px;
+        }
+        
+        .section {
+          page-break-inside: avoid;
+        }
+        
+        .option-card.popular {
+          transform: none;
+        }
+      }
+    `;
   }
 
   /**
-   * Common CSS styles
+   * Legacy methods for backward compatibility
    */
+  renderGBBOption(tier, option, isPopular, isSelected = false) {
+    return this.renderNewGBBOption(tier, option, isPopular, isSelected);
+  }
+
+  getStyleColors(style) {
+    // Return consistent colors for the new design
+    return {
+      headerBg: '#1fb6cc',
+      headerText: '#ffffff',
+      primary: '#1fb6cc',
+      highlightBg: '#e8f8f5',
+      highlightBorder: '#1fb6cc',
+      logoBoxBg: 'rgba(0, 0, 0, 0.1)',
+    };
+  }
+
   getCommonStyles(style = 'light') {
-    return `
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: 'Arial', 'Helvetica', sans-serif; color: #1f2937; line-height: 1.6; background: #fff; }
-      .container { max-width: 800px; margin: 0 auto; background: white; }
-      .content { padding: 30px; }
-      .section { margin-bottom: 30px; }
-      .section h3 { font-size: 20px; font-weight: 600; margin-bottom: 15px; color: #1f2937; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }
-      .section p { margin: 8px 0; }
-      .section ul { margin-left: 20px; }
-      .section li { margin: 5px 0; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { padding: 8px; text-align: left; }
-    `;
+    return this.getNewCommonStyles();
   }
 }
 

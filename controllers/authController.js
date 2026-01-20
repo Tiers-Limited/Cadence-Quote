@@ -1001,9 +1001,10 @@ const registerWithPayment = async (req, res) => {
       });
     }
 
-    // Check for existing user
-    console.log("Checking for existing user:", email);
+    // Check for existing user AND tenant
+    console.log("Checking for existing user and tenant:", email);
     try {
+      // Check for existing user first
       const existingUser = await User.findOne({
         where: { email },
         include: [{
@@ -1014,10 +1015,16 @@ const registerWithPayment = async (req, res) => {
         transaction,
       });
       
+      // Check for existing tenant (might exist without user due to failed registrations)
+      const existingTenant = await Tenant.findOne({
+        where: { email },
+        transaction
+      });
+      
       if (existingUser) {
         // If user exists with pending payment, clean up and allow re-registration
         if (!existingUser.isActive && existingUser.tenant?.paymentStatus === 'pending') {
-          console.log('Found incomplete registration, cleaning up for retry');
+          console.log('Found incomplete user registration, cleaning up for retry');
           
           // Delete old pending payment records
           await Payment.destroy({
@@ -1035,7 +1042,7 @@ const registerWithPayment = async (req, res) => {
             transaction
           });
           
-          console.log('Cleanup completed, proceeding with new registration');
+          console.log('User cleanup completed, proceeding with new registration');
         } else {
           // User is active or payment is complete
           await transaction.rollback();
@@ -1044,9 +1051,26 @@ const registerWithPayment = async (req, res) => {
             message: "Email already registered. Please login instead.",
           });
         }
+      } else if (existingTenant) {
+        // Tenant exists but no user - this is an orphaned tenant from failed registration
+        console.log('Found orphaned tenant, cleaning up for retry');
+        
+        // Delete old pending payment records for this tenant
+        await Payment.destroy({
+          where: {
+            tenantId: existingTenant.id,
+            status: 'pending'
+          },
+          transaction
+        });
+        
+        // Delete the orphaned tenant
+        await existingTenant.destroy({ transaction });
+        
+        console.log('Orphaned tenant cleanup completed, proceeding with new registration');
       }
     } catch (error) {
-      console.error("Error checking existing user:", error);
+      console.error("Error checking existing user/tenant:", error);
       await transaction.rollback();
       return res.status(500).json({
         success: false,

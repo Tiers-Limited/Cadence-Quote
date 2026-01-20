@@ -1,7 +1,12 @@
 // controllers/laborCategoryController.js
 const LaborCategory = require('../models/LaborCategory');
 const LaborRate = require('../models/LaborRate');
+const CacheManager = require('../optimization/cache/CacheManager');
 const { createAuditLog } = require('./auditLogController');
+
+// Initialize cache manager
+const cache = new CacheManager();
+cache.initialize();
 
 /**
  * Get all labor categories (global predefined list)
@@ -12,21 +17,35 @@ exports.getAllCategories = async (req, res) => {
   try {
     const { jobType } = req.query;
     
-    // Build where clause
-    const where = { isActive: true };
-    if (jobType) {
-      where.categoryType = jobType;
-    }
+    // Create cache key based on query parameters
+    const cacheKey = `labor-categories:all:${jobType || 'all'}`;
+    
+    // Use cache wrapper for the query
+    const result = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        // Build where clause
+        const where = { isActive: true };
+        if (jobType) {
+          where.categoryType = jobType;
+        }
 
-    const categories = await LaborCategory.findAll({
-      where,
-      order: [['displayOrder', 'ASC'], ['categoryName', 'ASC']]
-    });
+        const categories = await LaborCategory.findAll({
+          where,
+          attributes: ['id', 'categoryName', 'categoryType', 'measurementUnit', 'displayOrder', 'description'],
+          order: [['displayOrder', 'ASC'], ['categoryName', 'ASC']]
+        });
 
-    res.json({
-      success: true,
-      data: categories
-    });
+        return {
+          success: true,
+          data: categories
+        };
+      },
+      600, // 10 minutes TTL (labor categories don't change often)
+      ['labor-categories'] // Cache tags for invalidation
+    );
+
+    res.json(result);
   } catch (error) {
     console.error('Get labor categories error:', error);
     res.status(500).json({
@@ -191,26 +210,41 @@ exports.getLaborRates = async (req, res) => {
     const tenantId = req.user.tenantId;
     const { jobType } = req.query; // Get jobType from query params
 
-    // Build where clause for category filtering
-    const categoryWhere = { isActive: true };
-    if (jobType) {
-      categoryWhere.categoryType = jobType;
-    }
+    // Create cache key based on tenant and query parameters
+    const cacheKey = `labor-rates:tenant:${tenantId}:${jobType || 'all'}`;
+    
+    // Use cache wrapper for the query
+    const result = await cache.cacheQuery(
+      cacheKey,
+      async () => {
+        // Build where clause for category filtering
+        const categoryWhere = { isActive: true };
+        if (jobType) {
+          categoryWhere.categoryType = jobType;
+        }
 
-    const rates = await LaborRate.findAll({
-      where: { tenantId, isActive: true },
-      include: [{
-        model: LaborCategory,
-        as: 'category',
-        where: categoryWhere
-      }],
-      order: [[{ model: LaborCategory, as: 'category' }, 'displayOrder', 'ASC']]
-    });
+        const rates = await LaborRate.findAll({
+          where: { tenantId, isActive: true },
+          attributes: ['id', 'rate', 'laborCategoryId', 'tenantId'],
+          include: [{
+            model: LaborCategory,
+            as: 'category',
+            where: categoryWhere,
+            attributes: ['id', 'categoryName', 'categoryType', 'measurementUnit', 'displayOrder', 'description']
+          }],
+          order: [[{ model: LaborCategory, as: 'category' }, 'displayOrder', 'ASC']]
+        });
 
-    res.json({
-      success: true,
-      data: rates
-    });
+        return {
+          success: true,
+          data: rates
+        };
+      },
+      300, // 5 minutes TTL (rates can change more frequently)
+      ['labor-rates', `tenant:${tenantId}`] // Cache tags for invalidation
+    );
+
+    res.json(result);
   } catch (error) {
     console.error('Get labor rates error:', error);
     res.status(500).json({
@@ -257,6 +291,9 @@ exports.updateLaborRate = async (req, res) => {
     if (!created) {
       await laborRate.update({ rate });
     }
+
+    // Invalidate labor rates cache for this tenant
+    await cache.invalidateByTags(['labor-rates', `tenant:${tenantId}`]);
 
     await createAuditLog({
       category: 'system',
