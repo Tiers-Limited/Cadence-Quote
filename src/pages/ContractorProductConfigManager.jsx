@@ -391,11 +391,23 @@ const ContractorProductConfigManager = () => {
 
   const handleEdit = (record) => {
     setEditingConfig(record);
-    setSelectedGlobalProduct(record.globalProduct);
+    
+    // Set the selected global product immediately
+    const globalProduct = record.globalProduct;
+    
+    // Ensure sheenOptions are available - reconstruct from existing sheens if missing
+    if (globalProduct && (!globalProduct.sheenOptions || globalProduct.sheenOptions === '')) {
+      if (record.sheens && Array.isArray(record.sheens) && record.sheens.length > 0) {
+        // Reconstruct sheenOptions from existing sheen data
+        globalProduct.sheenOptions = record.sheens.map(s => s.sheen).join(', ');
+      }
+    }
+    
+    setSelectedGlobalProduct(globalProduct);
     
     // Load products for the product's brand and category
-    const brandId = record.globalProduct?.brandId;
-    const category = record.globalProduct?.category;
+    const brandId = globalProduct?.brandId;
+    const category = globalProduct?.category;
     if (brandId) {
       setModalBrandFilter(brandId);
       setModalCategoryFilter(category || null);
@@ -414,6 +426,7 @@ const ContractorProductConfigManager = () => {
       }
     }
     
+    // Set form values including the global product ID
     form.setFieldsValue({
       globalProductId: record.globalProductId,
       sheens: sheensFormData,
@@ -800,7 +813,11 @@ const ContractorProductConfigManager = () => {
 
   // Render sheen fields dynamically based on selected product
   const renderSheenFields = () => {
-    if (!selectedGlobalProduct || !selectedGlobalProduct.sheenOptions) {
+    // Debug logging
+    console.log('renderSheenFields - selectedGlobalProduct:', selectedGlobalProduct);
+    console.log('renderSheenFields - editingConfig:', editingConfig);
+    
+    if (!selectedGlobalProduct) {
       return (
         <Alert
           message="Please select a product first"
@@ -811,11 +828,34 @@ const ContractorProductConfigManager = () => {
       );
     }
 
-    const sheenOptions = selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
+    // For editing, try to get sheens from the existing config if sheenOptions is missing
+    let sheenOptions = [];
+    
+    if (selectedGlobalProduct.sheenOptions) {
+      sheenOptions = selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
+    } else if (editingConfig && editingConfig.sheens && Array.isArray(editingConfig.sheens)) {
+      // Fallback: get sheen names from existing config
+      sheenOptions = editingConfig.sheens.map(s => s.sheen);
+      console.log('Using sheens from editingConfig:', sheenOptions);
+    }
+    
+    if (sheenOptions.length === 0) {
+      return (
+        <Alert
+          message="No sheen options available for this product"
+          description="This product configuration may need to be recreated with proper sheen options."
+          type="warning"
+          showIcon
+          icon={<InfoCircleOutlined />}
+        />
+      );
+    }
     
     return (
       <>
-        <h4 className="font-semibold mb-3 text-sm sm:text-base">Pricing & Coverage by Sheen:</h4>
+        <h4 className="font-semibold mb-3 text-sm sm:text-base">
+          {editingConfig ? 'Update Pricing & Coverage by Sheen:' : 'Pricing & Coverage by Sheen:'}
+        </h4>
         
         {sheenOptions.map((sheen) => (
           <div key={sheen} className="mb-4 p-2 sm:p-3 border rounded">
@@ -1278,7 +1318,7 @@ const ContractorProductConfigManager = () => {
         bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          {/* Filter Controls in Modal */}
+          {/* Filter Controls in Modal - Only show when creating new config */}
           {!editingConfig && (
             <Card size="small" className="mb-4" style={{ backgroundColor: '#f5f5f5' }}>
               <div className="space-y-3">
@@ -1363,7 +1403,7 @@ const ContractorProductConfigManager = () => {
             name="globalProductId"
             label="Select Product"
             rules={[{ required: true, message: 'Please select a product' }]}
-            extra={loadingMoreProducts ? 'Loading more products...' : (productsPagination.hasMore ? `Scroll down to load more (${globalProducts.length}/${productsPagination.total})` : globalProducts.length > 0 ? `Showing all ${globalProducts.length} products` : 'Use filters above to load products')}
+            extra={editingConfig ? 'Product selection is locked for editing - only sheen pricing can be updated' : (loadingMoreProducts ? 'Loading more products...' : (productsPagination.hasMore ? `Scroll down to load more (${globalProducts.length}/${productsPagination.total})` : globalProducts.length > 0 ? `Showing all ${globalProducts.length} products` : 'Use filters above to load products'))}
           >
             <Select
               placeholder="Select a product from global catalog"
@@ -1377,6 +1417,12 @@ const ContractorProductConfigManager = () => {
                 option.children.toLowerCase().includes(input.toLowerCase())
               }
             >
+              {/* Show the current product when editing, even if it's not in the loaded list */}
+              {editingConfig && selectedGlobalProduct && (
+                <Option key={selectedGlobalProduct.id} value={selectedGlobalProduct.id}>
+                  {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand} - {selectedGlobalProduct.name} ({selectedGlobalProduct.category})
+                </Option>
+              )}
               {globalProducts.map((product) => (
                 <Option key={product.id} value={product.id}>
                   {product.brand?.name || product.customBrand} - {product.name} ({product.category})
@@ -1396,7 +1442,15 @@ const ContractorProductConfigManager = () => {
               <h4 className="font-semibold mb-2 text-sm sm:text-base">Product Details:</h4>
               <p className="text-xs sm:text-sm"><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
               <p className="text-xs sm:text-sm"><strong>Category:</strong> {selectedGlobalProduct.category}</p>
-              <p className="text-xs sm:text-sm"><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
+              <p className="text-xs sm:text-sm">
+                <strong>Available Sheens:</strong> {
+                  selectedGlobalProduct.sheenOptions || 
+                  (editingConfig && editingConfig.sheens && Array.isArray(editingConfig.sheens) 
+                    ? editingConfig.sheens.map(s => s.sheen).join(', ')
+                    : 'Not specified'
+                  )
+                }
+              </p>
               {selectedGlobalProduct.description && (
                 <p className="text-xs sm:text-sm"><strong>Description:</strong> {selectedGlobalProduct.description}</p>
               )}

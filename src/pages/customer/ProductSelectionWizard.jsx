@@ -47,6 +47,7 @@ const ProductSelectionWizard = () => {
   const [autoSaving, setAutoSaving] = useState(false);
   const [brands, setBrands] = useState([]);
   const [brandLoading, setBrandLoading] = useState(false);
+  const [isTurnkey, setIsTurnkey] = useState(false); // Track if this is turnkey pricing
   // per-area brand and color pagination state
   const [areaBrandMap, setAreaBrandMap] = useState({}); // { idx: brandId }
   const [colorsByArea, setColorsByArea] = useState({}); // { idx: { items: [], page: 1, limit: 36, hasMore: true, loading: false, search: '' } }
@@ -134,7 +135,29 @@ const ProductSelectionWizard = () => {
   const handleColorSelect = async (areaIdx, colorObj) => {
     // Update local selection state optimistically
     const updated = [...selections];
-    updated[areaIdx] = { ...updated[areaIdx], selectedColor: colorObj.name, selectedColorId: colorObj.id, selectedColorHex: colorObj.hexValue, _needsSave: !updated[areaIdx]?.selectedSheen };
+    
+    if (isTurnkey) {
+      // For turnkey pricing, apply the color to all areas
+      updated.forEach((sel, idx) => {
+        updated[idx] = { 
+          ...updated[idx], 
+          selectedColor: colorObj.name, 
+          selectedColorId: colorObj.id, 
+          selectedColorHex: colorObj.hexValue, 
+          _needsSave: !updated[idx]?.selectedSheen 
+        };
+      });
+    } else {
+      // For regular pricing, only update the specific area
+      updated[areaIdx] = { 
+        ...updated[areaIdx], 
+        selectedColor: colorObj.name, 
+        selectedColorId: colorObj.id, 
+        selectedColorHex: colorObj.hexValue, 
+        _needsSave: !updated[areaIdx]?.selectedSheen 
+      };
+    }
+    
     setSelections(updated);
 
     // If sheen is not selected yet, defer save until sheen selection (or autosave)
@@ -142,15 +165,27 @@ const ProductSelectionWizard = () => {
       return;
     }
 
-    // Prepare payload for saveSelections (single selection)
-    const payload = [{
-      areaId: updated[areaIdx].areaId,
-      areaName: updated[areaIdx].areaName,
-      surfaceType: updated[areaIdx].surfaceType,
-      color: { id: colorObj.id, name: colorObj.name, code: colorObj.code, hexValue: colorObj.hexValue },
-      sheen: updated[areaIdx].selectedSheen || null,
-      notes: updated[areaIdx].customerNotes || null,
-    }];
+    // Prepare payload for saveSelections
+    let payload;
+    if (isTurnkey) {
+      // For turnkey pricing, send a single selection that applies to all areas
+      payload = [{
+        surfaceType: updated[areaIdx].surfaceType,
+        color: { id: colorObj.id, name: colorObj.name, code: colorObj.code, hexValue: colorObj.hexValue },
+        sheen: updated[areaIdx].selectedSheen || null,
+        notes: updated[areaIdx].customerNotes || null,
+      }];
+    } else {
+      // For regular pricing, send the specific area selection
+      payload = [{
+        areaId: updated[areaIdx].areaId,
+        areaName: updated[areaIdx].areaName,
+        surfaceType: updated[areaIdx].surfaceType,
+        color: { id: colorObj.id, name: colorObj.name, code: colorObj.code, hexValue: colorObj.hexValue },
+        sheen: updated[areaIdx].selectedSheen || null,
+        notes: updated[areaIdx].customerNotes || null,
+      }];
+    }
 
     try {
       const saveResp = await customerPortalAPI.saveSelections(proposalId, { selections: payload });
@@ -196,6 +231,8 @@ const ProductSelectionWizard = () => {
       
       setQuoteInfo(response.quote);
       setSelections(response.selections || []);
+      setIsTurnkey(response.quote?.isTurnkey || false);
+      
       // Initialize area brand map from product.brandId or null
       const initBrandMap = {};
       (response.selections || []).forEach((s, idx) => {
@@ -227,15 +264,40 @@ const ProductSelectionWizard = () => {
   const autoSaveSelections = async () => {
     try {
       setAutoSaving(true);
-      const selectionsData = selections.map(s => ({
-        areaId: s.areaId,
-        areaName: s.areaName,
-        surfaceType: s.surfaceType,
-        // send color as object when available
-        color: s.selectedColorId ? { id: s.selectedColorId, name: s.selectedColor, hexValue: s.selectedColorHex, code: s.selectedColorNumber } : (s.selectedColor || null),
-        sheen: s.selectedSheen,
-        notes: s.customerNotes,
-      }));
+      let selectionsData;
+      
+      if (isTurnkey && selections.length > 0) {
+        // For turnkey pricing, send a single selection that applies to all areas
+        const firstSelection = selections[0];
+        selectionsData = [{
+          surfaceType: firstSelection.surfaceType,
+          // send color as object when available
+          color: firstSelection.selectedColorId ? { 
+            id: firstSelection.selectedColorId, 
+            name: firstSelection.selectedColor, 
+            hexValue: firstSelection.selectedColorHex, 
+            code: firstSelection.selectedColorNumber 
+          } : (firstSelection.selectedColor || null),
+          sheen: firstSelection.selectedSheen,
+          notes: firstSelection.customerNotes,
+        }];
+      } else {
+        // For regular pricing, send all selections
+        selectionsData = selections.map(s => ({
+          areaId: s.areaId,
+          areaName: s.areaName,
+          surfaceType: s.surfaceType,
+          // send color as object when available
+          color: s.selectedColorId ? { 
+            id: s.selectedColorId, 
+            name: s.selectedColor, 
+            hexValue: s.selectedColorHex, 
+            code: s.selectedColorNumber 
+          } : (s.selectedColor || null),
+          sheen: s.selectedSheen,
+          notes: s.customerNotes,
+        }));
+      }
       
       const saveResp = await customerPortalAPI.saveSelections(proposalId, { selections: selectionsData });
       if (saveResp && Array.isArray(saveResp.selections)) {
@@ -257,21 +319,55 @@ const ProductSelectionWizard = () => {
 
   const handleSheenChange = async (index, sheen) => {
     const updated = [...selections];
-    updated[index].selectedSheen = sheen;
-    // clear deferred save flag
-    if (updated[index]._needsSave) updated[index]._needsSave = false;
+    
+    if (isTurnkey) {
+      // For turnkey pricing, apply the sheen to all areas
+      updated.forEach((sel, idx) => {
+        updated[idx] = { ...updated[idx], selectedSheen: sheen };
+        // clear deferred save flag
+        if (updated[idx]._needsSave) updated[idx]._needsSave = false;
+      });
+    } else {
+      // For regular pricing, only update the specific area
+      updated[index].selectedSheen = sheen;
+      // clear deferred save flag
+      if (updated[index]._needsSave) updated[index]._needsSave = false;
+    }
+    
     setSelections(updated);
 
     // Persist this area if a color is selected (or if it was previously marked for save)
     if (updated[index].selectedColorId || updated[index].selectedColor) {
-      const payload = [{
-        areaId: updated[index].areaId,
-        areaName: updated[index].areaName,
-        surfaceType: updated[index].surfaceType,
-        color: updated[index].selectedColorId ? { id: updated[index].selectedColorId, name: updated[index].selectedColor, code: updated[index].selectedColorNumber, hexValue: updated[index].selectedColorHex } : (updated[index].selectedColor || null),
-        sheen,
-        notes: updated[index].customerNotes || null,
-      }];
+      let payload;
+      if (isTurnkey) {
+        // For turnkey pricing, send a single selection that applies to all areas
+        payload = [{
+          surfaceType: updated[index].surfaceType,
+          color: updated[index].selectedColorId ? { 
+            id: updated[index].selectedColorId, 
+            name: updated[index].selectedColor, 
+            code: updated[index].selectedColorNumber, 
+            hexValue: updated[index].selectedColorHex 
+          } : (updated[index].selectedColor || null),
+          sheen,
+          notes: updated[index].customerNotes || null,
+        }];
+      } else {
+        // For regular pricing, send the specific area selection
+        payload = [{
+          areaId: updated[index].areaId,
+          areaName: updated[index].areaName,
+          surfaceType: updated[index].surfaceType,
+          color: updated[index].selectedColorId ? { 
+            id: updated[index].selectedColorId, 
+            name: updated[index].selectedColor, 
+            code: updated[index].selectedColorNumber, 
+            hexValue: updated[index].selectedColorHex 
+          } : (updated[index].selectedColor || null),
+          sheen,
+          notes: updated[index].customerNotes || null,
+        }];
+      }
 
       try {
         const saveResp = await customerPortalAPI.saveSelections(proposalId, { selections: payload });
@@ -297,12 +393,26 @@ const ProductSelectionWizard = () => {
   const isCurrentSelectionComplete = () => {
     if (currentStep >= selections.length) return true;
     const current = selections[currentStep];
-    return current.selectedColor && current.selectedSheen;
+    
+    if (isTurnkey) {
+      // For turnkey pricing, check if any area has both color and sheen (since they all share the same selection)
+      return selections.some(s => s.selectedColor && s.selectedSheen);
+    } else {
+      // For regular pricing, check only the current area
+      return current.selectedColor && current.selectedSheen;
+    }
   };
 
   const getCompletionPercentage = () => {
-    const completed = selections.filter(s => s.selectedColor && s.selectedSheen).length;
-    return Math.round((completed / selections.length) * 100);
+    if (isTurnkey) {
+      // For turnkey pricing, if ANY area has both color and sheen, all areas are complete
+      const hasCompleteSelection = selections.some(s => s.selectedColor && s.selectedSheen);
+      return hasCompleteSelection ? 100 : 0;
+    } else {
+      // For regular pricing, count individual area completions
+      const completed = selections.filter(s => s.selectedColor && s.selectedSheen).length;
+      return Math.round((completed / selections.length) * 100);
+    }
   };
 
   const handleNext = async () => {
@@ -330,12 +440,23 @@ const ProductSelectionWizard = () => {
 
   const handleSubmit = async () => {
     // Check if all selections are complete
-    const incompleteSelections = selections.filter(s => !s.selectedColor || !s.selectedSheen);
+    let incompleteSelections;
+    
+    if (isTurnkey) {
+      // For turnkey pricing, check if we have at least one complete selection (applies to all)
+      const hasCompleteSelection = selections.some(s => s.selectedColor && s.selectedSheen);
+      incompleteSelections = hasCompleteSelection ? [] : [{ areaName: 'All Areas', reason: 'Missing color or sheen selection' }];
+    } else {
+      // For regular pricing, check each area individually
+      incompleteSelections = selections.filter(s => !s.selectedColor || !s.selectedSheen);
+    }
     
     if (incompleteSelections.length > 0) {
       Modal.warning({
         title: 'Incomplete Selections',
-        content: `Please complete all ${incompleteSelections.length} remaining area(s) before submitting.`,
+        content: isTurnkey 
+          ? 'Please select both a color and sheen for your home before submitting.'
+          : `Please complete all ${incompleteSelections.length} remaining area(s) before submitting.`,
       });
       return;
     }
@@ -412,6 +533,11 @@ const ProductSelectionWizard = () => {
           <div>
             <h1 className="text-2xl font-bold">Product Selection</h1>
             <p className="text-gray-600">Proposal #{quoteInfo?.quoteNumber}</p>
+            {isTurnkey && (
+              <div className="mt-2">
+                <Tag color="blue">Turnkey Pricing - Selections apply to entire home</Tag>
+              </div>
+            )}
           </div>
           <div className="text-right">
             {typeof quoteInfo?.daysRemaining === 'number' && (
@@ -439,7 +565,10 @@ const ProductSelectionWizard = () => {
             }}
           />
           <p className="text-xs text-gray-500 mt-2">
-            {selections.filter(s => s.selectedColor && s.selectedSheen).length} of {selections.length} areas completed
+            {isTurnkey 
+              ? (getCompletionPercentage() === 100 ? 'All areas completed' : 'Selection needed for all areas')
+              : `${selections.filter(s => s.selectedColor && s.selectedSheen).length} of ${selections.length} areas completed`
+            }
           </p>
         </div>
       </Card>
@@ -449,16 +578,37 @@ const ProductSelectionWizard = () => {
         <Steps
           current={currentStep}
           size="small"
-          items={selections.map((sel, idx) => ({
-            title: sel.areaName || `Area ${idx + 1}`,
-            description: sel.surfaceType,
-            status: sel.selectedColor && sel.selectedSheen ? 'finish' : idx === currentStep ? 'process' : 'wait',
-          }))}
+          items={selections.map((sel, idx) => {
+            let status;
+            if (isTurnkey) {
+              // For turnkey pricing, all areas share the same status
+              const hasSelection = selections.some(s => s.selectedColor && s.selectedSheen);
+              status = hasSelection ? 'finish' : idx === currentStep ? 'process' : 'wait';
+            } else {
+              // For regular pricing, each area has its own status
+              status = sel.selectedColor && sel.selectedSheen ? 'finish' : idx === currentStep ? 'process' : 'wait';
+            }
+            
+            return {
+              title: sel.areaName || `Area ${idx + 1}`,
+              description: sel.surfaceType,
+              status: status,
+            };
+          })}
         />
       </Card>
 
       {/* Selection Form */}
       <Card title={`${currentSelection?.areaName || `Area ${currentStep + 1}`} - ${currentSelection?.surfaceType}`}>
+        {isTurnkey && (
+          <Alert
+            message="Turnkey Pricing Selection"
+            description="Your color and sheen selections will be applied to all areas of your home automatically. Once you make your selections, you can submit immediately."
+            type="info"
+            showIcon
+            className="mb-4"
+          />
+        )}
         {currentSelection && (
           <div className="space-y-6">
             {/* Product Information */}
@@ -625,6 +775,20 @@ const ProductSelectionWizard = () => {
                     Submit All Selections
                   </Button>
                 )}
+                
+                {/* For turnkey pricing, show submit button on any step once selection is complete */}
+                {isTurnkey && completionPercentage === 100 && currentStep < selections.length - 1 && (
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<SendOutlined />}
+                    onClick={handleSubmit}
+                    loading={submitting}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    Submit All Selections
+                  </Button>
+                )}
               </Space>
             </div>
           </div>
@@ -634,31 +798,42 @@ const ProductSelectionWizard = () => {
       {/* Summary Card */}
       <Card title="Selection Summary" className="mt-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {selections.map((sel, idx) => (
-            <div
-              key={idx}
-              className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                idx === currentStep ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-              } ${sel.selectedColor && sel.selectedSheen ? 'bg-green-50' : ''}`}
-              onClick={() => setCurrentStep(idx)}
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <h4 className="font-semibold">{sel.areaName}</h4>
-                  <p className="text-sm text-gray-600">{sel.surfaceType}</p>
+          {selections.map((sel, idx) => {
+            let isComplete;
+            if (isTurnkey) {
+              // For turnkey pricing, all areas share the same completion status
+              isComplete = selections.some(s => s.selectedColor && s.selectedSheen);
+            } else {
+              // For regular pricing, each area has its own completion status
+              isComplete = sel.selectedColor && sel.selectedSheen;
+            }
+            
+            return (
+              <div
+                key={idx}
+                className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                  idx === currentStep ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                } ${isComplete ? 'bg-green-50' : ''}`}
+                onClick={() => setCurrentStep(idx)}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h4 className="font-semibold">{sel.areaName}</h4>
+                    <p className="text-sm text-gray-600">{sel.surfaceType}</p>
+                  </div>
+                  {isComplete && (
+                    <CheckOutlined className="text-green-600 text-xl" />
+                  )}
                 </div>
-                {sel.selectedColor && sel.selectedSheen && (
-                  <CheckOutlined className="text-green-600 text-xl" />
+                {(isTurnkey ? selections.some(s => s.selectedColor) : sel.selectedColor) && (
+                  <div className="mt-2 text-sm">
+                    <p><strong>Color:</strong> {isTurnkey ? (selections.find(s => s.selectedColor)?.selectedColor || 'Not selected') : (sel.selectedColor || 'Not selected')}</p>
+                    <p><strong>Sheen:</strong> {isTurnkey ? (selections.find(s => s.selectedSheen)?.selectedSheen || 'Not selected') : (sel.selectedSheen || 'Not selected')}</p>
+                  </div>
                 )}
               </div>
-              {sel.selectedColor && (
-                <div className="mt-2 text-sm">
-                  <p><strong>Color:</strong> {sel.selectedColor}</p>
-                  <p><strong>Sheen:</strong> {sel.selectedSheen}</p>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
     </div>

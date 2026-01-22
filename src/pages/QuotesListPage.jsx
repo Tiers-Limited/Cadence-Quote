@@ -324,6 +324,7 @@ const QuotesListPage = () => {
     const statusConfig = {
       draft: { color: 'default', icon: <FileTextOutlined />, label: 'DRAFT' },
       sent: { color: 'processing', icon: <SendOutlined />, label: 'SENT' },
+        viewed: { color: 'blue', icon: <EyeOutlined />, label:"VIEWED" },
       accepted: { color: 'success', icon: <CheckCircleOutlined />, label: 'ACCEPTED' },
       deposit_paid: { color: 'blue', icon: <CheckCircleOutlined />, label: 'DEPOSIT PAID' },
       scheduled: { color: 'cyan', icon: <CalendarOutlined />, label: 'SCHEDULED' },

@@ -211,6 +211,7 @@ const QuotesListPage = () => {
     const statusConfig = {
       draft: { color: 'default', icon: <FileTextOutlined /> },
       sent: { color: 'blue', icon: <SendOutlined /> },
+      viewed: { color: 'blue', icon: <EyeOutlined /> },
       accepted: { color: 'success', icon: <CheckCircleOutlined /> },
       scheduled: { color: 'purple', icon: <CalendarOutlined /> },
       declined: { color: 'error', icon: <ExclamationCircleOutlined /> },
@@ -327,6 +328,7 @@ const QuotesListPage = () => {
       filters: [
         { text: 'Draft', value: 'draft' },
         { text: 'Sent', value: 'sent' },
+        { text: 'Viewed', value: 'viewed' },
         { text: 'Accepted', value: 'accepted' },
         { text: 'Scheduled', value: 'scheduled' },
         { text: 'Declined', value: 'declined' },
