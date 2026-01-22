@@ -736,8 +736,9 @@ class EmailService {
    * @param {string} params.body - Contractor-authored plain text body
    * @param {Object} params.contractor - { name, title?, companyName, email, phone?, website?, logoUrl? }
    * @param {Buffer} [params.pdfBuffer] - Optional proposal PDF attachment
+   * @param {string} [params.attachmentName] - Optional custom filename for PDF attachment (defaults to "Proposal.pdf")
    */
-  async sendContractorMessageWithSignature({ to, subject, body, contractor, pdfBuffer }) {
+  async sendContractorMessageWithSignature({ to, subject, body, contractor, pdfBuffer, attachmentName }) {
     if (!this.transporter) {
       console.warn('Email service not configured, skipping send');
       return { success: false, message: 'Email service not configured' };
@@ -800,7 +801,7 @@ class EmailService {
 
     if (pdfBuffer) {
       mailOptions.attachments.push({
-        filename: `Proposal.pdf`,
+        filename: attachmentName || `Proposal.pdf`,
         content: pdfBuffer,
         contentType: 'application/pdf'
       });

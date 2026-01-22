@@ -6,6 +6,7 @@ const Job = require('../models/Job');
 const ProductConfig = require('../models/ProductConfig');
 const GlobalProduct = require('../models/GlobalProduct');
 const Brand = require('../models/Brand');
+const CustomerSelection = require('../models/CustomerSelection');
 const { createAuditLog } = require('./auditLogController');
 const emailService = require('../services/emailService');
 const workOrderService = require('../services/workOrderService');
@@ -23,6 +24,12 @@ exports.getSelectionOptions = async (req, res) => {
     
     const quote = await Quote.findOne({
       where: { id, tenantId, clientId },
+      include: [
+        {
+          model: require('../models/PricingScheme'),
+          as: 'pricingScheme'
+        }
+      ],
     });
     
     if (!quote) {
@@ -157,7 +164,6 @@ exports.getSelectionOptions = async (req, res) => {
     }
     
     // Get existing selections if any
-    const CustomerSelection = require('../models/CustomerSelection');
     const existingSelections = await CustomerSelection.findAll({
       where: { quoteId: quote.id },
     });
@@ -192,6 +198,9 @@ exports.getSelectionOptions = async (req, res) => {
       }
     }
 
+    // Check if this is turnkey pricing
+    const isTurnkey = quote.pricingScheme && (quote.pricingScheme.type === 'turnkey' || quote.pricingScheme.type === 'sqft_turnkey');
+
     res.json({
       success: true,
       quote: {
@@ -202,6 +211,12 @@ exports.getSelectionOptions = async (req, res) => {
         portalExpiresAt: quote.portalExpiresAt,
         daysRemaining,
         selectionsComplete: quote.selectionsComplete || false,
+        isTurnkey: isTurnkey,
+        pricingScheme: quote.pricingScheme ? {
+          id: quote.pricingScheme.id,
+          name: quote.pricingScheme.name,
+          type: quote.pricingScheme.type
+        } : null,
       },
       selections,
       totalAreas: selections.length,
@@ -233,6 +248,12 @@ exports.saveSelections = async (req, res) => {
     
     const quote = await Quote.findOne({
       where: { id, tenantId, clientId },
+      include: [
+        {
+          model: require('../models/PricingScheme'),
+          as: 'pricingScheme'
+        }
+      ],
       transaction,
     });
     
@@ -246,6 +267,9 @@ exports.saveSelections = async (req, res) => {
 
     // Selected tier used for GBB product strategy
     const selectedTier = quote.selectedTier || 'good';
+    
+    // Check if this is turnkey pricing
+    const isTurnkey = quote.pricingScheme && (quote.pricingScheme.type === 'turnkey' || quote.pricingScheme.type === 'sqft_turnkey');
     
     // Validate portal status
     if (!quote.portalOpen) {
@@ -281,8 +305,196 @@ exports.saveSelections = async (req, res) => {
       });
     }
     
+    // Handle turnkey pricing differently - apply selection to all areas
+    if (isTurnkey && selections.length === 1) {
+      const singleSelection = selections[0];
+      const { color, sheen, notes } = singleSelection;
+      
+      console.info(`CustomerSelections: Turnkey pricing detected - applying single selection to all areas`);
+      
+      // Get all productSets to apply the selection to all areas
+      let productSets = quote.productSets;
+      if (typeof productSets === 'string') {
+        try {
+          productSets = JSON.parse(productSets);
+        } catch (e) {
+          console.error('CustomerSelections: Failed to parse productSets JSON:', e);
+          productSets = [];
+        }
+      }
+      if (!Array.isArray(productSets)) {
+        console.warn('CustomerSelections: productSets is not an array, converting to empty array');
+        productSets = [];
+      }
+      
+      if (productSets.length === 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'No areas found in quote for turnkey pricing',
+        });
+      }
+      
+      console.info(`CustomerSelections: Found ${productSets.length} areas for turnkey pricing`);
+      
+      // Normalize color input
+      let colorId = null;
+      let colorName = null;
+      let colorNumber = null;
+      let colorHex = null;
+
+      if (color && typeof color === 'object') {
+        colorId = color.id || null;
+        colorName = color.name || null;
+        colorNumber = color.code || color.number || null;
+        colorHex = color.hexValue || color.hex || null;
+      } else if (color && !isNaN(parseInt(color))) {
+        colorId = parseInt(color);
+      } else if (color && typeof color === 'string') {
+        colorName = color;
+      }
+      
+      const savedRecords = [];
+      
+      // Apply the selection to all areas in productSets
+      for (const productSet of productSets) {
+        try {
+          const areaId = productSet.areaId || null; // Ensure null instead of undefined
+          const areaName = productSet.areaName || `Area ${areaId || 'Unknown'}`;
+          const surfaceType = productSet.surfaceType;
+          
+          console.info(`CustomerSelections: Processing turnkey area - areaId=${areaId}, areaName="${areaName}", surfaceType="${surfaceType}"`);
+          
+          // Validate required fields
+          if (!surfaceType) {
+            console.warn(`CustomerSelections: Skipping area with missing surfaceType - areaId=${areaId}, areaName="${areaName}"`);
+            continue;
+          }
+          
+          // Find or create selection for this area
+          // Build where clause carefully to avoid undefined values
+          const whereClause = {
+            quoteId: quote.id,
+            surfaceType: surfaceType
+          };
+          
+          // Only add areaId to where clause if it's not null/undefined
+          if (areaId !== null && areaId !== undefined) {
+            whereClause.areaId = areaId;
+          } else {
+            // If no areaId, match by areaName instead
+            whereClause.areaName = areaName;
+          }
+          
+          console.info(`CustomerSelections: Query where clause:`, whereClause);
+          
+          let record = await CustomerSelection.findOne({
+            where: whereClause,
+            transaction
+          });
+          
+          if (record) {
+            await record.update({
+              colorId: colorId !== undefined ? colorId : record.colorId,
+              colorName: colorName !== undefined ? colorName : record.colorName,
+              colorNumber: colorNumber !== undefined ? colorNumber : record.colorNumber,
+              colorHex: colorHex !== undefined ? colorHex : record.colorHex,
+              sheen: sheen !== undefined ? sheen : record.sheen,
+              customerNotes: notes !== undefined ? notes : record.customerNotes,
+              selectedAt: new Date(),
+              updatedAt: new Date(),
+            }, { transaction });
+            
+            await record.reload({ transaction });
+            console.info(`CustomerSelections: Updated turnkey record id=${record.id} for area ${areaName} (${surfaceType}) -> colorId=${record.colorId}, colorName=${record.colorName}`);
+          } else {
+            const createData = {
+              quoteId: quote.id,
+              tenantId,
+              clientId,
+              areaId: areaId, // Already ensured to be null instead of undefined
+              areaName: areaName,
+              surfaceType,
+              productId: null,
+              productName: null,
+              colorId: colorId || null,
+              colorName: colorName || null,
+              colorNumber: colorNumber || null,
+              colorHex: colorHex || null,
+              sheen: sheen || null,
+              customerNotes: notes || null,
+              selectedAt: new Date(),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+            
+            console.info(`CustomerSelections: Creating turnkey record with data:`, createData);
+            
+            record = await CustomerSelection.create(createData, { transaction });
+            
+            await record.reload({ transaction });
+            console.info(`CustomerSelections: Created turnkey record id=${record.id} for area ${areaName} (${surfaceType}) -> colorId=${record.colorId}, colorName=${record.colorName}`);
+          }
+          
+          savedRecords.push(record);
+        } catch (areaError) {
+          console.error(`CustomerSelections: Error processing area ${productSet.areaName || productSet.areaId}:`, areaError);
+          // Continue with other areas instead of failing completely
+        }
+      }
+      
+      // Check if we have any successful records
+      if (savedRecords.length === 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Failed to save selections for any areas. Please check the quote configuration.',
+        });
+      }
+      
+      // Commit and return saved selections
+      await transaction.commit();
+      
+      // Reload quote to get fresh data
+      await quote.reload();
+      
+      // Build response with all updated selections
+      const merged = await buildSelectionResponse(quote, savedRecords, selectedTier);
+      
+      // Debug: Verify data was actually saved
+      const verifyRecords = await CustomerSelection.findAll({ where: { quoteId: quote.id } });
+      console.info(`CustomerSelections: Verification - Found ${verifyRecords.length} total records in database`);
+      verifyRecords.forEach(r => {
+        console.info(`CustomerSelections: Verify record id=${r.id}, colorId=${r.colorId}, colorName="${r.colorName}", sheen="${r.sheen}"`);
+      });
+      
+      // Create audit log
+      await createAuditLog({
+        category: 'customer_portal',
+        action: 'Customer turnkey selections saved',
+        userId: null,
+        tenantId,
+        entityType: 'Quote',
+        entityId: quote.id,
+        metadata: {
+          quoteNumber: quote.quoteNumber,
+          clientId,
+          selectionsCount: savedRecords.length,
+          isTurnkey: true,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      return res.json({
+        success: true,
+        message: 'Turnkey selections saved successfully',
+        saved: savedRecords.length,
+        selections: merged,
+      });
+    }
+    
     // Save or update each selection (use an in-memory lookup for deterministic matching)
-    const CustomerSelection = require('../models/CustomerSelection');
     // Load existing selections for this quote (transactionally) to avoid DB matching pitfalls
     let existingSelections = await CustomerSelection.findAll({ where: { quoteId: quote.id }, transaction });
     const savedRecords = [];
@@ -404,134 +616,9 @@ exports.saveSelections = async (req, res) => {
 
     // Commit and return saved selections for verification
     await transaction.commit();
-    const persisted = await CustomerSelection.findAll({ where: { quoteId: quote.id } });
-
-    // Debug: log what we just saved and corresponding persisted rows for verification
-    try {
-      savedRecords.forEach(r => console.info(`CustomerSelections: savedRecord id=${r.id}, areaId=${r.areaId}, surface=${r.surfaceType}, colorId=${r.colorId}, colorName=${r.colorName}, hex=${r.colorHex}`));
-      savedRecords.forEach(r => {
-        const match = persisted.find(p => String(p.areaId || '') === String(r.areaId || '') && String((p.surfaceType || '').trim().toLowerCase()) === String((r.surfaceType || '').trim().toLowerCase()));
-        console.info(`CustomerSelections: persisted match for saved record id=${r.id} -> matchId=${match ? match.id : 'none'}, colorId=${match ? match.colorId : 'n/a'}, colorName=${match ? match.colorName : 'n/a'}, hex=${match ? match.colorHex : 'n/a'}`);
-      });
-    } catch (dbgErr) {
-      console.warn('CustomerSelections: debug log failed', dbgErr);
-    }
 
     // Build merged selection objects to match getSelectionOptions shape (include product info)
-    // Parse productSets
-    let ps = quote.productSets;
-    if (typeof ps === 'string') {
-      try {
-        ps = JSON.parse(ps);
-      } catch (e) {
-        ps = [];
-      }
-    }
-    if (!Array.isArray(ps)) ps = [];
-
-    // Collect product IDs
-    const pidSet = new Set();
-    for (const productSet of ps) {
-      const products = productSet.products || {};
-      let pid = null;
-      if (quote.productStrategy === 'GBB') pid = products[selectedTier];
-      else pid = products.single || products.good || products.better || products.best;
-      if (pid) pidSet.add(pid);
-    }
-    const pids = Array.from(pidSet);
-
-    // Bulk fetch product configs
-    const productConfigs = pids.length > 0 ? await ProductConfig.findAll({
-      where: { id: pids },
-      include: [
-        {
-          model: GlobalProduct,
-          as: 'globalProduct',
-          include: [{ model: Brand, as: 'brand' }],
-        },
-      ],
-    }) : [];
-    const pcMap = new Map();
-    productConfigs.forEach(pc => pcMap.set(pc.id, pc));
-
-    // Build options
-    const options = [];
-    for (const productSet of ps) {
-      const areaId = productSet.areaId;
-      const areaName = productSet.areaName;
-      const surfaceType = productSet.surfaceType;
-      const products = productSet.products || {};
-
-      let productId = null;
-      if (quote.productStrategy === 'GBB') productId = products[selectedTier];
-      else productId = products.single || products.good || products.better || products.best;
-
-      if (!productId) continue;
-      const productConfig = pcMap.get(productId);
-      if (!productConfig || !productConfig.globalProduct) continue;
-
-      const product = productConfig.globalProduct;
-      const brand = product.brand;
-      const sheenOptions = (productConfig.sheens || []).map(s => (typeof s === 'string' ? s : s.sheen));
-
-      options.push({
-        areaId,
-        areaName,
-        surfaceType,
-        product: {
-          id: productConfig.id,
-          name: product.name,
-          brand: brand?.name || 'Unknown',
-          brandId: brand?.id || null,
-          fullName: `${brand?.name || ''} ${product.name}`.trim(),
-        },
-        availableSheens: sheenOptions,
-      });
-    }
-
-    // Merge with persisted selections
-    const merged = options.map(opt => {
-      const oSurface = String(opt.surfaceType || '').trim().toLowerCase();
-      const oAreaName = (opt.areaName || '').trim().toLowerCase();
-
-      // find all persisted candidates for this area/surface
-      const candidates = persisted.filter(p => {
-        const pSurface = String(p.surfaceType || '').trim().toLowerCase();
-        const matchByIdAndSurface = p.areaId && opt.areaId && String(p.areaId) === String(opt.areaId) && pSurface === oSurface;
-        const pAreaName = (p.areaName || '').trim().toLowerCase();
-        const matchByNameAndSurface = pAreaName && oAreaName && pSurface === oSurface && pAreaName === oAreaName;
-        return matchByIdAndSurface || matchByNameAndSurface;
-      });
-
-      let existing = null;
-      if (candidates.length === 1) {
-        existing = candidates[0];
-      } else if (candidates.length > 1) {
-        // Prefer a candidate that matches one of the recently saved records (if any)
-        const savedIds = savedRecords.map(r => String(r.id));
-        const bySavedId = candidates.find(c => savedIds.includes(String(c.id)));
-        if (bySavedId) {
-          existing = bySavedId;
-        } else {
-          // fallback: pick the most recently updated record
-          existing = candidates.reduce((best, cur) => {
-            const bestTs = best && best.updatedAt ? new Date(best.updatedAt).getTime() : 0;
-            const curTs = cur && cur.updatedAt ? new Date(cur.updatedAt).getTime() : 0;
-            return curTs > bestTs ? cur : best;
-          }, candidates[0]);
-        }
-        console.info(`CustomerSelections: multiple persisted candidates for area="${opt.areaName}" surface="${opt.surfaceType}"; chosen id=${existing.id}`);
-      }
-
-      return {
-        ...opt,
-        selectedColor: existing?.colorName || null,
-        selectedColorId: existing?.colorId || null,
-        selectedColorHex: existing?.colorHex || null,
-        selectedSheen: existing?.sheen || null,
-        customerNotes: existing?.customerNotes || null,
-      };
-    });
+    const merged = await buildSelectionResponse(quote, savedRecords, selectedTier);
 
     // Create audit log
     await createAuditLog({
@@ -584,6 +671,12 @@ exports.submitSelections = async (req, res) => {
     
     const quote = await Quote.findOne({
       where: { id, tenantId, clientId },
+      include: [
+        {
+          model: require('../models/PricingScheme'),
+          as: 'pricingScheme'
+        }
+      ],
       transaction,
     });
     
@@ -612,8 +705,10 @@ exports.submitSelections = async (req, res) => {
       });
     }
     
+    // Check if this is turnkey pricing
+    const isTurnkey = quote.pricingScheme && (quote.pricingScheme.type === 'turnkey' || quote.pricingScheme.type === 'sqft_turnkey');
+    
     // Check if all required selections are complete
-    const CustomerSelection = require('../models/CustomerSelection');
     const selections = await CustomerSelection.findAll({
       where: { quoteId: quote.id },
       transaction,
@@ -630,60 +725,80 @@ exports.submitSelections = async (req, res) => {
     }
     const totalAreas = Array.isArray(productSets) ? productSets.length : 0;
     
-    // Evaluate completeness per area+surface using best available record (prefer records with color+sheen)
-    const selectionMap = new Map();
-    const scoreRecord = (rec) => {
-      let score = 0;
-      if (rec.colorId || rec.colorName) score += 2;
-      if (rec.sheen) score += 1;
-      const ts = rec.updatedAt ? new Date(rec.updatedAt).getTime() : 0;
-      // small tie-breaker on timestamp
-      return { score, ts };
-    };
+    // For turnkey pricing, if any selection has color+sheen, consider all areas complete
+    if (isTurnkey) {
+      console.info(`CustomerSelections: submitSelections - Turnkey pricing detected, checking for any complete selection`);
+      
+      const hasCompleteSelection = selections.some(s => (s.colorId || s.colorName) && s.sheen);
+      
+      if (!hasCompleteSelection) {
+        console.info(`CustomerSelections: submitSelections - No complete turnkey selection found`);
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Please complete your color and sheen selection.',
+          incomplete: [{ surfaceType: 'All Areas' }],
+        });
+      }
+      
+      console.info(`CustomerSelections: submitSelections - Turnkey selection is complete, proceeding with submission`);
+    } else {
+      // Regular area-based validation logic
+      // Evaluate completeness per area+surface using best available record (prefer records with color+sheen)
+      const selectionMap = new Map();
+      const scoreRecord = (rec) => {
+        let score = 0;
+        if (rec.colorId || rec.colorName) score += 2;
+        if (rec.sheen) score += 1;
+        const ts = rec.updatedAt ? new Date(rec.updatedAt).getTime() : 0;
+        // small tie-breaker on timestamp
+        return { score, ts };
+      };
 
-    for (const s of selections) {
-      const key = `${String(s.areaId || s.areaName)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
-      const existing = selectionMap.get(key);
-      if (!existing) {
-        selectionMap.set(key, s);
-      } else {
-        const a = scoreRecord(existing);
-        const b = scoreRecord(s);
-        if (b.score > a.score || (b.score === a.score && b.ts > a.ts)) {
+      for (const s of selections) {
+        const key = `${String(s.areaId || s.areaName)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
+        const existing = selectionMap.get(key);
+        if (!existing) {
           selectionMap.set(key, s);
+        } else {
+          const a = scoreRecord(existing);
+          const b = scoreRecord(s);
+          if (b.score > a.score || (b.score === a.score && b.ts > a.ts)) {
+            selectionMap.set(key, s);
+          }
         }
       }
-    }
 
-    // Check each required productSet area/surface has a fully completed selection
-    const incompleteAreas = [];
-    for (const productSet of productSets) {
-      const aId = productSet.areaId;
-      const aName = productSet.areaName;
-      const surf = String(productSet.surfaceType || '').trim().toLowerCase();
-      const key = `${String(aId || aName)}::${surf}`;
-      const best = selectionMap.get(key);
+      // Check each required productSet area/surface has a fully completed selection
+      const incompleteAreas = [];
+      for (const productSet of productSets) {
+        const aId = productSet.areaId;
+        const aName = productSet.areaName;
+        const surf = String(productSet.surfaceType || '').trim().toLowerCase();
+        const key = `${String(aId || aName)}::${surf}`;
+        const best = selectionMap.get(key);
 
-      // Debug: list candidates for this productSet
-      const candidates = selections.filter(s => {
-        const sKey = `${String(s.areaId || s.areaName)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
-        return sKey === key;
-      });
-      console.info(`CustomerSelections: submit-check area="${aName}" surface="${productSet.surfaceType}" key="${key}" candidates=${candidates.length} best=${best ? `id=${best.id || 'n/a'} colorId=${best.colorId || best.colorName || 'n/a'} sheen=${best.sheen || 'n/a'}` : 'none'}`);
+        // Debug: list candidates for this productSet
+        const candidates = selections.filter(s => {
+          const sKey = `${String(s.areaId || s.areaName)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
+          return sKey === key;
+        });
+        console.info(`CustomerSelections: submit-check area="${aName}" surface="${productSet.surfaceType}" key="${key}" candidates=${candidates.length} best=${best ? `id=${best.id || 'n/a'} colorId=${best.colorId || best.colorName || 'n/a'} sheen=${best.sheen || 'n/a'}` : 'none'}`);
 
-      if (!best || !(best.colorId || best.colorName) || !best.sheen) {
-        incompleteAreas.push({ areaId: aId, areaName: aName, surfaceType: productSet.surfaceType });
+        if (!best || !(best.colorId || best.colorName) || !best.sheen) {
+          incompleteAreas.push({ areaId: aId, areaName: aName, surfaceType: productSet.surfaceType });
+        }
       }
-    }
 
-    if (incompleteAreas.length > 0) {
-      console.info(`CustomerSelections: submit validations failed, incomplete areas: ${incompleteAreas.length}`);
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Please complete all selections. ${incompleteAreas.length} areas are incomplete.`,
-        incomplete: incompleteAreas,
-      });
+      if (incompleteAreas.length > 0) {
+        console.info(`CustomerSelections: submit validations failed, incomplete areas: ${incompleteAreas.length}`);
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Please complete all selections. ${incompleteAreas.length} areas are incomplete.`,
+          incomplete: incompleteAreas,
+        });
+      }
     }
     
     // Lock selections
@@ -761,7 +876,6 @@ exports.submitSelections = async (req, res) => {
       setImmediate(async () => {
         try {
           // Enrich quote with per-area selections (fallback when quote.areas is missing)
-          const CustomerSelection = require('../models/CustomerSelection');
           const cs = await CustomerSelection.findAll({ where: { quoteId: quote.id } });
           console.log("Customer Selection",cs)
           // Build quick lookup by area+surface
@@ -907,5 +1021,163 @@ exports.submitSelections = async (req, res) => {
     });
   }
 };
+
+/**
+ * Helper function to build selection response with product information
+ */
+async function buildSelectionResponse(quote, savedRecords, selectedTier) {
+  // Parse productSets
+  let ps = quote.productSets;
+  if (typeof ps === 'string') {
+    try {
+      ps = JSON.parse(ps);
+    } catch (e) {
+      ps = [];
+    }
+  }
+  if (!Array.isArray(ps)) ps = [];
+
+  // Collect product IDs
+  const pidSet = new Set();
+  for (const productSet of ps) {
+    const products = productSet.products || {};
+    let pid = null;
+    if (quote.productStrategy === 'GBB') pid = products[selectedTier];
+    else pid = products.single || products.good || products.better || products.best;
+    if (pid) pidSet.add(pid);
+  }
+  const pids = Array.from(pidSet);
+
+  // Bulk fetch product configs
+  const ProductConfig = require('../models/ProductConfig');
+  const GlobalProduct = require('../models/GlobalProduct');
+  const Brand = require('../models/Brand');
+  
+  const productConfigs = pids.length > 0 ? await ProductConfig.findAll({
+    where: { id: pids },
+    include: [
+      {
+        model: GlobalProduct,
+        as: 'globalProduct',
+        include: [{ model: Brand, as: 'brand' }],
+      },
+    ],
+  }) : [];
+  const pcMap = new Map();
+  productConfigs.forEach(pc => pcMap.set(pc.id, pc));
+
+  // Build options
+  const options = [];
+  for (const productSet of ps) {
+    const areaId = productSet.areaId;
+    const areaName = productSet.areaName;
+    const surfaceType = productSet.surfaceType;
+    const products = productSet.products || {};
+
+    let productId = null;
+    if (quote.productStrategy === 'GBB') productId = products[selectedTier];
+    else productId = products.single || products.good || products.better || products.best;
+
+    if (!productId) continue;
+    const productConfig = pcMap.get(productId);
+    if (!productConfig || !productConfig.globalProduct) continue;
+
+    const product = productConfig.globalProduct;
+    const brand = product.brand;
+    const sheenOptions = (productConfig.sheens || []).map(s => (typeof s === 'string' ? s : s.sheen));
+
+    options.push({
+      areaId,
+      areaName,
+      surfaceType,
+      product: {
+        id: productConfig.id,
+        name: product.name,
+        brand: brand?.name || 'Unknown',
+        brandId: brand?.id || null,
+        fullName: `${brand?.name || ''} ${product.name}`.trim(),
+      },
+      availableSheens: sheenOptions,
+    });
+  }
+
+  // Get all persisted selections for this quote
+  const persisted = await CustomerSelection.findAll({ where: { quoteId: quote.id } });
+
+  console.info(`CustomerSelections: buildSelectionResponse - Found ${persisted.length} persisted records`);
+  console.info(`CustomerSelections: buildSelectionResponse - Building ${options.length} options`);
+  
+  // Debug: log persisted records
+  persisted.forEach(p => {
+    console.info(`CustomerSelections: Persisted record id=${p.id}, areaId=${p.areaId}, areaName="${p.areaName}", surface="${p.surfaceType}", colorId=${p.colorId}, colorName="${p.colorName}"`);
+  });
+
+  // Merge with persisted selections
+  const merged = options.map(opt => {
+    console.info(`CustomerSelections: Processing option - areaId=${opt.areaId}, areaName="${opt.areaName}", surface="${opt.surfaceType}"`);
+    
+    const oSurface = String(opt.surfaceType || '').trim().toLowerCase();
+    const oAreaName = (opt.areaName || '').trim().toLowerCase();
+
+    // find all persisted candidates for this area/surface
+    const candidates = persisted.filter(p => {
+      const pSurface = String(p.surfaceType || '').trim().toLowerCase();
+      const matchByIdAndSurface = p.areaId && opt.areaId && String(p.areaId) === String(opt.areaId) && pSurface === oSurface;
+      const pAreaName = (p.areaName || '').trim().toLowerCase();
+      const matchByNameAndSurface = pAreaName && oAreaName && pSurface === oSurface && pAreaName === oAreaName;
+      
+      // For turnkey pricing, also try to match just by surface type if no other matches
+      const matchBySurfaceOnly = pSurface === oSurface;
+      
+      const matches = matchByIdAndSurface || matchByNameAndSurface || matchBySurfaceOnly;
+      
+      if (matches) {
+        console.info(`CustomerSelections: Found candidate match - record id=${p.id}, matchType=${matchByIdAndSurface ? 'id+surface' : matchByNameAndSurface ? 'name+surface' : 'surface-only'}`);
+      }
+      
+      return matches;
+    });
+
+    console.info(`CustomerSelections: Found ${candidates.length} candidates for option`);
+
+    let existing = null;
+    if (candidates.length === 1) {
+      existing = candidates[0];
+    } else if (candidates.length > 1) {
+      // Prefer a candidate that matches one of the recently saved records (if any)
+      const savedIds = savedRecords.map(r => String(r.id));
+      const bySavedId = candidates.find(c => savedIds.includes(String(c.id)));
+      if (bySavedId) {
+        existing = bySavedId;
+        console.info(`CustomerSelections: Using saved record match id=${existing.id}`);
+      } else {
+        // fallback: pick the most recently updated record
+        existing = candidates.reduce((best, cur) => {
+          const bestTs = best && best.updatedAt ? new Date(best.updatedAt).getTime() : 0;
+          const curTs = cur && cur.updatedAt ? new Date(cur.updatedAt).getTime() : 0;
+          return curTs > bestTs ? cur : best;
+        }, candidates[0]);
+        console.info(`CustomerSelections: Using most recent record id=${existing.id}`);
+      }
+      console.info(`CustomerSelections: multiple persisted candidates for area="${opt.areaName}" surface="${opt.surfaceType}"; chosen id=${existing.id}`);
+    }
+
+    const result = {
+      ...opt,
+      selectedColor: existing?.colorName || null,
+      selectedColorId: existing?.colorId || null,
+      selectedColorHex: existing?.colorHex || null,
+      selectedSheen: existing?.sheen || null,
+      customerNotes: existing?.customerNotes || null,
+    };
+    
+    console.info(`CustomerSelections: Final result for option - selectedColor="${result.selectedColor}", selectedColorId=${result.selectedColorId}, selectedSheen="${result.selectedSheen}"`);
+    console.info(`CustomerSelections: Existing record data - colorName="${existing?.colorName}", colorId=${existing?.colorId}, sheen="${existing?.sheen}"`);
+    
+    return result;
+  });
+
+  return merged;
+}
 
 module.exports = exports;

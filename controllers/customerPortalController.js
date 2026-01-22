@@ -3656,6 +3656,10 @@ exports.getQuotes = async (req, res) => {
     const whereClause = {
       tenantId,
       clientId,
+      // Filter out draft quotes - customers should only see sent/accepted/declined/completed quotes
+      status: {
+        [Op.notIn]: ['draft']
+      }
     };
     
     // If not verified, only show quote from magic link (first/only quoteId in session)
@@ -3670,7 +3674,7 @@ exports.getQuotes = async (req, res) => {
         console.warn('?? No primary quote ID found in session for unverified customer');
         
         const allClientQuotes = await Quote.findAll({
-          where: { tenantId, clientId },
+          where: { tenantId, clientId, },
           attributes: ['id', 'quoteNumber', 'status', 'createdAt'],
           order: [['createdAt', 'DESC']],
           limit: 1
