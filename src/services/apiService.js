@@ -57,13 +57,22 @@ class ApiService {
     return data.data.token
   }
 
-  async get(endpoint, options = {}) {
+  async get(endpoint, data = null, options = {}) {
     try {
       const response = await fetch(`${this.baseURL}${endpoint}`, {
         method: "GET",
         headers: this.getHeaders(),
         ...options,
       })
+
+      // Handle blob responses (file downloads)
+      if (options.responseType === 'blob') {
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || `HTTP Error: ${response.status}`);
+        }
+        return await response.blob();
+      }
 
       return this.handleResponse(response)
     } catch (error) {
@@ -619,6 +628,45 @@ class ApiService {
    */
   async getCustomerSelections(proposalId) {
     return this.get(`/contractor-portal/proposals/${proposalId}/selections`);
+  }
+
+  // ==================== GBB (Good-Better-Best) Pricing Tiers ====================
+
+  /**
+   * Get GBB configuration for the authenticated contractor
+   * @returns {Promise<Object>} GBB configuration data
+   */
+  async getGBBConfiguration() {
+    return this.get('/settings/gbb');
+  }
+
+  /**
+   * Update GBB configuration
+   * @param {Object} config - GBB configuration object
+   * @param {boolean} config.gbbEnabled - Whether GBB is enabled globally
+   * @param {Object} config.gbbTiers - Tier configurations for all schemes
+   * @returns {Promise<Object>} Updated configuration
+   */
+  async updateGBBConfiguration(config) {
+    return this.put('/settings/gbb', config);
+  }
+
+  /**
+   * Reset GBB configuration to defaults
+   * @param {string} scheme - Scheme to reset ('rateBased', 'flatRate', 'productionBased', 'turnkey', or 'all')
+   * @returns {Promise<Object>} Reset configuration
+   */
+  async resetGBBConfiguration(scheme = 'all') {
+    return this.post('/settings/gbb/reset', { scheme });
+  }
+
+  /**
+   * Calculate pricing for all GBB tiers
+   * @param {Object} params - Calculation parameters
+   * @returns {Promise<Object>} Tier pricing for all tiers
+   */
+  async calculateTierPricing(params) {
+    return this.post('/quote-builder/calculate-tiers', params);
   }
 }
 

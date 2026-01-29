@@ -77,6 +77,8 @@ import QuotesListPage from '../pages/QuotesListPage';
 import ProposalDefaultsPage from '../pages/ProposalDefaultsPage';
 import ServiceTypesPage from '../pages/ServiceTypesPage';
 import LaborRatesPage from '../pages/LaborRatesPage';
+import JobAnalyticsPage from '../pages/JobAnalyticsPage';
+import JobAnalyticsOverviewPage from '../pages/JobAnalyticsOverviewPage';
 
 // Admin Components
 import RoleProtectedRoute from '../components/RoleProtectedRoute';
@@ -145,6 +147,8 @@ const AppRoutes = () => {
         <Route path='/quotes' element={<QuotesListPage />} />
         <Route path='/quotes/new' element={<QuoteBuilderPage />} />
         <Route path='/quotes/edit/:quoteId' element={<QuoteBuilderPage />} />
+        <Route path='/job-analytics' element={<JobAnalyticsOverviewPage />} />
+        <Route path='/job-analytics/:quoteId' element={<JobAnalyticsPage />} />
         <Route path='/quote-builder' element={<QuoteBuilderPage />} />
         <Route path='/jobs' element={<JobsListPage />} />
         <Route path='/jobs/:jobId' element={<JobDetailPage />} />

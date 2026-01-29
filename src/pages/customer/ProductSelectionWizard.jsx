@@ -48,6 +48,7 @@ const ProductSelectionWizard = () => {
   const [brands, setBrands] = useState([]);
   const [brandLoading, setBrandLoading] = useState(false);
   const [isTurnkey, setIsTurnkey] = useState(false); // Track if this is turnkey pricing
+  const [savingSelection, setSavingSelection] = useState(false); // Track when saving individual selections
   // per-area brand and color pagination state
   const [areaBrandMap, setAreaBrandMap] = useState({}); // { idx: brandId }
   const [colorsByArea, setColorsByArea] = useState({}); // { idx: { items: [], page: 1, limit: 36, hasMore: true, loading: false, search: '' } }
@@ -188,6 +189,7 @@ const ProductSelectionWizard = () => {
     }
 
     try {
+      setSavingSelection(true);
       const saveResp = await customerPortalAPI.saveSelections(proposalId, { selections: payload });
       // Use the server's persisted selections (avoid extra GET/refresh)
       if (saveResp && Array.isArray(saveResp.selections)) {
@@ -199,6 +201,12 @@ const ProductSelectionWizard = () => {
       }
     } catch (err) {
       console.error('Failed to save single selection:', err);
+      Modal.error({
+        title: 'Save Failed',
+        content: 'Failed to save your color selection. Please try again.',
+      });
+    } finally {
+      setSavingSelection(false);
     }
   };
 
@@ -334,7 +342,7 @@ const ProductSelectionWizard = () => {
       if (updated[index]._needsSave) updated[index]._needsSave = false;
     }
     
-    setSelections(updated);
+    // Don't update UI yet - wait for API response
 
     // Persist this area if a color is selected (or if it was previously marked for save)
     if (updated[index].selectedColorId || updated[index].selectedColor) {
@@ -370,7 +378,10 @@ const ProductSelectionWizard = () => {
       }
 
       try {
+        setSavingSelection(true);
         const saveResp = await customerPortalAPI.saveSelections(proposalId, { selections: payload });
+        
+        // Only update UI after successful API response
         if (saveResp && Array.isArray(saveResp.selections)) {
           setSelections(saveResp.selections);
           const newSel = saveResp.selections[index];
@@ -380,6 +391,12 @@ const ProductSelectionWizard = () => {
         }
       } catch (err) {
         console.error('Failed to save sheen selection:', err);
+        Modal.error({
+          title: 'Save Failed',
+          content: 'Failed to save your selection. Please try again.',
+        });
+      } finally {
+        setSavingSelection(false);
       }
     }
   };
@@ -545,6 +562,7 @@ const ProductSelectionWizard = () => {
                 {quoteInfo.daysRemaining} day{quoteInfo.daysRemaining !== 1 ? 's' : ''} remaining
               </Tag>
             )}
+            {savingSelection && <Tag color="blue" icon={<Spin size="small" />}>Saving selection...</Tag>}
             {autoSaving && <Tag color="blue">Auto-saving...</Tag>}
           </div>
         </div>
@@ -701,29 +719,32 @@ const ProductSelectionWizard = () => {
               <label className="block text-sm font-medium mb-2">
                 Select Sheen <span className="text-red-500">*</span>
               </label>
-              <Select
-                size="large"
-                placeholder="Choose a sheen..."
-                value={currentSelection.selectedSheen}
-                onChange={(value) => handleSheenChange(currentStep, value)}
-                className="w-full"
-              >
-                {currentSelection.availableSheens && currentSelection.availableSheens.length > 0 ? (
-                  currentSelection.availableSheens.map((sheen) => (
-                    <Option key={sheen} value={sheen}>
-                      {sheen}
-                    </Option>
-                  ))
-                ) : (
-                  <>
-                    <Option value="flat">Flat</Option>
-                    <Option value="eggshell">Eggshell</Option>
-                    <Option value="satin">Satin</Option>
-                    <Option value="semi-gloss">Semi-Gloss</Option>
-                    <Option value="gloss">Gloss</Option>
-                  </>
-                )}
-              </Select>
+              <Spin spinning={savingSelection} tip="Saving selection...">
+                <Select
+                  size="large"
+                  placeholder="Choose a sheen..."
+                  value={currentSelection.selectedSheen}
+                  onChange={(value) => handleSheenChange(currentStep, value)}
+                  className="w-full"
+                  disabled={savingSelection}
+                >
+                  {currentSelection.availableSheens && currentSelection.availableSheens.length > 0 ? (
+                    currentSelection.availableSheens.map((sheen) => (
+                      <Option key={sheen} value={sheen}>
+                        {sheen}
+                      </Option>
+                    ))
+                  ) : (
+                    <>
+                      <Option value="flat">Flat</Option>
+                      <Option value="eggshell">Eggshell</Option>
+                      <Option value="satin">Satin</Option>
+                      <Option value="semi-gloss">Semi-Gloss</Option>
+                      <Option value="gloss">Gloss</Option>
+                    </>
+                  )}
+                </Select>
+              </Spin>
             </div>
 
             {/* Notes */}

@@ -10,6 +10,7 @@ node_modules/
 /build
 /dist
 dist-ssr
+/src/components/QuoteBuilder/__tests__/
 
 
 # Logs

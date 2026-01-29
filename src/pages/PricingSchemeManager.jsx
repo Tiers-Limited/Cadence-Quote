@@ -80,7 +80,7 @@ const PricingSchemeManager = () => {
       },
       
       // Production-based
-      hourlyLaborRate: 50,
+      billableLaborRate: 50,
       crewSize: 2,
       productionRates: {
         walls: 300,
@@ -169,7 +169,7 @@ const PricingSchemeManager = () => {
           doors: 45,
           cabinets: 65,
         },
-        hourlyLaborRate: 50,
+        billableLaborRate: 50,
         crewSize: 2,
         productionRates: {
           walls: 300,
@@ -493,9 +493,9 @@ const PricingSchemeManager = () => {
             <TextField
               fullWidth
               type="number"
-              label="Hourly Labor Rate"
-              value={formData.pricingRules.hourlyLaborRate}
-              onChange={(e) => updatePricingRule('hourlyLaborRate', parseFloat(e.target.value))}
+              label="Billable Labor Rate"
+              value={formData.pricingRules.billableLaborRate}
+              onChange={(e) => updatePricingRule('billableLaborRate', parseFloat(e.target.value))}
               InputProps={{
                 startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 endAdornment: <InputAdornment position="end">/hr</InputAdornment>,

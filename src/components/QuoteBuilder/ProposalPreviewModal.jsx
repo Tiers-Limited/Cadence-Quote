@@ -3,12 +3,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Spin, Typography, Divider, Row, Col, Card, Button, Space, Tag, Alert, Collapse } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
+import loadingService from '../../services/loadingService';
+import { calculateGallonsNeeded } from '../../utils/paintUtils';
 
 const { Title, Paragraph, Text } = Typography;
 
 const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pricingSchemes }) => {
   const [settings, setSettings] = useState(null);
   const [products, setProducts] = useState({});
+  const [proposalDefaults, setProposalDefaults] = useState({});
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const proposalRef = useRef(null);
@@ -34,13 +37,41 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
       if (productsRes.success) {
         const productMap = {};
         (productsRes.data || []).forEach(config => {
+          // Support both custom and global products
+          let brandName, productName;
+          
+          if (config.isCustom && config.customProduct) {
+            // Custom product
+            brandName = config.customProduct.brandName || 'Custom';
+            productName = config.customProduct.name || 'Custom Product';
+          } else if (config.globalProduct) {
+            // Global product
+            brandName = config.globalProduct.brand?.name || 'Unknown';
+            productName = config.globalProduct.name || 'Unknown';
+          } else {
+            // Fallback
+            brandName = 'Unknown';
+            productName = 'Unknown Product';
+          }
+          
           productMap[config.id] = {
-            brandName: config.globalProduct?.brand?.name || 'Unknown',
-            productName: config.globalProduct?.name || 'Unknown',
-            pricePerGallon: config.sheens?.[0]?.price || 0
+            brandName,
+            productName,
+            pricePerGallon: config.sheens?.[0]?.price || 0,
+            isCustom: config.isCustom || false
           };
         });
         setProducts(productMap);
+      }
+
+      // Fetch proposal defaults (introduction, scope, policies, payment terms, warranties, etc.)
+      try {
+        const pdRes = await apiService.get('/proposal-defaults');
+        if (pdRes.success) {
+          setProposalDefaults(pdRes.data || {});
+        }
+      } catch (err) {
+        console.warn('No proposal defaults available:', err);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -66,7 +97,12 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
 
   const isAreaWise = () => {
     const schemeType = getPricingSchemeType();
-    return schemeType === 'flat_rate_unit' || schemeType === 'production_based' || schemeType === 'rate_based';
+    return schemeType === 'production_based' || schemeType === 'rate_based';
+  };
+
+  const isFlatRate = () => {
+    const schemeType = getPricingSchemeType();
+    return schemeType === 'flat_rate_unit';
   };
 
   /**
@@ -103,47 +139,89 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
     const productMap = {};
     
     (quoteData.productSets || []).forEach(set => {
-      if (!set.surfaceType) return;
-      
-      const gallons = calculateGallonsForSurface(set.surfaceType);
-      if (gallons === 0) return; // Skip surfaces with no areas
-      
-      const rowEntry = {
-        label: set.surfaceType,
-        good: null,
-        better: null,
-        best: null,
-        gallons
-      };
-      
-      // Extract product names for each tier
-      if (quoteData.productStrategy === 'GBB' && set.products) {
-        ['good', 'better', 'best'].forEach(tier => {
-          const productId = set.products[tier];
-          if (productId) {
-            const productInfo = products[productId];
-            rowEntry[tier] = productInfo?.productName || productInfo?.brandName || `Product ${productId}`;
-          }
-        });
-      } else if (set.products?.single) {
-        const productInfo = products[set.products.single];
-        rowEntry.good = productInfo?.productName || productInfo?.brandName || `Product ${set.products.single}`;
-      }
-      
-      rows.push(rowEntry);
-      
-      // Aggregate product usage
-      if (quoteData.productStrategy === 'GBB' && set.products) {
-        ['good', 'better', 'best'].forEach(tier => {
-          const productId = set.products[tier];
-          if (productId) {
-            if (!productMap[productId]) {
-              productMap[productId] = { gallons: 0, surfaces: new Set() };
+      // If this set targets a specific surfaceType, handle as before
+      if (set.surfaceType) {
+        const gallons = calculateGallonsForSurface(set.surfaceType);
+        if (gallons === 0) return; // Skip surfaces with no areas
+
+        const rowEntry = {
+          label: set.surfaceType,
+          good: null,
+          better: null,
+          best: null,
+          gallons
+        };
+
+        // Extract product names for each tier
+        if (quoteData.productStrategy === 'GBB' && set.products) {
+          ['good', 'better', 'best'].forEach(tier => {
+            const productId = set.products[tier];
+            if (productId) {
+              const productInfo = products[productId];
+              rowEntry[tier] = productInfo?.productName || productInfo?.brandName || `Product ${productId}`;
             }
-            productMap[productId].gallons += gallons;
-            productMap[productId].surfaces.add(set.surfaceType);
-          }
-        });
+          });
+        } else if (set.products?.single) {
+          const productInfo = products[set.products.single];
+          rowEntry.good = productInfo?.productName || productInfo?.brandName || `Product ${set.products.single}`;
+        }
+
+        rows.push(rowEntry);
+
+        // Aggregate product usage
+        if (quoteData.productStrategy === 'GBB' && set.products) {
+          ['good', 'better', 'best'].forEach(tier => {
+            const productId = set.products[tier];
+            if (productId) {
+              if (!productMap[productId]) {
+                productMap[productId] = { gallons: 0, surfaces: new Set() };
+              }
+              productMap[productId].gallons += gallons;
+              productMap[productId].surfaces.add(set.surfaceType);
+            }
+          });
+        }
+      }
+
+      // If this set is a whole-home turnkey productSet (no surfaceType but has products)
+      else if ((set.type && (set.type === 'turnkey' || String(set.type).toLowerCase().includes('turnkey'))) || (set.id && String(set.id).toLowerCase().includes('turnkey'))) {
+        // Compute gallons from whole-home sqft
+        const coverage = quoteData.coverage || 350;
+        const coats = quoteData.coats || 2;
+        const homeSqft = quoteData.homeSqft || 0;
+        const gallons = calculateGallonsNeeded(homeSqft, coats, coverage, { wasteFactor: 1.1, roundTo: 0.25 });
+        if (gallons === 0) return;
+
+        const rowEntry = {
+          label: set.label || 'Whole Home',
+          good: null,
+          better: null,
+          best: null,
+          gallons
+        };
+
+        if (quoteData.productStrategy === 'GBB' && set.products) {
+          ['good', 'better', 'best'].forEach(tier => {
+            const productId = set.products[tier];
+            if (productId) {
+              const productInfo = products[productId];
+              rowEntry[tier] = productInfo?.productName || productInfo?.brandName || `Product ${productId}`;
+
+              if (!productMap[productId]) productMap[productId] = { gallons: 0, surfaces: new Set() };
+              productMap[productId].gallons += gallons;
+              productMap[productId].surfaces.add('Whole Home');
+            }
+          });
+        } else if (set.products?.single) {
+          const productId = set.products.single;
+          const productInfo = products[productId];
+          rowEntry.good = productInfo?.productName || productInfo?.brandName || `Product ${productId}`;
+          if (!productMap[productId]) productMap[productId] = { gallons: 0, surfaces: new Set() };
+          productMap[productId].gallons += gallons;
+          productMap[productId].surfaces.add('Whole Home');
+        }
+
+        rows.push(rowEntry);
       }
     });
     
@@ -151,8 +229,67 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
   };
 
   /**
+   * Get flat rate products organized by item type and category
+   * Used specifically for Flat Rate Unit pricing
+   */
+  const getFlatRateProducts = () => {
+    if (!quoteData.productSets || !Array.isArray(quoteData.productSets)) {
+      return [];
+    }
+    
+    const summary = [];
+    
+    // Filter flat rate product sets
+    const flatRateSets = quoteData.productSets.filter(ps => ps.type === 'flat_rate_item');
+    
+    flatRateSets.forEach(set => {
+      const category = set.category; // 'interior' or 'exterior'
+      const itemType = set.label || set.surfaceType; // e.g., 'Interior Doors'
+      
+      // Get products for this item
+      const productsList = [];
+      
+      if (quoteData.productStrategy === 'GBB' && set.products) {
+        // Good-Better-Best strategy
+        ['good', 'better', 'best'].forEach(tier => {
+          const productId = set.products[tier];
+          if (productId) {
+            const productInfo = products[productId] || {};
+            productsList.push({
+              tier: tier.charAt(0).toUpperCase() + tier.slice(1),
+              productId,
+              productName: `${productInfo.brandName || ''} ${productInfo.productName || ''}`.trim() || 'Unknown Product',
+              pricePerGallon: productInfo.pricePerGallon || 0
+            });
+          }
+        });
+      } else if (set.products?.single) {
+        // Single product strategy
+        const productId = set.products.single;
+        const productInfo = products[productId] || {};
+        productsList.push({
+          tier: 'Single',
+          productId,
+          productName: `${productInfo.brandName || ''} ${productInfo.productName || ''}`.trim() || 'Unknown Product',
+          pricePerGallon: productInfo.pricePerGallon || 0
+        });
+      }
+      
+      if (productsList.length > 0) {
+        summary.push({
+          category: category ? category.charAt(0).toUpperCase() + category.slice(1) : 'General', // 'Interior' or 'Exterior'
+          itemType,
+          products: productsList
+        });
+      }
+    });
+    
+    return summary;
+  };
+
+  /**
    * Get products organized by area and surface for area-wise pricing schemes
-   * Used for Flat Rate, Production Based, and Rate Based pricing
+   * Used for Production Based and Rate Based pricing
    */
   const getAreaWiseProducts = () => {
     const areaProducts = [];
@@ -230,9 +367,8 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
   };
 
   const handleDownloadPDF = async () => {
-    try {
-      setDownloading(true);
-      
+    // Wrap PDF generation with loading service
+    const wrappedPDFGeneration = loadingService.wrapTemplateRender(async () => {
       // Simple print-based PDF generation
       const printWindow = window.open('', '', 'height=800,width=1000');
       const content = proposalRef.current.innerHTML;
@@ -258,7 +394,11 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
         </html>
       `);
       printWindow.document.close();
-      
+    });
+
+    try {
+      setDownloading(true);
+      await wrappedPDFGeneration();
     } catch (error) {
       console.error('Error generating PDF:', error);
     } finally {
@@ -284,11 +424,50 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
 
   const today = new Date().toISOString().split('T')[0];
   
+  const pd = proposalDefaults || {};
+  const introText = pd.defaultWelcomeMessage || quoteData.defaultWelcomeMessage || '';
+  const scopeText = pd.scopeOfWork || pd.defaultScopeOfWork || '';
+  const policiesText = pd.policies || pd.policiesText || '';
+  const clientResponsibilitiesText = pd.clientResponsibilities || '';
+  const contractorResponsibilitiesText = pd.contractorResponsibilities || '';
+  const paymentTermsText = pd.paymentTermsText || '';
+  const acceptanceText = pd.legalAcknowledgement || pd.signatureStatement || '';
+
+  const totalInvestment = calculatedQuote?.total || 0;
+  // Prefer tenant settings depositPercentage, then proposal defaults, then calculatedQuote
+  const settingsDeposit = settings && settings.depositPercentage ? parseFloat(settings.depositPercentage) : null;
+  const pdDeposit = (pd && Number.isFinite(pd.depositPercent)) ? Number(pd.depositPercent) : null;
+  const calcDeposit = Number.isFinite(calculatedQuote?.depositPercent) ? calculatedQuote.depositPercent : null;
+  const depositPercent = (Number.isFinite(settingsDeposit) ? settingsDeposit : (pdDeposit != null ? pdDeposit : (calcDeposit != null ? calcDeposit : null)));
+  const depositAmount = (depositPercent != null) ? (totalInvestment * (depositPercent / 100)) : (calculatedQuote?.deposit || 0);
+  const balanceAmount = Math.max(0, totalInvestment - (depositAmount || 0));
+  const balancePercent = (depositPercent != null) ? (100 - depositPercent) : (calculatedQuote?.balancePercent ?? null);
   // Build product summary from area-wise data
   const productTiers = {};
   const uniqueProducts = {};
   
-  if (isAreaWise()) {
+  if (isFlatRate()) {
+    // Flat rate pricing - use flat rate products
+    const flatRateProducts = getFlatRateProducts();
+    flatRateProducts.forEach(item => {
+      item.products.forEach(product => {
+        const tier = product.tier.toLowerCase();
+        if (!productTiers[tier]) {
+          productTiers[tier] = [];
+        }
+        
+        if (!uniqueProducts[product.productId]) {
+          uniqueProducts[product.productId] = true;
+          productTiers[tier].push({
+            brandName: product.productName.split(' ')[0] || '',
+            productName: product.productName,
+            sheen: 'Not specified'
+          });
+        }
+      });
+    });
+  } else if (isAreaWise()) {
+    // Area-wise pricing (Production Based, Rate Based)
     const areaWiseProducts = getAreaWiseProducts();
     areaWiseProducts.forEach(area => {
       area.surfaces.forEach(surface => {
@@ -385,21 +564,21 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
                   fontSize: '28px',
                   overflow: 'hidden'
                 }}>
-                  {settings?.tenant?.logoUrl ? (
-                    <img src={settings.tenant.logoUrl} alt="Company Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  {settings?.Tenant?.companyLogoUrl ? (
+                    <img src={settings.Tenant.companyLogoUrl} alt="Company Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     '🎨'
                   )}
                 </div>
                 <Title level={2} style={{ color: '#fff', margin: '10px 0', fontSize: '24px' }}>
-                  {settings?.tenant?.companyName || 'Professional Painting Co.'}
+                  {settings?.Tenant?.companyName || 'Professional Painting Co.'}
                 </Title>
                 <Text style={{ color: '#e6f7ff', fontSize: '13px' }}>
                   Professional Painting Services
                 </Text>
                 <div style={{ marginTop: 15, color: '#fff', fontSize: '12px', lineHeight: 2 }}>
-                  <div>📱 {settings?.tenant?.phoneNumber || '(555) 123-4567'}</div>
-                  <div>📧 {settings?.tenant?.email || 'contact@company.com'}</div>
+                  <div>📱 {settings?.Tenant?.phoneNumber || '(555) 123-4567'}</div>
+                  <div>📧 {settings?.Tenant?.email || 'contact@company.com'}</div>
                   <div>✓ Licensed & Insured</div>
                 </div>
               </div>
@@ -449,10 +628,22 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
           <Paragraph style={{ fontSize: '15px', lineHeight: 1.8, marginBottom: 30 }}>
             <Text strong>Dear {quoteData.customerName},</Text>
             <br /><br />
-            Thank you for the opportunity to provide this proposal. We've tailored a professional painting solution designed to meet your specific needs. We don't just paint walls — we deliver quality craftsmanship that protects your investment and enhances your property.
+            {introText ? (
+              introText.split('\n').map((line, i) => <span key={i}>{line}<br/></span>)
+            ) : (
+              <>Thank you for the opportunity to provide this proposal. We've tailored a professional painting solution designed to meet your specific needs. We don't just paint walls — we deliver quality craftsmanship that protects your investment and enhances your property.</>
+            )}
           </Paragraph>
 
-          {/* PRODUCT SELECTION - CONDITIONAL BASED ON PRICING SCHEME */}
+          {/* Scope of Work */}
+          <Card style={{ marginBottom: 24 }}>
+            <Title level={4} style={{ fontSize: '15px' }}>Scope of Work</Title>
+            <Paragraph style={{ fontSize: '13px', lineHeight: 1.6 }}>
+              {scopeText ? scopeText.split('\n').map((s,i) => <div key={i}>{s}</div>) : (<div>Scope details will be provided based on selected options and site assessment.</div>)}
+            </Paragraph>
+          </Card>
+
+              {/* PRODUCT SELECTION - CONDITIONAL BASED ON PRICING SCHEME */}
           
           {/* TURNKEY PRICING: Global Product Selection */}
           {isTurnkey() && (
@@ -567,7 +758,154 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
             </Card>
           )}
 
-          {/* AREA-WISE PRICING: Products by Area (Flat Rate, Production Based, Rate Based) */}
+          {/* FLAT RATE PRICING: Products by Item Type */}
+          {isFlatRate() && (
+            <Card style={{ marginBottom: 40, backgroundColor: '#f5f5f5', borderColor: '#d9d9d9' }}>
+              <Title level={3} style={{ fontSize: '18px', color: '#1890ff', marginBottom: 20 }}>
+                Product Selections by Item Type
+              </Title>
+              {(() => {
+                const flatRateProducts = getFlatRateProducts();
+                
+                if (flatRateProducts.length === 0) {
+                  return (
+                    <Alert
+                      message="Product selections not configured"
+                      description="Products will be selected during the quote process."
+                      type="info"
+                      showIcon
+                    />
+                  );
+                }
+                
+                // Group by category (Interior/Exterior)
+                const interiorItems = flatRateProducts.filter(item => item.category === 'Interior');
+                const exteriorItems = flatRateProducts.filter(item => item.category === 'Exterior');
+                
+                return (
+                  <div>
+                    {/* Interior Items */}
+                    {interiorItems.length > 0 && (
+                      <div style={{ marginBottom: 24 }}>
+                        <div style={{ 
+                          padding: '8px 12px', 
+                          backgroundColor: '#e6f7ff', 
+                          borderRadius: '4px', 
+                          marginBottom: 12,
+                          borderLeft: '4px solid #1890ff'
+                        }}>
+                          <Text strong style={{ fontSize: '15px', color: '#1890ff' }}>Interior</Text>
+                        </div>
+                        {interiorItems.map((item, idx) => (
+                          <Card 
+                            key={idx}
+                            size="small"
+                            style={{ marginBottom: 12, backgroundColor: '#fff' }}
+                            title={
+                              <Space>
+                                <Text strong style={{ fontSize: '14px' }}>{item.itemType}</Text>
+                                <Tag color="blue" style={{ fontSize: '11px' }}>Interior</Tag>
+                              </Space>
+                            }
+                          >
+                            <Space direction="vertical" style={{ width: '100%' }} size="small">
+                              {item.products.map((product, pIdx) => (
+                                <div key={pIdx} style={{ 
+                                  padding: '8px 12px', 
+                                  backgroundColor: '#fafafa', 
+                                  borderRadius: '4px',
+                                  border: '1px solid #e8e8e8'
+                                }}>
+                                  <Row gutter={16} align="middle">
+                                    <Col flex="auto">
+                                      <Space>
+                                        <Tag color={
+                                          product.tier === 'Good' ? 'blue' :
+                                          product.tier === 'Better' ? 'cyan' :
+                                          product.tier === 'Best' ? 'green' : 'default'
+                                        } style={{ fontSize: '11px' }}>
+                                          {product.tier}
+                                        </Tag>
+                                        <Text strong style={{ fontSize: '13px' }}>{product.productName}</Text>
+                                      </Space>
+                                      <br />
+                                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                                        ${product.pricePerGallon}/gallon
+                                      </Text>
+                                    </Col>
+                                  </Row>
+                                </div>
+                              ))}
+                            </Space>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Exterior Items */}
+                    {exteriorItems.length > 0 && (
+                      <div>
+                        <div style={{ 
+                          padding: '8px 12px', 
+                          backgroundColor: '#fff7e6', 
+                          borderRadius: '4px', 
+                          marginBottom: 12,
+                          borderLeft: '4px solid #fa8c16'
+                        }}>
+                          <Text strong style={{ fontSize: '15px', color: '#fa8c16' }}>Exterior</Text>
+                        </div>
+                        {exteriorItems.map((item, idx) => (
+                          <Card 
+                            key={idx}
+                            size="small"
+                            style={{ marginBottom: 12, backgroundColor: '#fff' }}
+                            title={
+                              <Space>
+                                <Text strong style={{ fontSize: '14px' }}>{item.itemType}</Text>
+                                <Tag color="orange" style={{ fontSize: '11px' }}>Exterior</Tag>
+                              </Space>
+                            }
+                          >
+                            <Space direction="vertical" style={{ width: '100%' }} size="small">
+                              {item.products.map((product, pIdx) => (
+                                <div key={pIdx} style={{ 
+                                  padding: '8px 12px', 
+                                  backgroundColor: '#fafafa', 
+                                  borderRadius: '4px',
+                                  border: '1px solid #e8e8e8'
+                                }}>
+                                  <Row gutter={16} align="middle">
+                                    <Col flex="auto">
+                                      <Space>
+                                        <Tag color={
+                                          product.tier === 'Good' ? 'blue' :
+                                          product.tier === 'Better' ? 'cyan' :
+                                          product.tier === 'Best' ? 'green' : 'default'
+                                        } style={{ fontSize: '11px' }}>
+                                          {product.tier}
+                                        </Tag>
+                                        <Text strong style={{ fontSize: '13px' }}>{product.productName}</Text>
+                                      </Space>
+                                      <br />
+                                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                                        ${product.pricePerGallon}/gallon
+                                      </Text>
+                                    </Col>
+                                  </Row>
+                                </div>
+                              ))}
+                            </Space>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </Card>
+          )}
+
+          {/* AREA-WISE PRICING: Products by Area (Production Based, Rate Based) */}
           {isAreaWise() && (
             <Card style={{ marginBottom: 40, backgroundColor: '#f5f5f5', borderColor: '#d9d9d9' }}>
               <Title level={3} style={{ fontSize: '18px', color: '#1890ff', marginBottom: 20 }}>
@@ -935,10 +1273,10 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
                           <Text type='secondary' style={{ fontSize: '11px' }}>DEPOSIT DUE AT SIGNING</Text>
                           <br />
                           <Text strong style={{ fontSize: '16px', color: '#52c41a' }}>
-                            ${calculatedQuote.deposit?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            ${Number.isFinite(depositAmount) ? depositAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : (calculatedQuote.deposit ? calculatedQuote.deposit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '$0.00')}
                           </Text>
                           <br />
-                          <Text type='secondary' style={{ fontSize: '11px' }}>({calculatedQuote.depositPercent}% of total)</Text>
+                          <Text type='secondary' style={{ fontSize: '11px' }}>({(depositPercent != null ? depositPercent : (calculatedQuote.depositPercent ?? '—'))}% of total)</Text>
                         </div>
                       </Col>
                       <Col span={12}>
@@ -946,10 +1284,10 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
                           <Text type='secondary' style={{ fontSize: '11px' }}>BALANCE DUE AT COMPLETION</Text>
                           <br />
                           <Text strong style={{ fontSize: '16px', color: '#52c41a' }}>
-                            ${calculatedQuote.balance?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            ${Number.isFinite(balanceAmount) ? balanceAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : (calculatedQuote.balance ? calculatedQuote.balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '$0.00')}
                           </Text>
                           <br />
-                          <Text type='secondary' style={{ fontSize: '11px' }}>({100 - calculatedQuote.depositPercent}% of total)</Text>
+                          <Text type='secondary' style={{ fontSize: '11px' }}>({(balancePercent != null ? balancePercent : (100 - (calculatedQuote.depositPercent ?? 0)))}% of total)</Text>
                         </div>
                       </Col>
                     </Row>
@@ -967,15 +1305,60 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
                 </ul>
 
                 <Title level={4} style={{ fontSize: '14px', fontWeight: '600', marginBottom: 12 }}>Payment Methods</Title>
-                <Text style={{ fontSize: '13px' }}>Cash • Check • Credit Card • CashApp • Venmo • Zelle</Text>
+                <Text style={{ fontSize: '13px' }}>{pd.paymentMethods || 'Cash • Check • Credit Card • CashApp • Venmo • Zelle'}</Text>
+
+                {/* Payment Terms (from proposal defaults) */}
+                <div style={{ marginTop: 12 }}>
+                  <Title level={4} style={{ fontSize: '14px', fontWeight: '600', marginBottom: 8 }}>Payment Terms</Title>
+                  <Paragraph style={{ fontSize: '13px', lineHeight: 1.6 }}>
+                    {paymentTermsText ? (
+                      paymentTermsText.split('\n').map((line, i) => <span key={i}>{line}<br/></span>)
+                    ) : (
+                      <>Deposit schedule and payment milestones as indicated in the Payment Schedule above.</>
+                    )}
+                  </Paragraph>
+                </div>
+              </div>
+
+              {/* Policies */}
+              <div style={{ marginBottom: 24 }}>
+                <Title level={4} style={{ fontSize: '14px', fontWeight: '600', marginBottom: 12 }}>Policies</Title>
+                <Paragraph style={{ fontSize: '13px', lineHeight: 1.6 }}>{policiesText || 'Standard company policies apply. See contractor for details.'}</Paragraph>
+
+                {/* Responsibilities (Client & Contractor) */}
+                <div style={{ marginTop: 16 }}>
+                  <Title level={4} style={{ fontSize: '14px', fontWeight: '600', marginBottom: 8 }}>Responsibilities</Title>
+                  <div style={{ marginBottom: 10 }}>
+                    <Text strong>Client Responsibilities:</Text>
+                    <Paragraph style={{ fontSize: '13px', lineHeight: 1.6, marginTop: 6 }}>
+                      {clientResponsibilitiesText ? (
+                        clientResponsibilitiesText.split('\n').map((line, i) => <span key={i}>{line}<br/></span>)
+                      ) : (
+                        <>Client is responsible for providing access and protecting personal items as outlined in the agreement.</>
+                      )}
+                    </Paragraph>
+                  </div>
+
+                  <div>
+                    <Text strong>Contractor Responsibilities:</Text>
+                    <Paragraph style={{ fontSize: '13px', lineHeight: 1.6, marginTop: 6 }}>
+                      {contractorResponsibilitiesText ? (
+                        contractorResponsibilitiesText.split('\n').map((line, i) => <span key={i}>{line}<br/></span>)
+                      ) : (
+                        <>The contractor will perform work professionally, protect the property, and complete work per the scope and warranty commitments.</>
+                      )}
+                    </Paragraph>
+                  </div>
+                </div>
+              
               </div>
 
               {/* Warranty */}
               <div>
                 <Title level={4} style={{ fontSize: '14px', fontWeight: '600', marginBottom: 12 }}>Warranty</Title>
                 <ul style={{ marginLeft: 20, lineHeight: 1.8, fontSize: '13px' }}>
-                  <li><strong>Workmanship:</strong> {settings?.warrantyTerms || '2-year warranty on all interior work'}</li>
-                  <li><strong>Manufacturer:</strong> Coverage per product specifications</li>
+                  <li><strong>Workmanship:</strong> {pd.standardWarranty || pd.warranty || settings?.warrantyTerms || '2-year warranty on all interior work'}</li>
+                  <li><strong>Manufacturer:</strong> {pd.manufacturerWarranty || 'Coverage per product specifications'}</li>
                 </ul>
               </div>
 
@@ -993,8 +1376,11 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
           >
             <Title level={3} style={{ fontSize: '16px', marginBottom: 15 }}>Acceptance of Proposal</Title>
             <Paragraph style={{ fontSize: '14px', lineHeight: 1.8, marginBottom: 25 }}>
-              By signing below, you acknowledge that you have read and agree to the scope of work, 
-              products, investment amount, timeline, payment terms, and warranty as described in this proposal.
+              {acceptanceText ? (
+                acceptanceText.split('\n').map((line, i) => <span key={i}>{line}<br/></span>)
+              ) : (
+                <>By signing below, you acknowledge that you have read and agree to the scope of work, products, investment amount, timeline, payment terms, and warranty as described in this proposal.</>
+              )}
             </Paragraph>
             <Row gutter={30} style={{ marginTop: 30 }}>
               <Col span={12}>
@@ -1021,10 +1407,10 @@ const ProposalPreviewModal = ({ visible, onClose, quoteData, calculatedQuote, pr
             fontSize: '11px'
           }}>
             <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: 8 }}>
-              {settings?.tenant?.companyName || 'Professional Painting Co.'}
+              {settings?.Tenant?.companyName || 'Professional Painting Co.'}
             </Text>
             <Text type="secondary" style={{ fontSize: '11px', display: 'block', marginBottom: 4 }}>
-              {settings?.tenant?.email || 'contact@company.com'} | {settings?.tenant?.phoneNumber || '(555) 123-4567'}
+              {settings?.Tenant?.email || 'contact@company.com'} | {settings?.Tenant?.phoneNumber || '(555) 123-4567'}
             </Text>
             <Text type="secondary" style={{ fontSize: '10px', display: 'block', color: '#bbb' }}>
               Powered by Cadence Quote • www.cadencequote.com

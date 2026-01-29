@@ -28,6 +28,8 @@ import { apiService } from '../services/apiService'
 import { uploadImageToCloudinary } from '../utils/cloudinaryUpload'
 import ReactQuill from 'react-quill'
 import 'react-quill/dist/quill.snow.css'
+import ProposalTemplatesConfig from '../components/ProposalTemplatesConfig'
+import GBBConfigurationPanel from '../components/Settings/GBBConfigurationPanel'
 
 const { TextArea } = Input
 const { TabPane } = Tabs
@@ -237,7 +239,9 @@ function SettingsPage () {
               options={[
                 { label: 'Company', value: 'company' },
                 { label: 'Email', value: 'email' },
+                { label: 'Proposals', value: 'proposals' },
                 { label: 'Customer Portal', value: 'portal' },
+                // { label: 'GBB Pricing', value: 'gbb' },
                 { label: 'Account', value: 'account' }
               ]}
               className='ant-segmented--rounded'
@@ -468,6 +472,21 @@ function SettingsPage () {
               </div>
             </TabPane>
 
+            {/* Proposals Tab */}
+            <TabPane
+              tab={
+                <span className='flex items-center gap-2'>
+                  <FiSettings />
+                  Proposals
+                </span>
+              }
+              key='proposals'
+            >
+              <div className='py-4'>
+                <ProposalTemplatesConfig onSave={fetchAllSettings} />
+              </div>
+            </TabPane>
+
             {/* Customer Portal Tab - Magic Link Configuration */}
             <TabPane
               tab={
@@ -544,7 +563,7 @@ function SettingsPage () {
                     </div>
                   </Card>
 
-                  <Card>
+                  {/* <Card>
                     <h4 className='font-semibold mb-4'>Automatic Cleanup</h4>
                     <div className='space-y-4'>
                       <Form.Item
@@ -576,7 +595,7 @@ function SettingsPage () {
                         />
                       </Form.Item>
                     </div>
-                  </Card>
+                  </Card> */}
 
                   <Card>
                     <h4 className='font-semibold mb-4'>Portal Authentication</h4>
@@ -595,7 +614,7 @@ function SettingsPage () {
                     </div>
                   </Card>
 
-                  <Card className='bg-gray-50'>
+                  {/* <Card className='bg-gray-50'>
                     <h4 className='font-semibold mb-4'>Legacy Portal Settings</h4>
                     <p className='text-gray-600 text-sm mb-4'>
                       For traditional portals opened after deposit payment
@@ -631,7 +650,7 @@ function SettingsPage () {
                         />
                       </Form.Item>
                     </div>
-                  </Card>
+                  </Card> */}
 
                   <Alert
                     message='Magic Link Portal Features'
@@ -663,6 +682,24 @@ function SettingsPage () {
                 </Form>
               </div>
             </TabPane>
+
+            {/* GBB Pricing Tab */}
+            {/* <TabPane
+              tab={
+                <span className='flex items-center gap-2'>
+                  <FiSettings />
+                  GBB Pricing
+                </span>
+              }
+              key='gbb'
+            >
+              <div className='py-4'>
+                <h3 className='text-lg font-semibold mb-4'>
+                  Good-Better-Best Pricing Tiers
+                </h3>
+                <GBBConfigurationPanel loading={loading} />
+              </div>
+            </TabPane> */}
 
             {/* Account Tab */}
             <TabPane

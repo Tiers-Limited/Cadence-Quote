@@ -271,11 +271,7 @@ function DepositPayment() {
         
         // Redirect after 2 seconds
         setTimeout(() => {
-          if (response.data.redirectTo) {
-            navigate(response.data.redirectTo);
-          } else {
-            navigate(`/portal/finish-standards/${proposalId}`);
-          }
+        navigate(`/portal/finish-standards/${proposalId}`);
         }, 2000);
       } else {
         // Handle specific error codes from backend

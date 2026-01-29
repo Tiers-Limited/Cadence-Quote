@@ -130,7 +130,7 @@ function QuoteCalculatorPage() {
       data.push({
         key: 'labor',
         item: 'Labor',
-        details: 'Hourly rate',
+        details: 'Billable rate',
         cost: breakdown.labor
       })
     }

@@ -100,6 +100,7 @@ const ProposalAcceptance = () => {
   const [depositAmount, setDepositAmount] = useState(0);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
 
   useEffect(() => {
     fetchProposal();
@@ -122,11 +123,17 @@ const ProposalAcceptance = () => {
 
       // Populate deposit/selection state from payload
       if (payload) {
-        if (payload.depositAmount) setDepositAmount(payload.depositAmount);
-        if (payload.selectedTier) setSelectedTier(payload.selectedTier);
-        // If product strategy GBB and no selected tier, default
-        if (payload.productStrategy === 'GBB' && !payload.selectedTier) {
+        // Set selected tier if already chosen
+        if (payload.gbbSelectedTier || payload.selectedTier) {
+          setSelectedTier(payload.gbbSelectedTier || payload.selectedTier);
+        } else if (payload.productStrategy === 'GBB') {
+          // Default to 'good' for GBB quotes if no tier selected
           setSelectedTier('good');
+        }
+        
+        // Set deposit amount - use the effective deposit for selected tier
+        if (payload.depositAmount) {
+          setDepositAmount(payload.depositAmount);
         }
       }
 
@@ -151,6 +158,8 @@ const ProposalAcceptance = () => {
       setAccepting(true);
       const response = await customerPortalAPI.acceptProposal(proposalId, { selectedTier });
       
+      console.log('Accept proposal response:', response); // Debug log
+      
       // Check if payment is already completed
       if (response.paymentCompleted) {
         Modal.success({
@@ -164,9 +173,19 @@ const ProposalAcceptance = () => {
         return;
       }
       
-      // Store payment intent details
-      setClientSecret(response.payment.clientSecret);
-      setDepositAmount(response.payment.amount);
+      // Store payment intent details from response
+      const paymentData = response.payment || response.data?.payment;
+      const clientSecretValue = paymentData?.clientSecret;
+      const depositAmountValue = paymentData?.amount;
+      
+      console.log('Payment data:', { clientSecretValue, depositAmountValue }); // Debug log
+      
+      if (!clientSecretValue || !depositAmountValue) {
+        throw new Error('Invalid payment response from server');
+      }
+      
+      setClientSecret(clientSecretValue);
+      setDepositAmount(depositAmountValue);
       
       // Move to payment step
       setPaymentStep(true);
@@ -175,17 +194,20 @@ const ProposalAcceptance = () => {
       console.error('Error accepting proposal:', err);
       Modal.error({
         title: 'Error',
-        content: err.response?.data?.message || 'Failed to accept proposal',
+        content: err.response?.data?.message || err.message || 'Failed to accept proposal',
       });
       setAccepting(false);
     }
   };
 
   const handlePaymentSuccess = async (paymentIntentId) => {
+    setVerifyingPayment(true);
+    
     try {
       await customerPortalAPI.confirmDepositPayment(proposalId, { paymentIntentId });
       
       setSuccess(true);
+      setVerifyingPayment(false);
       
       // Redirect to selections after 3 seconds
       setTimeout(() => {
@@ -193,6 +215,7 @@ const ProposalAcceptance = () => {
       }, 3000);
     } catch (err) {
       console.error('Error confirming payment:', err);
+      setVerifyingPayment(false);
       Modal.error({
         title: 'Payment Confirmation Error',
         content: 'Payment was successful but failed to update. Please contact support.',
@@ -266,6 +289,30 @@ const ProposalAcceptance = () => {
         subTitle="Redirecting to product selection..."
         icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
       />
+    );
+  }
+
+  // Show verifying payment overlay
+  if (verifyingPayment) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <Card className="max-w-md w-full text-center">
+          <Spin size="large" />
+          <div className="mt-6">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-2">
+              Verifying Your Payment
+            </h2>
+            <p className="text-gray-600 mb-4">
+              Please wait while we confirm your payment with our payment processor...
+            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
+              <p className="text-sm text-blue-800">
+                ⏳ This may take a few moments. Please don't close this window.
+              </p>
+            </div>
+          </div>
+        </Card>
+      </div>
     );
   }
 

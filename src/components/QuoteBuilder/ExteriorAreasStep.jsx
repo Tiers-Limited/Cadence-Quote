@@ -340,8 +340,67 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
   };
 
   const handleDimensionCalculation = (sqft, dimensions) => {
-    updateLaborItem(dimensionCalc.areaId, dimensionCalc.categoryName, 'quantity', sqft);
-    updateLaborItem(dimensionCalc.areaId, dimensionCalc.categoryName, 'dimensions', dimensions);
+    // Update both quantity and dimensions in a single state update to avoid race conditions
+    setAreas(areas.map(area => {
+      if (area.id === dimensionCalc.areaId) {
+        return {
+          ...area,
+          laborItems: area.laborItems.map(item => {
+            if (item.categoryName === dimensionCalc.categoryName) {
+              const updatedItem = { 
+                ...item, 
+                quantity: sqft,
+                dimensions: dimensions
+              };
+
+              // Auto-calculate gallons when quantity changes
+              if (!item.allowManualGallons) {
+                const qty = parseFloat(sqft) || 0;
+                const coats = parseInt(item.numberOfCoats) || 2;
+                const coverage = 350; // Standard coverage rate
+
+                if (qty > 0 && coats > 0) {
+                  let calculatedGallons = 0;
+                  
+                  if (item.measurementUnit === 'sqft') {
+                    // For square footage items
+                    const totalSqft = qty * coats;
+                    calculatedGallons = totalSqft / coverage;
+                  } else if (item.measurementUnit === 'linear_foot') {
+                    // For linear footage (trim, etc.) - assume 6" width
+                    const sqftCalc = qty * 0.5; // 6 inches = 0.5 feet width
+                    calculatedGallons = (sqftCalc * coats) / coverage;
+                  } else if (item.measurementUnit === 'unit') {
+                    // For units (doors, cabinets) - estimate surface area
+                    let estimatedSqft = 0;
+                    const category = item.categoryName.toLowerCase();
+                    if (category.includes('door')) {
+                      estimatedSqft = qty * 21; // Standard door ~21 sq ft per side
+                    } else if (category.includes('cabinet')) {
+                      estimatedSqft = qty * 30; // Cabinet ~30 sq ft per unit
+                    } else if (category.includes('window')) {
+                      estimatedSqft = qty * 15; // Window ~15 sq ft
+                    } else if (category.includes('shutter')) {
+                      estimatedSqft = qty * 10; // Shutter ~10 sq ft per pair
+                    } else {
+                      estimatedSqft = qty * 20; // Generic estimate
+                    }
+                    calculatedGallons = (estimatedSqft * coats) / coverage;
+                  }
+                  
+                  // Round up to nearest 0.5 gallon
+                  updatedItem.gallons = Math.ceil(calculatedGallons * 2) / 2;
+                }
+              }
+
+              return updatedItem;
+            }
+            return item;
+          })
+        };
+      }
+      return area;
+    }));
     setDimensionCalc({ visible: false, areaId: null, categoryName: null });
   };
 
@@ -452,6 +511,46 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         </Card>
       )}
 
+      {/* Painters on Site and Labor Only Controls */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Row gutter={16} align="middle">
+          <Col xs={24} sm={12} md={8}>
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 4 }}>Painters on Site:</Text>
+              <Select
+                size="small"
+                style={{ width: '100%' }}
+                value={formData.paintersOnSite || 1}
+                onChange={(value) => onUpdate({ paintersOnSite: value })}
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                  <Option key={num} value={num}>
+                    {num} Painter{num > 1 ? 's' : ''}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          </Col>
+          
+          {/* Labor Only toggle - show for Time and Materials schemes (rate-based and production-based) */}
+          {(formData.pricingModelType === 'production_based' || formData.pricingModelType === 'rate_based_sqft') && (
+            <Col xs={24} sm={12} md={8}>
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 4 }}>Labor Only:</Text>
+                <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.laborOnly || false}
+                    onChange={(e) => onUpdate({ laborOnly: e.target.checked })}
+                  />
+                  <Text>Customer supplies paint</Text>
+                </label>
+              </div>
+            </Col>
+          )}
+        </Row>
+      </Card>
+
       <Card size="small" style={{ marginBottom: 16 }}>
         <Text strong>Select Exterior Areas:</Text>
         <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
@@ -544,12 +643,16 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                           <Space.Compact style={{ width: '100%' }}>
                             <InputNumber
                               size="small"
-                              style={{ width: '100%' }}
+                              style={{ 
+                                width: '100%',
+                                ...(item.dimensions ? { borderColor: '#52c41a', backgroundColor: '#f6ffed' } : {})
+                              }}
                               min={0}
                               step={mode === 'flat_unit' ? 1 : (item.measurementUnit === 'sqft' ? 10 : 1)}
                               value={item.quantity}
                               onChange={(value) => updateLaborItem(area.id, item.categoryName, 'quantity', value)}
                               placeholder={pricingUtils.getQuantityPlaceholder(mode, item.measurementUnit)}
+                              prefix={item.dimensions ? '📐' : null}
                             />
                             {/* Show calculator for detailed measurement modes only */}
                             {pricingUtils.shouldShowDimensionsCalculator(mode, item.measurementUnit) && (
@@ -558,19 +661,20 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                                 icon={<CalculatorOutlined />}
                                 onClick={() => openDimensionCalculator(area.id, item.categoryName)}
                                 title="Use dimensions calculator"
+                                type={item.dimensions ? 'primary' : 'default'}
                               />
                             )}
                           </Space.Compact>
                           {item.dimensions && (
-                            <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 2 }}>
-                              {item.categoryName.includes('Wall') ? (
-                                <>2×({item.dimensions.length}+{item.dimensions.width})×{item.dimensions.height}</>
+                            <Text type="success" style={{ fontSize: 10, display: 'block', marginTop: 2, color: '#52c41a', fontWeight: 500 }}>
+                              ✓ Calculated: {item.categoryName.includes('Wall') ? (
+                                <>2×({item.dimensions.length}+{item.dimensions.width})×{item.dimensions.height} = {item.quantity || 0} sqft</>
                               ) : item.categoryName.includes('Deck') ? (
-                                <>{item.dimensions.length}×{item.dimensions.width}</>
+                                <>{item.dimensions.length}×{item.dimensions.width} = {item.quantity || 0} sqft</>
                               ) : item.categoryName.includes('Trim') || item.categoryName.includes('Fascia') ? (
-                                <>2×({item.dimensions.length}+{item.dimensions.width})</>
+                                <>2×({item.dimensions.length}+{item.dimensions.width}) = {item.quantity || 0} LF</>
                               ) : (
-                                <>{item.dimensions.length}×{item.dimensions.width}</>
+                                <>{item.dimensions.length}×{item.dimensions.width} = {item.quantity || 0} sqft</>
                               )}
                             </Text>
                           )}

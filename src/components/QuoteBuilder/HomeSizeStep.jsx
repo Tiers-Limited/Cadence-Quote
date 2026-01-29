@@ -6,6 +6,15 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
   const [form] = Form.useForm();
   const [estimatedPrice, setEstimatedPrice] = useState(null);
 
+  // Property condition multipliers per requirements
+  const conditionMultipliers = {
+    excellent: 1.00,
+    good: 1.05,
+    average: 1.12,
+    fair: 1.25,
+    poor: 1.45,
+  };
+
   useEffect(() => {
     // Initialize form with existing data
     form.setFieldsValue({
@@ -14,11 +23,7 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
       conditionModifier: formData.conditionModifier || 'average',
     });
     
-    // Calculate estimate if homeSqft exists
-    if (formData.homeSqft && formData.homeSqft > 0) {
-      calculateEstimate(formData);
-    }
-  }, [formData, form]);
+  }, [formData, form, pricingSchemes]);
 
   const handleFormChange = (changedValues, allValues) => {
     setFormData({
@@ -26,43 +31,11 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
       ...allValues,
     });
 
-    // Calculate estimated price if home sqft is provided
-    if (allValues.homeSqft && allValues.homeSqft > 0) {
-      calculateEstimate(allValues);
-    }
+    // No client-side baseRate: turnkey base rate will be applied from contractor settings on the server
   };
 
-  const calculateEstimate = (values) => {
-    const { homeSqft, conditionModifier } = values;
-    const jobType = formData.jobType || 'interior'; // Use jobType from parent formData
-    
-    // Get turnkey rate from selected pricing scheme
-    const selectedScheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
-    const rules = selectedScheme?.pricingRules || {};
-    
-    let baseRate = rules.turnkeyRate || 3.50;
-    
-    // Adjust for scope based on jobType
-    if (jobType === 'interior' && rules.interiorRate) {
-      baseRate = rules.interiorRate;
-    } else if (jobType === 'exterior' && rules.exteriorRate) {
-      baseRate = rules.exteriorRate;
-    }
-    
-    // Adjust for condition
-    const conditionMultipliers = {
-      excellent: 0.9,
-      good: 0.95,
-      average: 1.0,
-      fair: 1.1,
-      poor: 1.25,
-    };
-    
-    const finalRate = baseRate * (conditionMultipliers[conditionModifier] || 1.0);
-    const estimate = homeSqft * finalRate;
-    
-    setEstimatedPrice(estimate);
-  };
+  // We do not compute a client-side estimate here because the base rate comes from contractor settings.
+  // The server will calculate an accurate turnkey estimate using tenant settings.
 
   const handleNext = async () => {
     try {
@@ -125,40 +98,28 @@ const HomeSizeStep = ({ formData, setFormData, onNext, onPrevious, pricingScheme
             extra="Current condition affects preparation requirements"
           >
             <Radio.Group size="large" buttonStyle="solid">
-              <Radio.Button value="excellent">Excellent</Radio.Button>
-              <Radio.Button value="good">Good</Radio.Button>
-              <Radio.Button value="average">Average</Radio.Button>
-              <Radio.Button value="fair">Fair</Radio.Button>
-              <Radio.Button value="poor">Poor</Radio.Button>
+              <Radio.Button value="excellent">Excellent (1.00x)</Radio.Button>
+              <Radio.Button value="good">Good (1.05x)</Radio.Button>
+              <Radio.Button value="average">Average (1.12x)</Radio.Button>
+              <Radio.Button value="fair">Fair (1.25x)</Radio.Button>
+              <Radio.Button value="poor">Poor (1.45x)</Radio.Button>
             </Radio.Group>
           </Form.Item>
 
-          {estimatedPrice && (
-            <Alert
-              message="Estimated Price Range"
-              description={
-                <div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    ${estimatedPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                  <div className="text-sm text-gray-600 mt-2">
-                    This is a preliminary estimate. Final pricing will be calculated with markups, overhead, and taxes.
-                  </div>
-                </div>
-              }
-              type="success"
-              showIcon
-              className="mt-6"
-            />
-          )}
+          <Alert
+            message="Turnkey Rate Applied by Contractor"
+            description="The base rate per square foot is provided by the contractor's settings and will be applied when the quote is calculated. Enter your home's square footage to proceed."
+            type="info"
+            showIcon
+            className="mt-6"
+          />
         </Form>
     
 
       <Card className="mt-4" size="small">
         <div className="text-sm text-gray-600">
-          <strong>Note:</strong> Turnkey pricing includes all labor and materials in a single rate. 
-          Your final quote will include detailed breakdowns with markups, overhead, profit margins, 
-          and applicable taxes.
+          <strong>Turnkey Pricing:</strong> This all-inclusive rate covers everything needed for your project - 
+          labor, materials, preparation, overhead, profit, and tax. The price you see is the price you pay.
         </div>
       </Card>
 

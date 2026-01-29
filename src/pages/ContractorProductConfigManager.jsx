@@ -17,6 +17,7 @@ import {
   Divider,
   Collapse,
   Switch,
+  Skeleton,
 } from 'antd';
 import {
   PlusOutlined,
@@ -40,6 +41,8 @@ const ContractorProductConfigManager = () => {
   const [editingConfig, setEditingConfig] = useState(null);
   const [laborDefaults, setLaborDefaults] = useState(null);
   const [selectedGlobalProduct, setSelectedGlobalProduct] = useState(null);
+  const [customMode, setCustomMode] = useState(false);
+  const [customSheenOptions, setCustomSheenOptions] = useState('');
   const [selectedBrandFilter, setSelectedBrandFilter] = useState(null);
   
   // Pagination states for global products in modal dropdown
@@ -63,6 +66,44 @@ const ContractorProductConfigManager = () => {
   const [deletingId, setDeletingId] = useState(null);
   const [savingLaborRate, setSavingLaborRate] = useState(false);
   const [deletingLaborRate, setDeletingLaborRate] = useState(null);
+  const [loadingEditData, setLoadingEditData] = useState(false);
+  // Removed: customModalVisible state - no longer needed with unified modal
+  // Removed: customForm - no longer needed with unified modal
+
+  // API Error Handler Function
+  const handleApiError = (error, defaultMessage = 'An error occurred') => {
+    if (!error) {
+      message.error(defaultMessage);
+      return;
+    }
+
+    const status = error.response?.status;
+    const errorMessage = error.response?.data?.message || error.message;
+
+    switch (status) {
+      case 400:
+        message.error(`Invalid request: ${errorMessage || 'Please check your input'}`);
+        break;
+      case 401:
+        message.error('Unauthorized. Please log in again.');
+        break;
+      case 404:
+        message.error('Resource not found. It may have been deleted.');
+        break;
+      case 409:
+        message.error('A configuration for this product already exists');
+        break;
+      case 500:
+        message.error('Server error. Please try again later.');
+        break;
+      default:
+        if (error.message === 'Network Error') {
+          message.error('Network error. Please check your connection and try again.');
+        } else {
+          message.error(errorMessage || defaultMessage);
+        }
+    }
+  };
 
   // Pricing Engine: Labor pricing states
   const [laborLoading, setLaborLoading] = useState(true);
@@ -91,8 +132,8 @@ const ContractorProductConfigManager = () => {
     if (laborDefaults) {
       markupForm.setFieldsValue({
         taxRate: laborDefaults.defaultTaxRate || 0,
-        laborHourRate: laborDefaults.defaultLaborHourRate || 50,
-        crewSize: laborDefaults.crewSize || 2,
+        laborHourRate: laborDefaults.defaultBillableLaborRate || 50,
+        crewSize: laborDefaults.crewSize || 1,
         laborMarkupPercent: laborDefaults.laborMarkupPercent || 0,
         materialMarkupPercent: laborDefaults.materialMarkupPercent || 0,
         overheadPercent: laborDefaults.overheadPercent || 0,
@@ -124,15 +165,24 @@ const ContractorProductConfigManager = () => {
           room_small: laborDefaults.flatRateUnitPrices?.room_small || 350,
           room_medium: laborDefaults.flatRateUnitPrices?.room_medium || 450,
           room_large: laborDefaults.flatRateUnitPrices?.room_large || 600,
+          closet: laborDefaults.flatRateUnitPrices?.closet || 150,
+          accent_wall: laborDefaults.flatRateUnitPrices?.accent_wall || 200,
           cabinet: laborDefaults.flatRateUnitPrices?.cabinet || 125,
+          cabinet_face: laborDefaults.flatRateUnitPrices?.cabinet_face || 125,
+          cabinet_door: laborDefaults.flatRateUnitPrices?.cabinet_door || 25,
           walls: laborDefaults.flatRateUnitPrices?.walls || 2.5,
           ceilings: laborDefaults.flatRateUnitPrices?.ceilings || 2.0,
           interior_trim: laborDefaults.flatRateUnitPrices?.interior_trim || 1.5,
           siding: laborDefaults.flatRateUnitPrices?.siding || 3.0,
           exterior_trim: laborDefaults.flatRateUnitPrices?.exterior_trim || 1.8,
+          exterior_door: laborDefaults.flatRateUnitPrices?.exterior_door || 95,
           soffit_fascia: laborDefaults.flatRateUnitPrices?.soffit_fascia || 2.0,
           gutters: laborDefaults.flatRateUnitPrices?.gutters || 4.0,
           deck: laborDefaults.flatRateUnitPrices?.deck || 2.5,
+          garage_door_1car: laborDefaults.flatRateUnitPrices?.garage_door_1car || 150,
+          garage_door_2car: laborDefaults.flatRateUnitPrices?.garage_door_2car || 200,
+          garage_door_3car: laborDefaults.flatRateUnitPrices?.garage_door_3car || 250,
+          shutters: laborDefaults.flatRateUnitPrices?.shutters || 50,
         },
       });
     }
@@ -153,7 +203,7 @@ const ContractorProductConfigManager = () => {
       setLaborDefaults(defaultsRes.data || null);
       setPricingSchemes(schemesRes.data || []);
     } catch (error) {
-      message.error('Failed to load data: ' + error.message);
+      handleApiError(error, 'Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -198,7 +248,7 @@ const ContractorProductConfigManager = () => {
         });
       }
     } catch (error) {
-      message.error('Failed to load products: ' + error.message);
+      handleApiError(error, 'Failed to load products');
     } finally {
       setLoadingMoreProducts(false);
     }
@@ -215,6 +265,19 @@ const ContractorProductConfigManager = () => {
       }
     }
   };
+
+  // Auto-fetch products when modal filters change
+  useEffect(() => {
+    // Only auto-fetch when modal is visible and in catalog mode (not custom mode)
+    if (modalVisible && !customMode && !editingConfig) {
+      // Debounce search text changes (500ms), immediate for brand/category
+      const timeoutId = setTimeout(() => {
+        fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, modalSearchText, false);
+      }, modalSearchText ? 500 : 0);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [modalBrandFilter, modalCategoryFilter, modalSearchText, modalVisible, customMode, editingConfig]);
 
   // Load labor categories + rates for Pricing Engine
   useEffect(() => {
@@ -251,7 +314,7 @@ const ContractorProductConfigManager = () => {
         setLaborRates(ratesObj);
       }
     } catch (error) {
-      message.error('Failed to load labor categories: ' + error.message);
+      handleApiError(error, 'Failed to load labor categories');
     } finally {
       setLaborLoading(false);
     }
@@ -374,63 +437,97 @@ const ContractorProductConfigManager = () => {
     setModalBrandFilter(null);
     setModalCategoryFilter(null);
     setModalSearchText('');
+    setCustomMode(false);
+    setCustomSheenOptions('');
     form.resetFields();
     
-    // Don't load products initially - wait for user to select filters
-    setGlobalProducts([]);
-    setProductsPagination({ page: 1, limit: 20, hasMore: true, total: 0 });
+    // Auto-load first 20 products when modal opens
+    fetchGlobalProducts(1, null, null, '', false);
     
     setModalVisible(true);
   };
 
   // Handler for modal filter changes
-  const handleModalFilterChange = () => {
-    // Fetch products with the new filters
-    fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, modalSearchText, false);
-  };
+  // REMOVED: No longer needed - auto-fetch via useEffect handles filter changes
 
   const handleEdit = (record) => {
+    setLoadingEditData(true);
     setEditingConfig(record);
     
-    // Set the selected global product immediately
-    const globalProduct = record.globalProduct;
-    
-    // Ensure sheenOptions are available - reconstruct from existing sheens if missing
-    if (globalProduct && (!globalProduct.sheenOptions || globalProduct.sheenOptions === '')) {
-      if (record.sheens && Array.isArray(record.sheens) && record.sheens.length > 0) {
-        // Reconstruct sheenOptions from existing sheen data
-        globalProduct.sheenOptions = record.sheens.map(s => s.sheen).join(', ');
+    // Handle custom products differently
+    if (record.isCustom && record.customProduct) {
+      // Set custom mode
+      setCustomMode(true);
+      setSelectedGlobalProduct(null);
+      
+      // Set custom sheen options from existing sheens
+      if (record.sheens && Array.isArray(record.sheens)) {
+        const sheenNames = record.sheens.map(s => s.sheen).join(', ');
+        setCustomSheenOptions(sheenNames);
       }
-    }
-    
-    setSelectedGlobalProduct(globalProduct);
-    
-    // Load products for the product's brand and category
-    const brandId = globalProduct?.brandId;
-    const category = globalProduct?.category;
-    if (brandId) {
-      setModalBrandFilter(brandId);
-      setModalCategoryFilter(category || null);
-      setModalSearchText('');
-      fetchGlobalProducts(1, brandId, category, '', false);
-    }
-    
-    // Parse sheens into form-friendly format
-    const sheensFormData = {};
-    if (record.sheens && Array.isArray(record.sheens)) {
-      for (const sheen of record.sheens) {
-        sheensFormData[sheen.sheen] = {
-          price: sheen.price,
-          coverage: sheen.coverage,
-        };
+      
+      // Parse sheens into form-friendly format
+      const sheensFormData = {};
+      if (record.sheens && Array.isArray(record.sheens)) {
+        for (const sheen of record.sheens) {
+          sheensFormData[sheen.sheen] = {
+            price: sheen.price,
+            coverage: sheen.coverage,
+          };
+        }
       }
+      
+      // Pre-populate custom product form
+      form.setFieldsValue({
+        customProduct: {
+          name: record.customProduct.name,
+          brandName: record.customProduct.brandName || '',
+          category: record.customProduct.category,
+          description: record.customProduct.description || '',
+        },
+        customSheenOptions: record.sheens.map(s => s.sheen).join(', '),
+        sheens: sheensFormData,
+      });
+      
+      setLoadingEditData(false);
+    } else {
+      // Handle global products
+      setCustomMode(false);
+      setSelectedGlobalProduct(record.globalProduct);
+      
+      // Load products for the product's brand and category
+      const brandId = record.globalProduct?.brandId;
+      const category = record.globalProduct?.category;
+      
+      if (brandId) {
+        setModalBrandFilter(brandId);
+        setModalCategoryFilter(category || null);
+        setModalSearchText('');
+        // Auto-load products for this brand/category
+        fetchGlobalProducts(1, brandId, category, '', false).then(() => {
+          setLoadingEditData(false);
+        });
+      } else {
+        setLoadingEditData(false);
+      }
+      
+      // Parse sheens into form-friendly format
+      const sheensFormData = {};
+      if (record.sheens && Array.isArray(record.sheens)) {
+        for (const sheen of record.sheens) {
+          sheensFormData[sheen.sheen] = {
+            price: sheen.price,
+            coverage: sheen.coverage,
+          };
+        }
+      }
+      
+      // Pre-populate form with product and sheens
+      form.setFieldsValue({
+        globalProductId: record.globalProductId,
+        sheens: sheensFormData,
+      });
     }
-    
-    // Set form values including the global product ID
-    form.setFieldsValue({
-      globalProductId: record.globalProductId,
-      sheens: sheensFormData,
-    });
     
     setModalVisible(true);
   };
@@ -442,7 +539,7 @@ const ContractorProductConfigManager = () => {
       message.success('Configuration deleted successfully');
       fetchConfigs();
     } catch (error) {
-      message.error('Failed to delete configuration: ' + error.message);
+      handleApiError(error, 'Failed to delete configuration');
     } finally {
       setDeletingId(null);
     }
@@ -456,27 +553,36 @@ const ContractorProductConfigManager = () => {
       // Transform sheens object back to array format
       const sheensArray = [];
       const selectedProduct = globalProducts.find(p => p.id === values.globalProductId);
-      
-      if (selectedProduct && selectedProduct.sheenOptions) {
-        const sheenOptions = selectedProduct.sheenOptions.split(',').map(s => s.trim());
-        for (const sheen of sheenOptions) {
-          if (values.sheens && values.sheens[sheen]) {
-            sheensArray.push({
-              sheen,
-              price: values.sheens[sheen].price,
-              coverage: values.sheens[sheen].coverage,
-            });
-          }
+      let sheenOptions = [];
+      if (customMode) {
+        sheenOptions = (values.customSheenOptions || customSheenOptions || '').split(',').map(s => s.trim()).filter(Boolean);
+      } else if (selectedProduct && selectedProduct.sheenOptions) {
+        sheenOptions = selectedProduct.sheenOptions.split(',').map(s => s.trim());
+      }
+
+      for (const sheen of sheenOptions) {
+        if (values.sheens && values.sheens[sheen]) {
+          sheensArray.push({
+            sheen,
+            price: values.sheens[sheen].price,
+            coverage: values.sheens[sheen].coverage,
+          });
         }
       }
       
       const payload = {
-        globalProductId: values.globalProductId,
         sheens: sheensArray,
         laborRates: laborDefaults?.laborRates || { interior: [], exterior: [] },
         productMarkups: {},
         taxRate: laborDefaults?.defaultTaxRate || 0,
       };
+
+      if (customMode) {
+        payload.isCustom = true;
+        payload.customProduct = values.customProduct || {};
+      } else {
+        payload.globalProductId = values.globalProductId;
+      }
       
       if (editingConfig) {
         await apiService.updateProductConfig(editingConfig.id, payload);
@@ -490,17 +596,17 @@ const ContractorProductConfigManager = () => {
       form.resetFields();
       fetchConfigs();
     } catch (error) {
-      if (error.response?.status === 409) {
-        message.error('A configuration for this product already exists');
-      } else if (error.errorFields) {
-        message.error('Please fill in all required fields');
+      if (error.errorFields) {
+        message.error('Please fill in all required fields correctly');
       } else {
-        message.error('Failed to save configuration: ' + error.message);
+        handleApiError(error, 'Failed to save configuration');
       }
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Removed: handleCreateCustomProduct function - no longer needed with unified modal
 
   const handleCreateLaborRate = (type) => {
     setLaborRateType(type);
@@ -595,7 +701,7 @@ const ContractorProductConfigManager = () => {
       
       const response = await apiService.updateProductConfigDefaults({
         defaultTaxRate: values.taxRate,
-        defaultLaborHourRate: values.laborHourRate,
+        defaultBillableLaborRate: values.laborHourRate,
         crewSize: values.crewSize,
         laborMarkupPercent: values.laborMarkupPercent,
         materialMarkupPercent: values.materialMarkupPercent,
@@ -628,15 +734,24 @@ const ContractorProductConfigManager = () => {
           room_small: values.flatRateUnitPrices?.room_small || 350,
           room_medium: values.flatRateUnitPrices?.room_medium || 450,
           room_large: values.flatRateUnitPrices?.room_large || 600,
+          closet: values.flatRateUnitPrices?.closet || 150,
+          accent_wall: values.flatRateUnitPrices?.accent_wall || 200,
           cabinet: values.flatRateUnitPrices?.cabinet || 125,
+          cabinet_face: values.flatRateUnitPrices?.cabinet_face || 125,
+          cabinet_door: values.flatRateUnitPrices?.cabinet_door || 25,
           walls: values.flatRateUnitPrices?.walls || 2.5,
           ceilings: values.flatRateUnitPrices?.ceilings || 2.0,
           interior_trim: values.flatRateUnitPrices?.interior_trim || 1.5,
           siding: values.flatRateUnitPrices?.siding || 3.0,
           exterior_trim: values.flatRateUnitPrices?.exterior_trim || 1.8,
+          exterior_door: values.flatRateUnitPrices?.exterior_door || 95,
           soffit_fascia: values.flatRateUnitPrices?.soffit_fascia || 2.0,
           gutters: values.flatRateUnitPrices?.gutters || 4.0,
           deck: values.flatRateUnitPrices?.deck || 2.5,
+          garage_door_1car: values.flatRateUnitPrices?.garage_door_1car || 150,
+          garage_door_2car: values.flatRateUnitPrices?.garage_door_2car || 200,
+          garage_door_3car: values.flatRateUnitPrices?.garage_door_3car || 250,
+          shutters: values.flatRateUnitPrices?.shutters || 50,
         },
       });
       
@@ -661,6 +776,8 @@ const ContractorProductConfigManager = () => {
   const handleGlobalProductChange = (productId) => {
     const product = globalProducts.find(p => p.id === productId);
     setSelectedGlobalProduct(product);
+    // If selecting a global product, ensure we're not in custom mode
+    if (customMode) setCustomMode(false);
     
     // Filter global products by selected brand (warn if mismatch)
     if (selectedBrandFilter && product && product.brandId !== selectedBrandFilter) {
@@ -693,21 +810,22 @@ const ContractorProductConfigManager = () => {
         if (globalProd) {
           return globalProd.brand?.name || globalProd.customBrand || 'N/A';
         }
+        // Fallback to custom product brand
+        if (record.isCustom && record.customProduct) return record.customProduct.brandName || 'Custom';
         return 'N/A';
       },
     },
     {
       title: 'Product Name',
-      dataIndex: ['globalProduct', 'name'],
       key: 'productName',
       width: isMobile ? 150 : 250,
       ellipsis: true,
-      render: (text, record) => (
+      render: (_, record) => (
         <div>
-          <div style={{ fontWeight: 500 }}>{text}</div>
+          <div style={{ fontWeight: 500 }}>{(record.globalProduct && record.globalProduct.name) || (record.isCustom && record.customProduct && record.customProduct.name) || 'Unnamed'}</div>
           {isMobile && (
             <div style={{ fontSize: '12px', color: '#888', marginTop: 4 }}>
-              {record.globalProduct?.brand?.name || record.globalProduct?.customBrand}
+              {(record.globalProduct && (record.globalProduct.brand?.name || record.globalProduct.customBrand)) || (record.isCustom && record.customProduct && record.customProduct.brandName) || ''}
             </div>
           )}
         </div>
@@ -718,11 +836,14 @@ const ContractorProductConfigManager = () => {
       dataIndex: ['globalProduct', 'category'],
       key: 'category',
       width: isMobile ? 80 : 120,
-      render: (category) => (
-        <Tag color={category === 'Interior' ? 'blue' : 'green'}>
-          {category}
-        </Tag>
-      ),
+      render: (_, record) => {
+        const category = (record.globalProduct && record.globalProduct.category) || (record.isCustom && record.customProduct && record.customProduct.category) || 'Unknown';
+        return (
+          <Tag color={category === 'Interior' ? 'blue' : 'green'}>
+            {category}
+          </Tag>
+        );
+      },
       responsive: ['md'],
     },
     {
@@ -787,37 +908,76 @@ const ContractorProductConfigManager = () => {
     },
   ];
 
+  // Helper function to get dynamic dropdown placeholder text
+  const getDropdownPlaceholder = () => {
+    if (loadingMoreProducts && globalProducts.length === 0) {
+      return "Loading products...";
+    }
+    if (globalProducts.length > 0) {
+      return `Select a product (${globalProducts.length} available)`;
+    }
+    if (!loadingMoreProducts && globalProducts.length === 0 && (modalBrandFilter || modalCategoryFilter || modalSearchText)) {
+      return "No products found";
+    }
+    return "Select a product from global catalog";
+  };
+
   // Filter configs based on selected brand, category, and search text
   const filteredConfigs = configs.filter(config => {
     const globalProd = config.globalProduct;
+    const customProd = config.customProduct;
+    const isCustom = config.isCustom;
     
     // Filter by brand
-    const brandMatch = !selectedBrandFilter
-      ? true
-      : globalProd?.brandId === selectedBrandFilter || globalProd?.brand?.id === selectedBrandFilter;
+    let brandMatch = !selectedBrandFilter;
+    if (selectedBrandFilter) {
+      if (isCustom && customProd) {
+        // For custom products, match against brandName (case-insensitive partial match)
+        const customBrandName = customProd.brandName?.toLowerCase() || '';
+        const selectedBrand = brands.find(b => b.id === selectedBrandFilter);
+        const selectedBrandName = selectedBrand?.name?.toLowerCase() || '';
+        brandMatch = customBrandName.includes(selectedBrandName) || selectedBrandName.includes(customBrandName);
+      } else if (globalProd) {
+        // For global products, match against brandId
+        brandMatch = globalProd.brandId === selectedBrandFilter || globalProd.brand?.id === selectedBrandFilter;
+      }
+    }
     
     // Filter by category
-    const categoryMatch = !selectedCategoryFilter
-      ? true
-      : globalProd?.category === selectedCategoryFilter;
+    let categoryMatch = !selectedCategoryFilter;
+    if (selectedCategoryFilter) {
+      if (isCustom && customProd) {
+        categoryMatch = customProd.category === selectedCategoryFilter;
+      } else if (globalProd) {
+        categoryMatch = globalProd.category === selectedCategoryFilter;
+      }
+    }
     
     // Filter by search text (product name or brand name)
-    const searchMatch = !searchText
-      ? true
-      : globalProd?.name?.toLowerCase().includes(searchText.toLowerCase()) ||
-        globalProd?.brand?.name?.toLowerCase().includes(searchText.toLowerCase()) ||
-        globalProd?.customBrand?.toLowerCase().includes(searchText.toLowerCase());
+    let searchMatch = !searchText;
+    if (searchText) {
+      const searchLower = searchText.toLowerCase();
+      if (isCustom && customProd) {
+        // Search in custom product name, brand name, and description
+        searchMatch = 
+          customProd.name?.toLowerCase().includes(searchLower) ||
+          customProd.brandName?.toLowerCase().includes(searchLower) ||
+          customProd.description?.toLowerCase().includes(searchLower);
+      } else if (globalProd) {
+        // Search in global product name and brand name
+        searchMatch = 
+          globalProd.name?.toLowerCase().includes(searchLower) ||
+          globalProd.brand?.name?.toLowerCase().includes(searchLower) ||
+          globalProd.customBrand?.toLowerCase().includes(searchLower);
+      }
+    }
     
     return brandMatch && categoryMatch && searchMatch;
   });
 
   // Render sheen fields dynamically based on selected product
   const renderSheenFields = () => {
-    // Debug logging
-    console.log('renderSheenFields - selectedGlobalProduct:', selectedGlobalProduct);
-    console.log('renderSheenFields - editingConfig:', editingConfig);
-    
-    if (!selectedGlobalProduct) {
+    if ((customMode && !customSheenOptions) || (!customMode && (!selectedGlobalProduct || !selectedGlobalProduct.sheenOptions))) {
       return (
         <Alert
           message="Please select a product first"
@@ -828,34 +988,13 @@ const ContractorProductConfigManager = () => {
       );
     }
 
-    // For editing, try to get sheens from the existing config if sheenOptions is missing
-    let sheenOptions = [];
-    
-    if (selectedGlobalProduct.sheenOptions) {
-      sheenOptions = selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
-    } else if (editingConfig && editingConfig.sheens && Array.isArray(editingConfig.sheens)) {
-      // Fallback: get sheen names from existing config
-      sheenOptions = editingConfig.sheens.map(s => s.sheen);
-      console.log('Using sheens from editingConfig:', sheenOptions);
-    }
-    
-    if (sheenOptions.length === 0) {
-      return (
-        <Alert
-          message="No sheen options available for this product"
-          description="This product configuration may need to be recreated with proper sheen options."
-          type="warning"
-          showIcon
-          icon={<InfoCircleOutlined />}
-        />
-      );
-    }
+    const sheenOptions = customMode
+      ? customSheenOptions.split(',').map(s => s.trim()).filter(Boolean)
+      : selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
     
     return (
       <>
-        <h4 className="font-semibold mb-3 text-sm sm:text-base">
-          {editingConfig ? 'Update Pricing & Coverage by Sheen:' : 'Pricing & Coverage by Sheen:'}
-        </h4>
+        <h4 className="font-semibold mb-3 text-sm sm:text-base">Pricing & Coverage by Sheen:</h4>
         
         {sheenOptions.map((sheen) => (
           <div key={sheen} className="mb-4 p-2 sm:p-3 border rounded">
@@ -866,7 +1005,17 @@ const ContractorProductConfigManager = () => {
                 label="Price per Gallon"
                 rules={[
                   { required: true, message: `Please enter price for ${sheen}` },
-                  { type: 'number', min: 0, message: 'Must be >= 0' },
+                  { 
+                    validator: (_, value) => {
+                      if (value === undefined || value === null || value === '') {
+                        return Promise.reject(new Error(`Price is required for ${sheen}`));
+                      }
+                      if (isNaN(value) || value < 0) {
+                        return Promise.reject(new Error('Price must be a non-negative number'));
+                      }
+                      return Promise.resolve();
+                    }
+                  },
                 ]}
                 className="mb-2 sm:mb-0"
               >
@@ -884,12 +1033,23 @@ const ContractorProductConfigManager = () => {
                 label="Coverage (sq ft/gallon)"
                 rules={[
                   { required: true, message: `Please enter coverage for ${sheen}` },
-                  { type: 'number', min: 1, message: 'Must be > 0' },
+                  { 
+                    validator: (_, value) => {
+                      if (value === undefined || value === null || value === '') {
+                        return Promise.reject(new Error(`Coverage is required for ${sheen}`));
+                      }
+                      if (isNaN(value) || value <= 0) {
+                        return Promise.reject(new Error('Coverage must be a positive number'));
+                      }
+                      return Promise.resolve();
+                    }
+                  },
                 ]}
                 className="mb-2 sm:mb-0"
               >
                 <InputNumber
-                  min={0}
+                  min={1}
+                  precision={0}
                   style={{ width: '100%' }}
                   placeholder={`Coverage for ${sheen}`}
                 />
@@ -988,37 +1148,43 @@ const ContractorProductConfigManager = () => {
                 
                  <div className="mb-6">
                     <h4 className="font-medium mb-3">Production-Based Pricing Settings</h4>
-                    <Form.Item name="laborHourRate" label="Hourly Labor Rate" rules={[{ required: true }]} tooltip="Standard labor rate per hour per painter"> 
+                    <Form.Item name="laborHourRate" label="Billable Labor Rate" rules={[{ required: true }]} tooltip="Hourly rate charged to customer per painter (not painter's wage)"> 
                       <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/hr" style={{ width: 200 }} />
                     </Form.Item>
-                    <Form.Item name="crewSize" label="Default Crew Size" rules={[{ required: true }]} tooltip="Default number of painters in a crew"> 
+                    <Form.Item name="crewSize" label="Default Crew Size" rules={[{ required: true }]} tooltip="Default number of painters in a crew (actual crew size is set per job in the quote)"> 
                       <InputNumber min={1} max={10} precision={0} addonAfter="painters" style={{ width: 200 }} />
                     </Form.Item>
                   </div>
                 <div className="mb-4">
-                  <div className="font-medium mb-2">Interior</div>
-                  <Form.Item name="productionInteriorWalls" label="Walls" tooltip="Square feet per hour"> 
+                  <div className="font-medium mb-2">Interior Production Rates (per painter)</div>
+                  <Form.Item name="productionInteriorWalls" label="Walls" tooltip="Square feet per hour per painter"> 
                     <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name="productionInteriorCeilings" label="Ceilings" tooltip="Square feet per hour"> 
+                  <Form.Item name="productionInteriorCeilings" label="Ceilings" tooltip="Square feet per hour per painter"> 
                     <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name="productionInteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
+                  <Form.Item name="productionInteriorTrim" label="Trim" tooltip="Linear feet per hour per painter"> 
                     <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="productionDoors" label="Doors" tooltip="Units per hour per painter"> 
+                    <InputNumber min={0} precision={2} addonAfter="units / hour" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name="productionCabinets" label="Cabinets" tooltip="Units per hour per painter"> 
+                    <InputNumber min={0} precision={2} addonAfter="units / hour" style={{ width: 200 }} />
                   </Form.Item>
                 </div>
                 <div>
-                  <div className="font-medium mb-2">Exterior</div>
-                  <Form.Item name="productionExteriorWalls" label="Siding" tooltip="Square feet per hour"> 
+                  <div className="font-medium mb-2">Exterior Production Rates (per painter)</div>
+                  <Form.Item name="productionExteriorWalls" label="Siding" tooltip="Square feet per hour per painter"> 
                     <InputNumber min={0} precision={2} addonAfter="sq ft / hour" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name="productionExteriorTrim" label="Trim" tooltip="Linear feet per hour"> 
+                  <Form.Item name="productionExteriorTrim" label="Trim" tooltip="Linear feet per hour per painter"> 
                     <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name="productionSoffitFascia" label="Soffit & Fascia" tooltip="Linear feet per hour"> 
+                  <Form.Item name="productionSoffitFascia" label="Soffit & Fascia" tooltip="Linear feet per hour per painter"> 
                     <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name="productionGutters" label="Gutters" tooltip="Linear feet per hour"> 
+                  <Form.Item name="productionGutters" label="Gutters" tooltip="Linear feet per hour per painter"> 
                     <InputNumber min={0} precision={2} addonAfter="linear ft / hour" style={{ width: 200 }} />
                   </Form.Item>
                 </div>
@@ -1042,13 +1208,34 @@ const ContractorProductConfigManager = () => {
                   <Form.Item name={['flatRateUnitPrices', 'ceilings']} label="Ceilings" tooltip="Price per unit for ceilings"> 
                     <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
                   </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'interior_trim']} label="Interior Trim" tooltip="Price per unit for interior trim"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
                   <Form.Item name={['flatRateUnitPrices', 'door']} label="Doors" tooltip="Fixed price per door"> 
                     <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name={['flatRateUnitPrices', 'window']} label="Windows" tooltip="Fixed price per window"> 
+                  <Form.Item name={['flatRateUnitPrices', 'room_small']} label="Small Room" tooltip="Fixed price for small room"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'room_medium']} label="Medium Room" tooltip="Fixed price for medium room"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'room_large']} label="Large Room" tooltip="Fixed price for large room"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ room" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'closet']} label="Closet" tooltip="Fixed price per closet"> 
                     <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name={['flatRateUnitPrices', 'cabinet']} label="Cabinets" tooltip="Fixed price per cabinet unit"> 
+                  <Form.Item name={['flatRateUnitPrices', 'accent_wall']} label="Accent Wall" tooltip="Fixed price per accent wall"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'cabinet_face']} label="Cabinet Face" tooltip="Fixed price per cabinet face"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'cabinet_door']} label="Cabinet Door" tooltip="Fixed price per cabinet door"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'cabinet']} label="Cabinet (Legacy)" tooltip="Legacy cabinet pricing - use Cabinet Face/Door instead"> 
                     <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
                   </Form.Item>
                 </div>
@@ -1057,10 +1244,34 @@ const ContractorProductConfigManager = () => {
                   <Form.Item name={['flatRateUnitPrices', 'siding']} label="Siding" tooltip="Price per unit for siding"> 
                     <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
                   </Form.Item>
-                  <Form.Item name={['flatRateUnitPrices', 'exterior_trim']} label="Trim" tooltip="Price per unit for exterior trim"> 
+                  <Form.Item name={['flatRateUnitPrices', 'exterior_trim']} label="Exterior Trim" tooltip="Price per unit for exterior trim"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'exterior_door']} label="Exterior Door" tooltip="Fixed price per exterior door"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'window']} label="Windows" tooltip="Fixed price per window"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'garage_door_1car']} label="Garage Door (1-Car)" tooltip="Fixed price for 1-car garage door"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'garage_door_2car']} label="Garage Door (2-Car)" tooltip="Fixed price for 2-car garage door (base unit)"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'garage_door_3car']} label="Garage Door (3-Car)" tooltip="Fixed price for 3-car garage door"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'shutters']} label="Shutters" tooltip="Fixed price per shutter"> 
                     <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
                   </Form.Item>
                   <Form.Item name={['flatRateUnitPrices', 'deck']} label="Decks" tooltip="Price per unit for decks"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'soffit_fascia']} label="Soffit & Fascia" tooltip="Price per unit for soffit & fascia"> 
+                    <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item name={['flatRateUnitPrices', 'gutters']} label="Gutters" tooltip="Price per unit for gutters"> 
                     <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/ unit" style={{ width: 200 }} />
                   </Form.Item>
                 </div>
@@ -1310,6 +1521,9 @@ const ContractorProductConfigManager = () => {
           setModalSearchText('');
           setGlobalProducts([]);
           setProductsPagination({ page: 1, limit: 20, hasMore: true, total: 0 });
+          setCustomMode(false);
+          setCustomSheenOptions('');
+          setEditingConfig(null);
           form.resetFields();
         }}
         footer={null}
@@ -1317,27 +1531,55 @@ const ContractorProductConfigManager = () => {
         style={isMobile ? { top: 0, maxWidth: '100%', paddingBottom: 0 } : {}}
         bodyStyle={isMobile ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
       >
+        {loadingEditData ? (
+          <div className="p-4">
+            <Skeleton active paragraph={{ rows: 8 }} />
+          </div>
+        ) : (
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          {/* Filter Controls in Modal - Only show when creating new config */}
+          {/* Filter Controls in Modal */}
           {!editingConfig && (
             <Card size="small" className="mb-4" style={{ backgroundColor: '#f5f5f5' }}>
               <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Product Source</label>
+                    <Switch 
+                      checked={customMode} 
+                      onChange={(v) => {
+                        setCustomMode(v);
+                        // Reset form when switching modes
+                        form.resetFields();
+                        setSelectedGlobalProduct(null);
+                        setCustomSheenOptions('');
+                        if (!v) {
+                          // Switching to catalog mode - clear custom fields
+                          form.setFieldsValue({ globalProductId: undefined });
+                        }
+                      }} 
+                      checkedChildren="Custom Product" 
+                      unCheckedChildren="From Catalog" 
+                    />
+                    <div className="text-xs text-gray-500 mt-1">
+                      {customMode ? 'Create a contractor-specific product' : 'Select from global product catalog'}
+                    </div>
+                  </div>
+                {!customMode && (
+                  <>
                 <div>
                   <label className="block text-sm font-medium mb-1">Brand</label>
-                  <Select
+                    <Select
                     placeholder="Select brand (optional)"
                     className="w-full"
                     value={modalBrandFilter}
                     onChange={(value) => {
                       setModalBrandFilter(value);
-                      // Auto-fetch when brand changes
-                      setTimeout(() => fetchGlobalProducts(1, value, modalCategoryFilter, modalSearchText, false), 100);
                     }}
                     allowClear
                     onClear={() => {
                       setModalBrandFilter(null);
-                      fetchGlobalProducts(1, null, modalCategoryFilter, modalSearchText, false);
                     }}
+                    disabled={loadingMoreProducts}
+                    loading={loadingMoreProducts}
                   >
                     {brands.map((brand) => (
                       <Option key={brand.id} value={brand.id}>
@@ -1355,14 +1597,12 @@ const ContractorProductConfigManager = () => {
                     value={modalCategoryFilter}
                     onChange={(value) => {
                       setModalCategoryFilter(value);
-                      // Auto-fetch when category changes
-                      setTimeout(() => fetchGlobalProducts(1, modalBrandFilter, value, modalSearchText, false), 100);
                     }}
                     allowClear
                     onClear={() => {
                       setModalCategoryFilter(null);
-                      fetchGlobalProducts(1, modalBrandFilter, null, modalSearchText, false);
                     }}
+                    disabled={loadingMoreProducts}
                   >
                     <Option value="Interior">Interior</Option>
                     <Option value="Exterior">Exterior</Option>
@@ -1376,84 +1616,134 @@ const ContractorProductConfigManager = () => {
                     prefix={<SearchOutlined />}
                     value={modalSearchText}
                     onChange={(e) => setModalSearchText(e.target.value)}
-                    onPressEnter={handleModalFilterChange}
                     allowClear
                     onClear={() => {
                       setModalSearchText('');
-                      fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, '', false);
                     }}
+                    disabled={loadingMoreProducts}
                   />
+                  <div className="text-xs text-gray-500 mt-1">
+                    {loadingMoreProducts ? 'Loading products...' : 'Products auto-load as you type'}
+                  </div>
                 </div>
                 
-                <Button 
-                  type="primary" 
-                  icon={<SearchOutlined />}
-                  onClick={handleModalFilterChange}
-                  block
-                  size="small"
-                >
-                  Search Products
-                </Button>
+                {/* Retry button for failed loads */}
+                {!loadingMoreProducts && globalProducts.length === 0 && (modalBrandFilter || modalCategoryFilter || modalSearchText) && (
+                  <div className="text-center">
+                    <Button 
+                      size="small" 
+                      onClick={() => fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, modalSearchText, false)}
+                    >
+                      Retry Loading Products
+                    </Button>
+                  </div>
+                )}
+                  </>
+                )}
               </div>
             </Card>
           )}
           
-          {/* Global Product Selection */}
-          <Form.Item
-            name="globalProductId"
-            label="Select Product"
-            rules={[{ required: true, message: 'Please select a product' }]}
-            extra={editingConfig ? 'Product selection is locked for editing - only sheen pricing can be updated' : (loadingMoreProducts ? 'Loading more products...' : (productsPagination.hasMore ? `Scroll down to load more (${globalProducts.length}/${productsPagination.total})` : globalProducts.length > 0 ? `Showing all ${globalProducts.length} products` : 'Use filters above to load products'))}
-          >
-            <Select
-              placeholder="Select a product from global catalog"
-              onChange={handleGlobalProductChange}
-              showSearch
-              optionFilterProp="children"
-              disabled={!!editingConfig}
-              loading={loadingMoreProducts && globalProducts.length === 0}
-              onPopupScroll={handleProductsScroll}
-              filterOption={(input, option) =>
-                option.children.toLowerCase().includes(input.toLowerCase())
-              }
+          {/* Global Product Selection OR Custom Product Fields */}
+          {!customMode && (
+            <Form.Item
+              name="globalProductId"
+              label="Select Product"
+              rules={[{ required: true, message: 'Please select a product' }]}
+              extra={editingConfig ? 'Product cannot be changed when editing' : (
+                productsPagination.hasMore 
+                  ? `Showing ${globalProducts.length} of ${productsPagination.total} products - scroll to load more` 
+                  : globalProducts.length > 0 
+                    ? `All ${globalProducts.length} products loaded` 
+                    : 'Use filters above to load products'
+              )}
             >
-              {/* Show the current product when editing, even if it's not in the loaded list */}
-              {editingConfig && selectedGlobalProduct && (
-                <Option key={selectedGlobalProduct.id} value={selectedGlobalProduct.id}>
-                  {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand} - {selectedGlobalProduct.name} ({selectedGlobalProduct.category})
-                </Option>
-              )}
-              {globalProducts.map((product) => (
-                <Option key={product.id} value={product.id}>
-                  {product.brand?.name || product.customBrand} - {product.name} ({product.category})
-                </Option>
-              ))}
-              {loadingMoreProducts && globalProducts.length > 0 && (
-                <Option disabled key="loading" value="loading">
-                  <div style={{ textAlign: 'center', padding: '8px' }}>Loading more...</div>
-                </Option>
-              )}
-            </Select>
-          </Form.Item>
+              <Select
+                placeholder={getDropdownPlaceholder()}
+                onChange={handleGlobalProductChange}
+                showSearch
+                optionFilterProp="children"
+                disabled={!!editingConfig}
+                loading={loadingMoreProducts && globalProducts.length === 0}
+                onPopupScroll={handleProductsScroll}
+                filterOption={(input, option) =>
+                  option.children.toLowerCase().includes(input.toLowerCase())
+                }
+                notFoundContent={
+                  loadingMoreProducts && globalProducts.length === 0 
+                    ? <div style={{ textAlign: 'center', padding: '12px' }}>
+                        <span>Loading products...</span>
+                      </div>
+                    : globalProducts.length === 0
+                      ? <div style={{ textAlign: 'center', padding: '12px', color: '#999' }}>
+                          No products found. Try adjusting filters.
+                        </div>
+                      : null
+                }
+              >
+                {globalProducts.map((product) => (
+                  <Option key={product.id} value={product.id}>
+                    {product.brand?.name || product.customBrand} - {product.name} ({product.category})
+                  </Option>
+                ))}
+                {loadingMoreProducts && globalProducts.length > 0 && (
+                  <Option disabled key="loading" value="loading">
+                    <div style={{ textAlign: 'center', padding: '8px', color: '#1890ff' }}>
+                      Loading more products...
+                    </div>
+                  </Option>
+                )}
+                {!productsPagination.hasMore && globalProducts.length > 0 && (
+                  <Option disabled key="all-loaded" value="all-loaded">
+                    <div style={{ textAlign: 'center', padding: '8px', color: '#52c41a' }}>
+                      ✓ All {globalProducts.length} products loaded
+                    </div>
+                  </Option>
+                )}
+              </Select>
+            </Form.Item>
+          )}
+
+          {customMode && (
+            <Card size="small" className="mb-4" style={{ backgroundColor: '#f9f9f9' }}>
+              <Form.Item name={["customProduct", "name"]} label="Product Name" rules={[{ required: true }]}> 
+                <Input placeholder="Custom product name" disabled={!!editingConfig} />
+              </Form.Item>
+              <Form.Item name={["customProduct", "brandName"]} label="Brand (optional)"> 
+                <Input placeholder="Brand name" disabled={!!editingConfig} />
+              </Form.Item>
+              <Form.Item name={["customProduct", "category"]} label="Category" rules={[{ required: true }]}> 
+                <Select placeholder="Select category" disabled={!!editingConfig}>
+                  <Option value="Interior">Interior</Option>
+                  <Option value="Exterior">Exterior</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item name={["customProduct", "description"]} label="Description"> 
+                <Input.TextArea rows={3} placeholder="Short description" disabled={!!editingConfig} />
+              </Form.Item>
+              <Form.Item label="Sheen Names (comma-separated)" name="customSheenOptions">
+                <Input placeholder="e.g. Flat, Eggshell, Satin" onChange={(e)=>setCustomSheenOptions(e.target.value)} disabled={!!editingConfig} />
+              </Form.Item>
+            </Card>
+          )}
 
           {/* Show product details */}
-          {selectedGlobalProduct && (
+          {selectedGlobalProduct && !customMode && (
             <div className="mb-4 p-3 sm:p-4 bg-blue-50 rounded">
               <h4 className="font-semibold mb-2 text-sm sm:text-base">Product Details:</h4>
               <p className="text-xs sm:text-sm"><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
               <p className="text-xs sm:text-sm"><strong>Category:</strong> {selectedGlobalProduct.category}</p>
-              <p className="text-xs sm:text-sm">
-                <strong>Available Sheens:</strong> {
-                  selectedGlobalProduct.sheenOptions || 
-                  (editingConfig && editingConfig.sheens && Array.isArray(editingConfig.sheens) 
-                    ? editingConfig.sheens.map(s => s.sheen).join(', ')
-                    : 'Not specified'
-                  )
-                }
-              </p>
+              <p className="text-xs sm:text-sm"><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
               {selectedGlobalProduct.description && (
                 <p className="text-xs sm:text-sm"><strong>Description:</strong> {selectedGlobalProduct.description}</p>
               )}
+            </div>
+          )}
+          
+          {customMode && editingConfig && (
+            <div className="mb-4 p-3 sm:p-4 bg-orange-50 rounded">
+              <h4 className="font-semibold mb-2 text-sm sm:text-base">Custom Product (Editing):</h4>
+              <p className="text-xs sm:text-sm text-gray-600">You are editing a custom product. Product details cannot be changed, but you can update sheen prices.</p>
             </div>
           )}
 
@@ -1471,6 +1761,9 @@ const ContractorProductConfigManager = () => {
                   setModalSearchText('');
                   setGlobalProducts([]);
                   setProductsPagination({ page: 1, limit: 20, hasMore: true, total: 0 });
+                  setCustomMode(false);
+                  setCustomSheenOptions('');
+                  setEditingConfig(null);
                   form.resetFields();
                 }}
                 block={isMobile}
@@ -1482,7 +1775,7 @@ const ContractorProductConfigManager = () => {
               <Button
                 type='primary'
                 htmlType='submit'
-                disabled={!selectedGlobalProduct || submitting}
+                disabled={(!selectedGlobalProduct && !customMode) || submitting}
                 loading={submitting}
                 block={isMobile}
                 className="order-1 sm:order-2 sm:ml-2"
@@ -1492,6 +1785,7 @@ const ContractorProductConfigManager = () => {
             </div>
           </Form.Item>
         </Form>
+        )}
       </Modal>
 
       {/* Labor Rate Modal */}

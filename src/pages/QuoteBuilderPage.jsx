@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { Card, Steps, message, Progress, Button } from 'antd';
+import { Card, Steps, message, Progress, Button, Modal } from 'antd';
 import {
   UserOutlined,
   HomeOutlined,
@@ -14,30 +14,49 @@ import JobTypeStep from '../components/QuoteBuilder/JobTypeStep';
 import AreasStepEnhanced from '../components/QuoteBuilder/AreasStepEnhanced';
 import ExteriorAreasStep from '../components/QuoteBuilder/ExteriorAreasStep';
 import HomeSizeStep from '../components/QuoteBuilder/HomeSizeStep';
+import FlatRatePricingStep from '../components/QuoteBuilder/FlatRatePricingStep';
 import ProductsStep from '../components/QuoteBuilder/ProductsStep';
+import TierSelectionStep from '../components/QuoteBuilder/TierSelectionStep';
 import SummaryStep from '../components/QuoteBuilder/SummaryStep';
+import ConflictResolutionModal from '../components/QuoteBuilder/ConflictResolutionModal';
 import { quoteBuilderApi } from '../services/quoteBuilderApi';
 import { apiService } from '../services/apiService';
 import * as pricingUtils from '../utils/pricingUtils';
+import loadingService from '../services/loadingService';
+import gbbSettingsApi from '../services/gbbSettingsApi';
 
-// Helper function to get dynamic steps based on pricing model
-const getSteps = (isTurnkey) => {
+// Helper function to get dynamic steps based on pricing model and GBB status
+const getSteps = (isTurnkey, gbbEnabled = false) => {
   if (isTurnkey) {
-    return [
+    const baseSteps = [
       { id: 0, title: 'Customer Info', icon: UserOutlined },
       { id: 1, title: 'Job Type', icon: HomeOutlined },
       { id: 2, title: 'Home Size', icon: HomeOutlined },
-      { id: 3, title: 'Products', icon: BgColorsOutlined },
-      { id: 4, title: 'Summary', icon: FileTextOutlined }
+      { id: 3, title: 'Products', icon: BgColorsOutlined }
     ];
+    
+    // Add tier selection step if GBB is enabled
+    if (gbbEnabled) {
+      baseSteps.push({ id: 4, title: 'Select Tier', icon: BgColorsOutlined });
+    }
+    
+    baseSteps.push({ id: gbbEnabled ? 5 : 4, title: 'Summary', icon: FileTextOutlined });
+    return baseSteps;
   } else {
-    return [
+    const baseSteps = [
       { id: 0, title: 'Customer Info', icon: UserOutlined },
       { id: 1, title: 'Job Type', icon: HomeOutlined },
       { id: 2, title: 'Areas', icon: UnorderedListOutlined },
-      { id: 3, title: 'Products', icon: BgColorsOutlined },
-      { id: 4, title: 'Summary', icon: FileTextOutlined }
+      { id: 3, title: 'Products', icon: BgColorsOutlined }
     ];
+    
+    // Add tier selection step if GBB is enabled
+    if (gbbEnabled) {
+      baseSteps.push({ id: 4, title: 'Select Tier', icon: BgColorsOutlined });
+    }
+    
+    baseSteps.push({ id: gbbEnabled ? 5 : 4, title: 'Summary', icon: FileTextOutlined });
+    return baseSteps;
   }
 };
   
@@ -68,15 +87,29 @@ function QuoteBuilderPage() {
     crewSize: 2,
     productivityRate: null,
     
+    // UI Layout fields (Task 2.1)
+    paintersOnSite: 1, // 1-10 options
+    laborOnly: false, // For Time and Materials schemes
+    
     // Areas (Step 3) - for non-turnkey models
     areas: [],
+    
+    // Flat Rate Items (Step 3) - for flat rate pricing
+    flatRateItems: {
+      interior: {},
+      exterior: {}
+    },
     
     // Products (Step 4)
     productStrategy: 'GBB',
     allowCustomerProductChoice: false,
     productSets: [],
     
-    // Summary (Step 5)
+    // GBB Tier Selection (Step 4 or 5 depending on GBB enabled)
+    gbbSelectedTier: null, // 'good', 'better', or 'best'
+    gbbTierPricing: {}, // Stores pricing for all tiers
+    
+    // Summary (Step 5 or 6)
     notes: '',
     
     // Pricing defaults from settings
@@ -93,7 +126,17 @@ function QuoteBuilderPage() {
   const [detectedClient, setDetectedClient] = useState(null);
   const [loadingSchemes, setLoadingSchemes] = useState(true);
   const [contractorSettings, setContractorSettings] = useState({});
-  const [steps, setSteps] = useState(getSteps(false)); // Initialize with non-turnkey steps
+  const [steps, setSteps] = useState(getSteps(false, false)); // Initialize with non-turnkey, no GBB steps
+  
+  // GBB Tier Selection State
+  const [tierPricing, setTierPricing] = useState(null);
+  const [gbbEnabled, setGbbEnabled] = useState(false);
+
+  // Enhanced auto-save state
+  const [conflictModalVisible, setConflictModalVisible] = useState(false);
+  const [conflictData, setConflictData] = useState(null);
+  const [lastModified, setLastModified] = useState(null);
+  const [autoSaveVersion, setAutoSaveVersion] = useState(1);
 
   const autoSaveInterval = useRef(null);
   const lastSaveTime = useRef(Date.now());
@@ -109,14 +152,18 @@ function QuoteBuilderPage() {
       setContractorSettings(prev => ({
         ...prev,
         laborCategories: [],
-        laborRates: {}
+        laborRates: {},
+        productionRates: {},
+        flatRateUnitPrices: {},
+        turnkey: { interior: 0, exterior: 0 },
+        other: { ...prev.other, defaultBillableLaborRate: null }
       }));
       return;
     }
 
-    // Determine if this scheme type needs labor data
+    // Determine pricing mode
     const mode = pricingUtils.getPricingMode(schemeType || '');
-    const needsLaborData = ['rate_sqft', 'production', 'flat_rate'].includes(mode);
+    const needsLaborData = ['rate_sqft', 'production', 'flat_unit', 'turnkey'].includes(mode);
 
     console.log(`[QuoteBuilder] fetchLaborData called: jobType=${jobType}, schemeType=${schemeType}, mode=${mode}, needsLaborData=${needsLaborData}`);
 
@@ -125,51 +172,241 @@ function QuoteBuilderPage() {
       setContractorSettings(prev => ({
         ...prev,
         laborCategories: [],
-        laborRates: {}
+        laborRates: {},
+        productionRates: {},
+        flatRateUnitPrices: {},
+        turnkey: { interior: 0, exterior: 0 },
+        other: { ...prev.other, defaultBillableLaborRate: null }
       }));
       return;
     }
 
+    // Show loading indicator
+    const loadingKey = 'fetchLaborData';
+    message.loading({ content: 'Loading pricing data...', key: loadingKey, duration: 0 });
+
     try {
-      console.log(`[QuoteBuilder] Fetching labor data for jobType=${jobType}...`);
-      const [laborCategoriesRes, laborRatesRes] = await Promise.all([
-        apiService.get(`/labor-categories?jobType=${jobType}`),
-        apiService.get(`/labor-categories/rates?jobType=${jobType}`) // Add jobType filter
-      ]);
+      // Route based on pricing mode
+      if (mode === 'production' || mode === 'flat_unit' || mode === 'turnkey') {
+        // Turnkey, Production-based, and Flat-rate pricing: fetch from product-configs/defaults
+        console.log(`[QuoteBuilder] Fetching pricing data from product-configs/defaults for ${mode} pricing...`);
+        const defaultsResponse = await apiService.getProductConfigDefaults();
+        
+        if (defaultsResponse.success && defaultsResponse.data) {
+          const defaults = defaultsResponse.data;
+          
+          // Extract production rates (for production-based pricing)
+          const productionRates = {
+            interiorWalls: defaults.productionInteriorWalls || 300,
+            interiorCeilings: defaults.productionInteriorCeilings || 250,
+            interiorTrim: defaults.productionInteriorTrim || 150,
+            exteriorWalls: defaults.productionExteriorWalls || 250,
+            exteriorTrim: defaults.productionExteriorTrim || 120,
+            soffitFascia: defaults.productionSoffitFascia || 100,
+            doors: defaults.productionDoors || 2,
+            cabinets: defaults.productionCabinets || 1.5
+          };
+          
+          // Extract billable labor rate (for production-based pricing)
+          const billableLaborRate = defaults.defaultBillableLaborRate || 50;
+          
+          // Extract turnkey rates (for turnkey pricing)
+          const turnkeyRates = {
+            interior: defaults.turnkeyInteriorRate || 3.50,
+            exterior: defaults.turnkeyExteriorRate || 3.50
+          };
+          
+          // Extract flat rate unit prices (for flat-rate pricing)
+          const flatRateUnitPrices = defaults.flatRateUnitPrices || {
+            walls: 2.5,
+            ceilings: 2,
+            interior_trim: 1.5,
+            siding: 3,
+            exterior_trim: 1.8,
+            soffit_fascia: 2,
+            gutters: 4,
+            deck: 2.5,
+            door: 85,
+            window: 75,
+            cabinet: 125,
+            room_small: 350,
+            room_medium: 450,
+            room_large: 600
+          };
+          
+          console.log(`[QuoteBuilder] Pricing data loaded for ${mode}:`, {
+            billableLaborRate: mode === 'production' ? billableLaborRate : 'N/A',
+            turnkeyRates: mode === 'turnkey' ? turnkeyRates : 'N/A',
+            flatRateUnitPrices: mode === 'flat_unit' ? 'Loaded' : 'N/A'
+          });
+          
+          // Update contractor settings with pricing data
+          setContractorSettings(prev => ({
+            ...prev,
+            productionRates: mode === 'production' ? productionRates : {},
+            turnkey: mode === 'turnkey' ? turnkeyRates : prev.turnkey,
+            flatRateUnitPrices: mode === 'flat_unit' ? flatRateUnitPrices : {},
+            laborCategories: [], // Clear labor categories for non-rate-based modes
+            laborRates: {}, // Clear labor rates for non-rate-based modes
+            other: {
+              ...prev.other,
+              defaultBillableLaborRate: mode === 'production' ? billableLaborRate : null,
+              coverage: defaults.coverage || 350,
+              applicationMethod: defaults.applicationMethod || 'roll',
+              coats: defaults.coats || 2,
+              crewSize: defaults.crewSize || 1
+            }
+          }));
+          
+          // Mirror in formData for child components
+          setFormData(prev => ({
+            ...prev,
+            billableLaborRate: mode === 'production' ? billableLaborRate : prev.billableLaborRate,
+            contractorSettings: {
+              ...prev.contractorSettings,
+              productionRates: mode === 'production' ? productionRates : {},
+              turnkey: mode === 'turnkey' ? turnkeyRates : prev.contractorSettings?.turnkey,
+              flatRateUnitPrices: mode === 'flat_unit' ? flatRateUnitPrices : {},
+              laborCategories: [],
+              laborRates: {},
+              other: {
+                ...prev.contractorSettings?.other,
+                defaultBillableLaborRate: mode === 'production' ? billableLaborRate : null,
+                coverage: defaults.coverage || 350,
+                applicationMethod: defaults.applicationMethod || 'roll',
+                coats: defaults.coats || 2,
+                crewSize: defaults.crewSize || 1
+              }
+            },
+            _laborDataUpdated: Date.now()
+          }));
+          
+          message.success({ content: 'Pricing data loaded successfully', key: loadingKey, duration: 2 });
+        }
+      } else if (mode === 'rate_sqft') {
+        // Rate-based pricing: fetch labor categories and rates
+        console.log(`[QuoteBuilder] Fetching labor data for jobType=${jobType}...`);
+        const [laborCategoriesRes, laborRatesRes] = await Promise.all([
+          apiService.get(`/labor-categories?jobType=${jobType}`),
+          apiService.get(`/labor-categories/rates?jobType=${jobType}`)
+        ]);
 
-      const laborRatesMap = {};
-      if (laborRatesRes.success && Array.isArray(laborRatesRes.data)) {
-        laborRatesRes.data.forEach((rateRecord) => {
-          laborRatesMap[rateRecord.laborCategoryId] = Number.parseFloat(rateRecord.rate) || 0;
-        });
-      }
+        const laborRatesMap = {};
+        if (laborRatesRes.success && Array.isArray(laborRatesRes.data)) {
+          laborRatesRes.data.forEach((rateRecord) => {
+            laborRatesMap[rateRecord.laborCategoryId] = Number.parseFloat(rateRecord.rate) || 0;
+          });
+        }
 
-      const categories = laborCategoriesRes.success ? laborCategoriesRes.data : [];
-      console.log(`[QuoteBuilder] Labor data loaded: ${categories.length} categories, ${Object.keys(laborRatesMap).length} rates`);
+        const categories = laborCategoriesRes.success ? laborCategoriesRes.data : [];
+        console.log(`[QuoteBuilder] Labor data loaded: ${categories.length} categories, ${Object.keys(laborRatesMap).length} rates`);
 
-      // Update contractor settings (this is the canonical source)
-      setContractorSettings(prev => ({
-        ...prev,
-        laborCategories: categories,
-        laborRates: laborRatesMap
-      }));
-
-      // Mirror in formData for child components that need it
-      setFormData(prev => ({
-        ...prev,
-        contractorSettings: {
-          ...prev.contractorSettings,
+        // Update contractor settings with labor data
+        setContractorSettings(prev => ({
+          ...prev,
           laborCategories: categories,
-          laborRates: laborRatesMap
-        },
-        // Add timestamp to force component re-renders
-        _laborDataUpdated: Date.now()
-      }));
+          laborRates: laborRatesMap,
+          productionRates: {}, // Clear production rates for rate-based mode
+          flatRateUnitPrices: {}, // Clear flat rate prices for rate-based mode
+          other: {
+            ...prev.other,
+            defaultBillableLaborRate: null // Clear billable labor rate for rate-based mode
+          }
+        }));
+
+        // Mirror in formData for child components
+        setFormData(prev => ({
+          ...prev,
+          contractorSettings: {
+            ...prev.contractorSettings,
+            laborCategories: categories,
+            laborRates: laborRatesMap,
+            productionRates: {},
+            flatRateUnitPrices: {},
+            other: {
+              ...prev.contractorSettings?.other,
+              defaultBillableLaborRate: null
+            }
+          },
+          _laborDataUpdated: Date.now()
+        }));
+        
+        message.success({ content: 'Labor data loaded successfully', key: loadingKey, duration: 2 });
+      }
     } catch (error) {
       console.error('[QuoteBuilder] Failed to fetch labor data:', error);
-      message.error('Failed to load labor categories and rates');
+      message.error({ content: 'Failed to load pricing data', key: loadingKey, duration: 3 });
     }
   }, []);
+  // ============================================================================
+
+  // ============================================================================
+  // TIER PRICING CALCULATION: Calculate pricing for all GBB tiers
+  // ============================================================================
+  const calculateTierPricing = useCallback(async () => {
+    // Only calculate if we have the necessary data
+    const hasAreas = formData.areas && formData.areas.length > 0;
+    const hasTurnkeyData = formData.homeSqft && formData.homeSqft > 0;
+    const hasFlatRateItems = formData.flatRateItems && (
+      Object.values(formData.flatRateItems.interior || {}).some(count => count > 0) ||
+      Object.values(formData.flatRateItems.exterior || {}).some(count => count > 0)
+    );
+
+    if (!hasAreas && !hasTurnkeyData && !hasFlatRateItems) {
+      console.log('[QuoteBuilder] No data for tier pricing calculation');
+      return;
+    }
+
+    if (!formData.pricingSchemeId) {
+      console.log('[QuoteBuilder] No pricing scheme selected');
+      return;
+    }
+
+    try {
+      console.log('[QuoteBuilder] Calculating tier pricing...');
+      
+      const params = {
+        pricingSchemeId: formData.pricingSchemeId,
+        areas: formData.areas || [],
+        homeSqft: formData.homeSqft,
+        jobScope: formData.jobScope,
+        jobType: formData.jobType,
+        numberOfStories: formData.numberOfStories,
+        conditionModifier: formData.conditionModifier,
+        flatRateItems: formData.flatRateItems,
+        productSets: formData.productSets || [],
+        includeMaterials: formData.includeMaterials,
+        coverage: formData.coverage,
+        applicationMethod: formData.applicationMethod,
+        coats: formData.coats
+      };
+
+      const response = await gbbSettingsApi.calculateTierPricing(params);
+      
+      if (response.success && response.data) {
+        console.log('[QuoteBuilder] Tier pricing calculated:', response.data);
+        setTierPricing(response.data);
+        setGbbEnabled(response.data.gbbEnabled || false);
+        
+        // Update formData with tier pricing
+        setFormData(prev => ({
+          ...prev,
+          gbbTierPricing: response.data
+        }));
+      } else {
+        console.log('[QuoteBuilder] GBB not enabled or calculation failed');
+        setTierPricing(null);
+        setGbbEnabled(false);
+      }
+    } catch (error) {
+      console.error('[QuoteBuilder] Failed to calculate tier pricing:', error);
+      setTierPricing(null);
+      setGbbEnabled(false);
+    }
+  }, [formData.areas, formData.homeSqft, formData.flatRateItems, formData.productSets, 
+      formData.pricingSchemeId, formData.jobType, formData.jobScope, formData.numberOfStories,
+      formData.conditionModifier, formData.includeMaterials, formData.coverage, 
+      formData.applicationMethod, formData.coats]);
   // ============================================================================
 
   // Routing/context: detect edit mode via URL or navigation state
@@ -220,13 +457,49 @@ function QuoteBuilderPage() {
     if (!selectedScheme) return;
     
     const isTurnkey = selectedScheme.type === 'turnkey' || selectedScheme.type === 'sqft_turnkey';
+    const isFlatRate = selectedScheme.type === 'flat_rate_unit' || selectedScheme.type === 'unit_pricing' || selectedScheme.type === 'room_flat_rate';
     const hasAreas = formData.areas && formData.areas.length > 0;
     const hasHomeSqft = formData.homeSqft && formData.homeSqft > 0;
+    const hasFlatRateItems = formData.flatRateItems && (
+      Object.values(formData.flatRateItems.interior || {}).some(count => count > 0) ||
+      Object.values(formData.flatRateItems.exterior || {}).some(count => count > 0)
+    );
     
-    console.log(`[QuoteBuilder] Pricing scheme change detected: isTurnkey=${isTurnkey}, hasAreas=${hasAreas}, hasHomeSqft=${hasHomeSqft}`);
+    console.log(`[QuoteBuilder] Pricing scheme change detected: isTurnkey=${isTurnkey}, isFlatRate=${isFlatRate}, hasAreas=${hasAreas}, hasHomeSqft=${hasHomeSqft}, hasFlatRateItems=${hasFlatRateItems}`);
     
+    // If switching to flat rate and has areas data
+    if (isFlatRate && hasAreas && !hasFlatRateItems) {
+      message.warning({
+        content: 'Switched to Flat Rate pricing. Room measurements are not needed. They have been cleared.',
+        duration: 5
+      });
+      
+      // Clear areas since flat rate doesn't use them
+      setFormData(prev => ({
+        ...prev,
+        areas: [],
+        productSets: [],
+        flatRateItems: prev.flatRateItems || { interior: {}, exterior: {} },
+        _lastPricingSchemeId: formData.pricingSchemeId
+      }));
+    }
+    // If switching from flat rate to areas-based and has flat rate items
+    else if (!isFlatRate && !isTurnkey && hasFlatRateItems && !hasAreas) {
+      message.warning({
+        content: 'Switched from Flat Rate pricing. You will need to add room measurements.',
+        duration: 5
+      });
+      
+      // Clear flat rate items and productSets to force rebuild
+      setFormData(prev => ({
+        ...prev,
+        flatRateItems: { interior: {}, exterior: {} },
+        productSets: [], // Force rebuild based on new areas
+        _lastPricingSchemeId: formData.pricingSchemeId
+      }));
+    }
     // If switching from non-turnkey to turnkey and has areas data
-    if (isTurnkey && hasAreas && !hasHomeSqft) {
+    else if (isTurnkey && hasAreas && !hasHomeSqft) {
       message.warning({
         content: 'Switched to Turnkey pricing. Room measurements and products are not needed. They have been cleared.',
         duration: 5
@@ -237,6 +510,7 @@ function QuoteBuilderPage() {
         ...prev,
         areas: [],
         productSets: [],
+        flatRateItems: { interior: {}, exterior: {} }, // Clear flat rate items too
         homeSqft: prev.homeSqft || null,
         jobScope: prev.jobScope || 'both',
         numberOfStories: prev.numberOfStories || 1,
@@ -245,9 +519,9 @@ function QuoteBuilderPage() {
       }));
     }
     // If switching from turnkey to non-turnkey and has home sqft
-    else if (!isTurnkey && hasHomeSqft && !hasAreas) {
+    else if (!isTurnkey && hasHomeSqft && !hasAreas && !hasFlatRateItems) {
       message.warning({
-        content: 'Switched from Turnkey pricing. You will need to add room measurements.',
+        content: 'Switched from Turnkey pricing. You will need to add room measurements or select items.',
         duration: 5
       });
       
@@ -265,7 +539,7 @@ function QuoteBuilderPage() {
       // Note: Labor data will be fetched when user navigates to Areas step
     }
     // If switching between non-turnkey types, clear productSets and areas to force sync
-    else if (!isTurnkey && hasAreas) {
+    else if (!isTurnkey && !isFlatRate && hasAreas) {
       const prevSchemeId = formData._lastPricingSchemeId;
       if (prevSchemeId && prevSchemeId !== formData.pricingSchemeId) {
         // message.info({
@@ -277,6 +551,7 @@ function QuoteBuilderPage() {
           ...prev,
           areas: [], // Clear to force rebuild with correct categories
           productSets: [], // Clear to force rebuild
+          flatRateItems: { interior: {}, exterior: {} }, // Clear flat rate items
           _lastPricingSchemeId: formData.pricingSchemeId,
           contractorSettings: {
             ...prev.contractorSettings,
@@ -287,7 +562,7 @@ function QuoteBuilderPage() {
       }
     }
     // Store the last pricing scheme ID for change detection
-    else if (!isTurnkey && !hasAreas) {
+    else if (!isTurnkey && !hasAreas && !hasFlatRateItems) {
       setFormData(prev => ({
         ...prev,
         _lastPricingSchemeId: formData.pricingSchemeId
@@ -333,15 +608,34 @@ function QuoteBuilderPage() {
     }));
   }, [formData.jobType, formData.pricingSchemeId, pricingSchemes, fetchLaborData]);
 
+//   // Calculate tier pricing when areas, products, or turnkey data changes
+//   useEffect(() => {
+//     // Debounce the calculation to avoid excessive API calls
+//     const timer = setTimeout(() => {
+//       calculateTierPricing();
+//     }, 500);
+
+//     return () => clearTimeout(timer);
+//   }, [
+//     JSON.stringify(formData.areas),
+//     JSON.stringify(formData.productSets),
+//     formData.homeSqft,
+//     formData.jobScope,
+//     formData.numberOfStories,
+//     formData.conditionModifier,
+//     JSON.stringify(formData.flatRateItems),
+//     formData.pricingSchemeId
+//   ]);
+
   // Update steps based on pricing scheme (don't fetch labor data automatically)
   useEffect(() => {
     if (formData.pricingSchemeId && pricingSchemes.length > 0) {
       const selectedScheme = pricingSchemes.find(s => s.id === formData.pricingSchemeId);
       if (!selectedScheme) return;
 
-      // Update steps based on pricing model
+      // Update steps based on pricing model and GBB status
       const isTurnkey = selectedScheme.type === 'turnkey' || selectedScheme.type === 'sqft_turnkey';
-      const newSteps = getSteps(isTurnkey);
+      const newSteps = getSteps(isTurnkey, gbbEnabled);
       
       // Force steps update
       setSteps([...newSteps]);
@@ -353,7 +647,7 @@ function QuoteBuilderPage() {
 
       // Note: Labor data will be fetched when transitioning to Areas step
     }
-  }, [formData.pricingSchemeId, pricingSchemes, currentStep]);
+  }, [formData.pricingSchemeId, pricingSchemes, currentStep, gbbEnabled]);
 
   const fetchPricingSchemes = async () => {
     try {
@@ -458,8 +752,8 @@ function QuoteBuilderPage() {
             coverage: defaults.coverage || 350,
             applicationMethod: defaults.applicationMethod || 'roll',
             coats: defaults.coats || 2,
-            defaultLaborHourRate: defaults.defaultLaborHourRate || 50,
-            crewSize: defaults.crewSize || 2,
+            defaultBillableLaborRate: defaults.defaultBillableLaborRate || 50,
+            crewSize: defaults.crewSize || 1,
             quoteValidityDays: defaults.quoteValidityDays || 30
           }
         };
@@ -480,7 +774,7 @@ function QuoteBuilderPage() {
           coats: prev.coats ?? fullSettings.other.coats,
           
           // Production-based settings (from Pricing Engine)
-          hourlyLaborRate: prev.hourlyLaborRate ?? fullSettings.other.defaultLaborHourRate,
+          billableLaborRate: prev.billableLaborRate ?? fullSettings.other.defaultBillableLaborRate,
           crewSize: prev.crewSize ?? fullSettings.other.crewSize,
           productivityRate: prev.productivityRate ?? fullSettings.productionRates.interiorWalls,
           
@@ -522,6 +816,7 @@ function QuoteBuilderPage() {
       // Check if the quote uses turnkey pricing
       const quoteScheme = pricingSchemes.find(s => s.id === quote.pricingSchemeId);
       const isTurnkeyQuote = quoteScheme && (quoteScheme.type === 'turnkey' || quoteScheme.type === 'sqft_turnkey');
+      const isFlatRateQuote = quoteScheme && (quoteScheme.type === 'flat_rate_unit' || quoteScheme.type === 'unit_pricing' || quoteScheme.type === 'room_flat_rate');
       
       const baseData = {
         // Customer Info
@@ -551,17 +846,20 @@ function QuoteBuilderPage() {
         selectedTier: quote.selectedTier || formData.selectedTier,
         
         // Production-based settings (preserve if exists)
-        hourlyLaborRate: quote.hourlyLaborRate || formData.hourlyLaborRate,
+        billableLaborRate: quote.billableLaborRate || formData.billableLaborRate,
         crewSize: quote.crewSize || formData.crewSize,
         productivityRate: quote.productivityRate || formData.productivityRate,
         
-        // Areas - only load if NOT turnkey
-        areas: isTurnkeyQuote ? [] : (quote.areas || []),
+        // Areas - only load if NOT turnkey and NOT flat rate
+        areas: (isTurnkeyQuote || isFlatRateQuote) ? [] : (quote.areas || []),
+        
+        // Flat Rate Items - only load if flat rate
+        flatRateItems: isFlatRateQuote ? (quote.flatRateItems || { interior: {}, exterior: {} }) : { interior: {}, exterior: {} },
         
         // Products
         productStrategy: quote.productStrategy || 'GBB',
         allowCustomerProductChoice: quote.allowCustomerProductChoice || false,
-        productSets: isTurnkeyQuote ? [] : (quote.productSets || []),
+        productSets: (isTurnkeyQuote || isFlatRateQuote) ? [] : (quote.productSets || []),
         
         // Summary
         notes: quote.notes || '',
@@ -573,6 +871,10 @@ function QuoteBuilderPage() {
       };
       
       setFormData(baseData);
+      
+      // Set auto-save metadata
+      setLastModified(quote.lastModified);
+      setAutoSaveVersion(quote.autoSaveVersion || 1);
       
       message.success('Quote loaded for editing');
     } catch (error) {
@@ -626,7 +928,7 @@ function QuoteBuilderPage() {
         coats: draft.coats || formData.coats,
         selectedTier: draft.selectedTier || formData.selectedTier,
         // Preserve production settings
-        hourlyLaborRate: draft.hourlyLaborRate || formData.hourlyLaborRate,
+        billableLaborRate: draft.billableLaborRate || formData.billableLaborRate,
         crewSize: draft.crewSize || formData.crewSize,
         productivityRate: draft.productivityRate || formData.productivityRate,
         // Store tracking fields
@@ -676,18 +978,99 @@ function QuoteBuilderPage() {
     
     if (!hasData) return;
 
-    try {
-      const response = await quoteBuilderApi.saveDraft(formData);
+    // Wrap auto-save with loading service
+    const wrappedAutoSave = loadingService.wrapAutoSave(async () => {
+      // Include lastModified timestamp for optimistic locking
+      const saveData = {
+        ...formData,
+        lastModified: lastModified
+      };
+
+      const response = await quoteBuilderApi.saveDraft(saveData);
       
+      // Check for conflicts
+      if (response.conflict) {
+        setConflictData(response.conflictData);
+        setConflictModalVisible(true);
+        return;
+      }
+      
+      // Update quote ID if this was a new quote
       if (!formData.quoteId && response.data?.id) {
         setFormData(prev => ({ ...prev, quoteId: response.data.id }));
       }
+
+      // Update auto-save metadata
+      if (response.quote || response.data) {
+        const quote = response.quote || response.data;
+        setLastModified(quote.lastModified);
+        setAutoSaveVersion(quote.autoSaveVersion);
+      }
+
+      // Update auto-save metadata from response
+      if (response.autoSave) {
+        setLastModified(response.autoSave.lastModified);
+        setAutoSaveVersion(response.autoSave.version);
+      }
       
       lastSaveTime.current = Date.now();
-      console.log('Auto-saved successfully');
+      console.log('Auto-saved successfully', { version: autoSaveVersion });
+    });
+
+    try {
+      await wrappedAutoSave();
     } catch (error) {
       console.error('Auto-save failed:', error);
+      
+      // Check if it's a conflict error that wasn't handled by the API wrapper
+      if (error.response && error.response.status === 409) {
+        const conflictData = error.response.data;
+        if (conflictData.conflict) {
+          setConflictData(conflictData);
+          setConflictModalVisible(true);
+          return;
+        }
+      }
+      
+      message.error('Auto-save failed. Please save manually.');
     }
+  };
+
+  const handleConflictResolution = async (resolution, data) => {
+    try {
+      if (resolution === 'server') {
+        // Use server data - reload the quote
+        const serverQuote = data.quote;
+        loadQuoteForEdit(serverQuote);
+        setLastModified(serverQuote.lastModified);
+        setAutoSaveVersion(serverQuote.autoSaveVersion);
+        message.success('Server version loaded successfully');
+      } else {
+        // Use client data - resolve conflict with our data
+        const response = await quoteBuilderApi.resolveConflict(
+          formData.quoteId, 
+          'client', 
+          formData
+        );
+        
+        if (response.success) {
+          setLastModified(response.quote.lastModified);
+          setAutoSaveVersion(response.quote.autoSaveVersion);
+          message.success('Your changes have been saved');
+        }
+      }
+      
+      setConflictModalVisible(false);
+      setConflictData(null);
+    } catch (error) {
+      console.error('Conflict resolution failed:', error);
+      message.error('Failed to resolve conflict. Please try again.');
+    }
+  };
+
+  const handleConflictCancel = () => {
+    setConflictModalVisible(false);
+    setConflictData(null);
   };
 
   const handleStepDataUpdate = (stepData) => {
@@ -853,6 +1236,16 @@ function QuoteBuilderPage() {
     setDetectedClient(null);
   };
 
+  // Handle tier selection
+  const handleTierSelect = (tier) => {
+    console.log('[QuoteBuilder] Tier selected:', tier);
+    setFormData(prev => ({
+      ...prev,
+      gbbSelectedTier: tier
+    }));
+    message.success(`${tier.charAt(0).toUpperCase() + tier.slice(1)} tier selected`);
+  };
+
   // Determine pricing model type with normalization + robust logging
   const getPricingModelType = () => {
     if (!formData.pricingSchemeId) {
@@ -950,7 +1343,7 @@ function QuoteBuilderPage() {
         }
         return { valid: true };
 
-      case 2: // Areas or Home Size
+      case 2: // Areas, Home Size, or Flat Rate Items
         if (isTurnkeyPricing()) {
           // Turnkey validation
           if (!formData.homeSqft || formData.homeSqft <= 0) {
@@ -960,8 +1353,18 @@ function QuoteBuilderPage() {
             return { valid: false, message: 'Home size exceeds 20,000 sq ft. Contact support for large properties.' };
           }
           return { valid: true };
+        } else if (usesUnitCounts()) {
+          // Flat Rate validation
+          const flatRateItems = formData.flatRateItems || { interior: {}, exterior: {} };
+          const totalItems = Object.values(flatRateItems.interior || {}).reduce((sum, count) => sum + (count || 0), 0) +
+                            Object.values(flatRateItems.exterior || {}).reduce((sum, count) => sum + (count || 0), 0);
+          
+          if (totalItems === 0) {
+            return { valid: false, message: 'Please select at least one item' };
+          }
+          return { valid: true };
         } else {
-          // Non-Turnkey validation
+          // Non-Turnkey, Non-Flat Rate validation (Areas-based)
           if (!formData.areas || formData.areas.length === 0) {
             return { valid: false, message: 'Please add at least one area/room' };
           }
@@ -1014,7 +1417,7 @@ function QuoteBuilderPage() {
             }
           }
 
-          // Check minimum project size
+          // Check minimum project size for areas-based pricing
           if (requiresDetailedAreas()) {
             let totalSqft = 0;
             
@@ -1043,6 +1446,18 @@ function QuoteBuilderPage() {
         if (!formData.includeMaterials) {
           return { valid: true }; // Materials optional
         }
+        return { valid: true };
+
+      case 4: // Either Tier Selection or Summary
+        if (gbbEnabled && tierPricing) {
+          // Tier selection validation
+          if (!formData.gbbSelectedTier) {
+            return { valid: false, message: 'Please select a pricing tier' };
+          }
+        }
+        return { valid: true };
+
+      case 5: // Summary (only when GBB enabled)
         return { valid: true };
 
       default:
@@ -1096,7 +1511,7 @@ function QuoteBuilderPage() {
         );
       
       case 2:
-        // For turnkey: Home Size (step 2), for others: Areas (step 2)
+        // For turnkey: Home Size (step 2), for flat rate: Flat Rate Items (step 2), for others: Areas (step 2)
         if (isTurnkeyPricing()) {
           return (
             <HomeSizeStep
@@ -1106,6 +1521,23 @@ function QuoteBuilderPage() {
               onNext={handleNext}
               onPrevious={handlePrevious}
               pricingSchemes={pricingSchemes}
+            />
+          );
+        } else if (usesUnitCounts()) {
+          // Flat Rate Pricing Step
+          return (
+            <FlatRatePricingStep
+              key={`flatrate-${formData.pricingSchemeId}-${formData.jobType}`}
+              formData={{
+                ...formData,
+                pricingModelType: getPricingModelType(),
+                pricingModelFriendlyName: getPricingModelFriendlyName(),
+                pricingModelDescription: getPricingModelDescription(),
+                contractorSettings: contractorSettings
+              }}
+              onUpdate={handleStepDataUpdate}
+              onNext={handleNext}
+              onPrevious={handlePrevious}
             />
           );
         } else {
@@ -1156,7 +1588,33 @@ function QuoteBuilderPage() {
         );
       
       case 4:
-        // Summary (step 4) - shown for all pricing models
+        // Step 4: Either Tier Selection (if GBB enabled) or Summary (if GBB disabled)
+        if (gbbEnabled && tierPricing) {
+          return (
+            <TierSelectionStep
+              key={`tier-selection-${formData.pricingSchemeId}`}
+              tierPricing={tierPricing}
+              selectedTier={formData.gbbSelectedTier}
+              onSelectTier={handleTierSelect}
+              pricingScheme={getCurrentPricingScheme()}
+            />
+          );
+        } else {
+          // Summary (step 4) - when GBB is not enabled
+          return (
+            <SummaryStep
+              key={`summary-${formData.pricingSchemeId}`}
+              formData={formData}
+              onUpdate={handleStepDataUpdate}
+              onPrevious={handlePrevious}
+              onEdit={handleEdit}
+              pricingSchemes={pricingSchemes}
+            />
+          );
+        }
+      
+      case 5:
+        // Summary (step 5) - only shown when GBB is enabled
         return (
           <SummaryStep
             key={`summary-${formData.pricingSchemeId}`}
@@ -1165,6 +1623,8 @@ function QuoteBuilderPage() {
             onPrevious={handlePrevious}
             onEdit={handleEdit}
             pricingSchemes={pricingSchemes}
+            tierPricing={tierPricing}
+            selectedTier={formData.gbbSelectedTier}
           />
         );
       
@@ -1232,8 +1692,17 @@ function QuoteBuilderPage() {
         <div className="text-center text-xs text-gray-500 mt-4">
           Auto-saving every 30 seconds
           {formData.quoteId && ` • Draft ID: ${formData.quoteId}`}
+          {autoSaveVersion > 1 && ` • Version: ${autoSaveVersion}`}
         </div>
       </div>
+
+      {/* Conflict Resolution Modal */}
+      <ConflictResolutionModal
+        visible={conflictModalVisible}
+        onCancel={handleConflictCancel}
+        onResolve={handleConflictResolution}
+        conflictData={conflictData}
+      />
     </div>
   );
 }

@@ -219,7 +219,7 @@ const PricingSchemes = () => {
             <Typography.Title level={5}>Labor Rates</Typography.Title>
             <Form.Item
               label="Walls (per sq ft)"
-              name={['rules', 'laborRates', 'walls']}
+              name={['rules',  'walls']}
               rules={[{ required: true }]}
               initialValue={0.55}
             >
@@ -232,7 +232,7 @@ const PricingSchemes = () => {
             </Form.Item>
             <Form.Item
               label="Ceilings (per sq ft)"
-              name={['rules', 'laborRates', 'ceilings']}
+              name={['rules',  'ceilings']}
               rules={[{ required: true }]}
               initialValue={0.65}
             >
@@ -245,7 +245,7 @@ const PricingSchemes = () => {
             </Form.Item>
             <Form.Item
               label="Trim (per linear ft)"
-              name={['rules', 'laborRates', 'trim']}
+              name={['rules',  'trim']}
               rules={[{ required: true }]}
               initialValue={2.50}
             >
@@ -258,7 +258,7 @@ const PricingSchemes = () => {
             </Form.Item>
             <Form.Item
               label="Doors (per unit)"
-              name={['rules', 'laborRates', 'doors']}
+              name={['rules',  'doors']}
               initialValue={45}
             >
               <InputNumber 
@@ -270,7 +270,7 @@ const PricingSchemes = () => {
             </Form.Item>
             <Form.Item
               label="Cabinets (per unit)"
-              name={['rules', 'laborRates', 'cabinets']}
+              name={['rules',  'cabinets']}
               initialValue={65}
             >
               <InputNumber 
@@ -288,8 +288,8 @@ const PricingSchemes = () => {
         return (
           <>
             <Form.Item
-              label="Hourly Labor Rate (per painter)"
-              name={['rules', 'hourlyLaborRate']}
+              label="Billable Labor Rate (per painter)"
+              name={['rules', 'billableLaborRate']}
               rules={[{ required: true }]}
               initialValue={50}
             >

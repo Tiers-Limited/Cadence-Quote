@@ -11,10 +11,8 @@ import {
   message,
   Spin,
   Alert,
-  Divider,
   DatePicker,
   InputNumber,
-  Input,
   Form,
   Modal,
   Select,
@@ -26,12 +24,14 @@ import {
   CalendarOutlined,
   EditOutlined,
   CheckCircleOutlined,
-  ToolOutlined
+  FileTextOutlined,
+  DownloadOutlined
 } from '@ant-design/icons'
 
 import { jobsService } from '../services/jobsService'
 import dayjs from 'dayjs'
 import JobProgressTracker from '../components/JobProgressTracker'
+import CompleteJobModal from '../components/CompleteJobModal'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -42,11 +42,16 @@ function JobDetailPage () {
   const [job, setJob] = useState(null)
   const [schedulingModalVisible, setSchedulingModalVisible] = useState(false)
   const [statusModalVisible, setStatusModalVisible] = useState(false)
+  const [completeJobModalVisible, setCompleteJobModalVisible] = useState(false)
   const [form] = Form.useForm()
+  const [documents, setDocuments] = useState([])
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [downloadingDoc, setDownloadingDoc] = useState(null)
 
   useEffect(() => {
     if (jobId) {
       fetchJobDetails()
+      fetchJobDocuments()
     }
   }, [jobId])
 
@@ -61,6 +66,77 @@ function JobDetailPage () {
       message.error('Failed to load job details: ' + error.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchJobDocuments = async () => {
+    try {
+      setDocumentsLoading(true)
+      const response = await jobsService.getJobDocuments(jobId)
+      if (response.success && response.documents) {
+        // Convert documents object to array format
+        const docsArray = Object.entries(response.documents)
+          .filter(([key]) => key !== 'generatedAt') // Exclude generatedAt
+          .map(([type, doc]) => ({
+            type,
+            title: doc.title,
+            url: doc.url,
+            available: doc.available,
+            generatedAt: response.documents.generatedAt
+          }))
+          .filter(doc => doc.available) // Only show available documents
+        
+        setDocuments(docsArray)
+      }
+    } catch (error) {
+      console.error('Failed to load job documents:', error)
+      // Don't show error message - documents might not be generated yet
+      setDocuments([])
+    } finally {
+      setDocumentsLoading(false)
+    }
+  }
+
+  const handleDownloadDocument = async (documentType) => {
+    try {
+      setDownloadingDoc(documentType)
+      
+      // Convert camelCase to kebab-case for API
+      const apiDocumentType = documentType.replace(/([A-Z])/g, '-$1').toLowerCase()
+      
+      const response = await jobsService.downloadJobDocument(jobId, apiDocumentType)
+      
+      // Create blob and download
+      const blob = new Blob([response], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `${apiDocumentType}-${jobId}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      
+      message.success('Document downloaded successfully')
+    } catch (error) {
+      message.error('Failed to download document: ' + error.message)
+    } finally {
+      setDownloadingDoc(null)
+    }
+  }
+
+  const handleGenerateDocuments = async () => {
+    try {
+      setDocumentsLoading(true)
+      const response = await jobsService.generateJobDocuments(jobId)
+      if (response.success) {
+        message.success('Job documents generated successfully')
+        fetchJobDocuments()
+      }
+    } catch (error) {
+      message.error('Failed to generate documents: ' + error.message)
+    } finally {
+      setDocumentsLoading(false)
     }
   }
 
@@ -273,16 +349,14 @@ function JobDetailPage () {
             </Descriptions>
           </Card>
 
-          {/* Job Progress Tracker */}
-          {job.quote?.areas && job.quote.areas.length > 0 && (
-            <Card title='Job Progress by Area' className='mb-4'>
-              <JobProgressTracker
-                jobId={jobId}
-                job={job}
-                onProgressUpdate={fetchJobDetails}
-              />
-            </Card>
-          )}
+          {/* Job Progress Tracker - Show for all pricing schemes */}
+          <Card title='Job Progress by Area' className='mb-4'>
+            <JobProgressTracker
+              jobId={jobId}
+              job={job}
+              onProgressUpdate={fetchJobDetails}
+            />
+          </Card>
         </Col>
 
         {/* Right Column */}
@@ -290,6 +364,17 @@ function JobDetailPage () {
           {/* Quick Actions */}
           <Card title='Quick Actions' className='mb-4'>
             <Space direction='vertical' style={{ width: '100%' }}>
+              {job.status !== 'completed' && (
+                <Button
+                  block
+                  type="primary"
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => setCompleteJobModalVisible(true)}
+                  style={{ background: '#52c41a', borderColor: '#52c41a' }}
+                >
+                  Mark Job as Complete
+                </Button>
+              )}
               <Button
                 block
                 icon={<EditOutlined />}
@@ -372,6 +457,87 @@ function JobDetailPage () {
               )}
             </Space>
           </Card>
+
+          {/* Job Documents */}
+          <Card 
+            title={
+              <Space>
+                <FileTextOutlined />
+                <span>Job Documents</span>
+              </Space>
+            } 
+            className='mb-4'
+            extra={
+              documents.length === 0 && job?.depositPaid && (
+                <Button 
+                  type="primary" 
+                  size="small"
+                  onClick={handleGenerateDocuments}
+                  loading={documentsLoading}
+                >
+                  Generate Documents
+                </Button>
+              )
+            }
+          >
+            {!job?.depositPaid ? (
+              <Alert
+                message="Documents Not Available"
+                description="Job documents will be available after the customer accepts the quote and pays the deposit."
+                type="info"
+                showIcon
+              />
+            ) : documentsLoading ? (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <Spin tip="Loading documents..." />
+              </div>
+            ) : documents.length === 0 ? (
+              <Alert
+                message="No Documents Generated"
+                description="Click 'Generate Documents' to create work order, material list, and paint product order."
+                type="warning"
+                showIcon
+              />
+            ) : (
+              <Space direction='vertical' style={{ width: '100%' }} size="small">
+                {documents.map((doc) => (
+                  <div 
+                    key={doc.type}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 0',
+                      borderBottom: '1px solid #f0f0f0'
+                    }}
+                  >
+                    <Space>
+                      <FileTextOutlined style={{ fontSize: 16, color: '#1890ff' }} />
+                      <div>
+                        <Text strong>{doc.title}</Text>
+                        {doc.generatedAt && (
+                          <div>
+                            <Text type='secondary' style={{ fontSize: 12 }}>
+                              Generated: {new Date(doc.generatedAt).toLocaleDateString()}
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                    </Space>
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<DownloadOutlined />}
+                      onClick={() => handleDownloadDocument(doc.type)}
+                      loading={downloadingDoc === doc.type}
+                    >
+                      Download
+                    </Button>
+                  </div>
+                ))}
+              </Space>
+            )}
+          </Card>
         </Col>
       </Row>
 
@@ -451,6 +617,14 @@ function JobDetailPage () {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Complete Job Modal */}
+      <CompleteJobModal
+        visible={completeJobModalVisible}
+        onCancel={() => setCompleteJobModalVisible(false)}
+        job={job}
+        onSuccess={fetchJobDetails}
+      />
     </div>
   )
 }

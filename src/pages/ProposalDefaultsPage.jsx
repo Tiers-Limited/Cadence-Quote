@@ -137,6 +137,22 @@ function ProposalDefaultsPage() {
                 />
               </Form.Item>
 
+              <Form.Item
+                label="Scope of Work (Default)"
+                name="scopeOfWork"
+                tooltip="Default scope of work text to include in proposals"
+              >
+                <TextArea rows={6} placeholder="Scope: Exterior/interior painting, prep, priming, etc." />
+              </Form.Item>
+
+              <Form.Item
+                label="Policies (Default)"
+                name="policies"
+                tooltip="Default policies to include in proposals (cancellation, site access, etc.)"
+              >
+                <TextArea rows={4} placeholder="Cancellation policy, change orders, jobsite expectations..." />
+              </Form.Item>
+
               <Button type="primary" htmlType="submit" loading={saving} icon={<FiSave />}>
                 Save Company Introduction
               </Button>
@@ -197,6 +213,14 @@ function ProposalDefaultsPage() {
                   rows={8} 
                   placeholder="Payment Schedule:&#10;- 50% deposit required to begin work&#10;- 25% at project midpoint&#10;- 25% upon completion&#10;&#10;Terms:&#10;- Payment due within 3 business days of invoice&#10;- Late fees of 1.5% per month may apply" 
                 />
+              </Form.Item>
+
+              <Form.Item label="Deposit Percent (default)" name="depositPercent">
+                <InputNumber min={0} max={100} formatter={value => `${value}%`} parser={value => value.replace('%', '')} style={{ width: 200 }} />
+              </Form.Item>
+
+              <Form.Item label="Balance Percent (default)" name="balancePercent">
+                <InputNumber min={0} max={100} formatter={value => `${value}%`} parser={value => value.replace('%', '')} style={{ width: 200 }} />
               </Form.Item>
 
               <Form.Item label="Payment Methods" name="paymentMethods">

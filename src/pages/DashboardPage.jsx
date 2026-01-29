@@ -25,10 +25,10 @@ function DashboardPage () {
     avgChange: '+0%'
   })
   const [jobAnalyticsData, setJobAnalyticsData] = useState([
-    { name: 'Material %', value: 35, color: '#3b82f6' },
-    { name: 'Labor %', value: 40, color: '#10b981' },
-    { name: 'Overhead %', value: 15, color: '#f59e0b' },
-    { name: 'Net Profit %', value: 10, color: '#8b5cf6' }
+    { name: 'Materials', value: 0, color: '#3b82f6' },
+    { name: 'Labor', value: 0, color: '#10b981' },
+    { name: 'Overhead', value: 0, color: '#f59e0b' },
+    { name: 'Net Profit', value: 0, color: '#8b5cf6' }
   ])
   const [recentActivity, setRecentActivity] = useState([])
   const [monthlyPerformance, setMonthlyPerformance] = useState({
@@ -52,7 +52,7 @@ function DashboardPage () {
     try {
       const [dashboardStats, analytics, performance, activity] = await Promise.all([
         dashboardService.getDashboardStats(),
-        dashboardService.getJobAnalytics(),
+        fetchJobAnalyticsSummary(), // Use our new analytics API
         dashboardService.getMonthlyPerformance(),
         dashboardService.getRecentActivity(10)
       ])
@@ -72,11 +72,60 @@ function DashboardPage () {
         })
       }
 
-      // Update job analytics
-      if (analytics.success) {
-        setJobAnalyticsData(analytics.data)
-        setTotalJobs(analytics.totalJobs || 0)
-        setAvgMargin(analytics.avgMargin || 10)
+      // Update job analytics with real data
+      if (analytics.success && analytics.data) {
+        const { averages, totalJobs } = analytics.data;
+        
+        // Check if averages exist (will be null if no completed jobs)
+        if (averages) {
+          // Ensure percentages total exactly 100% (handle rounding)
+          const total = averages.materialPercentage + averages.laborPercentage + 
+                       averages.overheadPercentage + averages.profitPercentage;
+          
+          // If there's a rounding difference, adjust profit to make it exactly 100%
+          const adjustedProfit = total !== 100 
+            ? averages.profitPercentage + (100 - total)
+            : averages.profitPercentage;
+          
+          setJobAnalyticsData([
+            { 
+              name: 'Materials', 
+              value: averages.materialPercentage,
+              amount: averages.averageJobPrice * (averages.materialPercentage / 100),
+              color: '#3b82f6' 
+            },
+            { 
+              name: 'Labor', 
+              value: averages.laborPercentage,
+              amount: averages.averageJobPrice * (averages.laborPercentage / 100),
+              color: '#10b981' 
+            },
+            { 
+              name: 'Overhead', 
+              value: averages.overheadPercentage,
+              amount: averages.averageJobPrice * (averages.overheadPercentage / 100),
+              color: '#f59e0b' 
+            },
+            { 
+              name: 'Net Profit', 
+              value: adjustedProfit,
+              amount: averages.averageJobPrice * (adjustedProfit / 100),
+              color: '#8b5cf6' 
+            }
+          ]);
+          setAvgMargin(adjustedProfit);
+        } else {
+          // No completed jobs yet - use default/empty data
+          setJobAnalyticsData([
+            { name: 'Materials', value: 0, amount: 0, color: '#3b82f6' },
+            { name: 'Labor', value: 0, amount: 0, color: '#10b981' },
+            { name: 'Overhead', value: 0, amount: 0, color: '#f59e0b' },
+            { name: 'Net Profit', value: 0, amount: 0, color: '#8b5cf6' }
+          ]);
+          setAvgMargin(0);
+        }
+        
+        setTotalJobs(totalJobs || 0);
       }
 
       // Update monthly performance
@@ -94,6 +143,81 @@ function DashboardPage () {
       message.error('Failed to load dashboard data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Fetch job analytics summary from our new API
+  const fetchJobAnalyticsSummary = async () => {
+    try {
+      // Use the completed jobs endpoint which calculates analytics on-the-fly
+      const response = await apiService.get('/job-analytics/completed-jobs');
+      
+      if (response.success && response.data) {
+        const { jobs, summary } = response.data;
+        
+        // If no completed jobs, return empty
+        if (summary.totalCompletedJobs === 0) {
+          return {
+            success: true,
+            data: {
+              totalJobs: 0,
+              averages: null
+            }
+          };
+        }
+        
+        // Get all jobs that have analytics (either stored or calculated on-the-fly)
+        const jobsWithAnalytics = jobs.filter(j => j.analytics);
+        
+        if (jobsWithAnalytics.length === 0) {
+          return {
+            success: true,
+            data: {
+              totalJobs: summary.totalCompletedJobs,
+              averages: null
+            }
+          };
+        }
+        
+        // Calculate averages from all jobs with analytics
+        const totals = jobsWithAnalytics.reduce((acc, job) => {
+          const analytics = job.analytics;
+          acc.materialPercentage += analytics.materialPercentage || 0;
+          acc.laborPercentage += analytics.laborPercentage || 0;
+          acc.overheadPercentage += analytics.overheadPercentage || 0;
+          acc.profitPercentage += analytics.profitPercentage || 0;
+          acc.jobPrice += job.jobPrice || 0;
+          return acc;
+        }, {
+          materialPercentage: 0,
+          laborPercentage: 0,
+          overheadPercentage: 0,
+          profitPercentage: 0,
+          jobPrice: 0
+        });
+        
+        const count = jobsWithAnalytics.length;
+        const averages = {
+          materialPercentage: parseFloat((totals.materialPercentage / count).toFixed(2)),
+          laborPercentage: parseFloat((totals.laborPercentage / count).toFixed(2)),
+          overheadPercentage: parseFloat((totals.overheadPercentage / count).toFixed(2)),
+          profitPercentage: parseFloat((totals.profitPercentage / count).toFixed(2)),
+          averageJobPrice: parseFloat((totals.jobPrice / count).toFixed(2))
+        };
+        
+        return {
+          success: true,
+          data: {
+            totalJobs: summary.totalCompletedJobs,
+            averages: averages
+          }
+        };
+      }
+      
+      return { success: false, data: null };
+    } catch (error) {
+      console.error('Error fetching job analytics summary:', error);
+      return { success: false, data: null };
     }
   }
 
@@ -245,6 +369,14 @@ function DashboardPage () {
               <h3 className='text-lg sm:text-xl font-bold text-gray-900'>
                 Job Analytics
               </h3>
+              {/* <Button 
+                type="link" 
+                size="small"
+                onClick={() => navigate('/job-analytics')}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                View Details
+              </Button> */}
             </div>
             
             <div className="h-64 sm:h-80">
@@ -267,11 +399,21 @@ function DashboardPage () {
                     ))}
                   </Pie>
                   <Tooltip 
-                    formatter={(value) => `${value}%`}
+                    formatter={(value, name, props) => {
+                      const amount = props.payload.amount || 0;
+                      return [
+                        `${value.toFixed(1)}% ($${amount.toLocaleString('en-US', { 
+                          minimumFractionDigits: 0, 
+                          maximumFractionDigits: 0 
+                        })})`,
+                        name
+                      ];
+                    }}
                     contentStyle={{ 
                       borderRadius: '8px', 
                       border: '1px solid #e5e7eb',
-                      fontSize: '14px'
+                      fontSize: '14px',
+                      padding: '8px 12px'
                     }}
                   />
                   <Legend 
@@ -284,8 +426,16 @@ function DashboardPage () {
               </ResponsiveContainer>
             </div>
 
-            {/* Breakdown Details */}
+            {/* Breakdown Details - Read-only per spec */}
             <div className="mt-6 space-y-3">
+              <div className="text-xs text-gray-500 mb-2 flex items-center justify-between">
+                <span>Cost Breakdown (Read-only)</span>
+                {totalJobs > 0 && (
+                  <span className="font-medium">
+                    Total: {jobAnalyticsData.reduce((sum, item) => sum + item.value, 0).toFixed(1)}%
+                  </span>
+                )}
+              </div>
               {jobAnalyticsData.map((item) => (
                 <div key={item.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -295,8 +445,16 @@ function DashboardPage () {
                     />
                     <span className="text-sm font-medium text-gray-700">{item.name}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-gray-900">{item.value}%</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-500">
+                      ${(item.amount || 0).toLocaleString('en-US', { 
+                        minimumFractionDigits: 0, 
+                        maximumFractionDigits: 0 
+                      })}
+                    </span>
+                    <span className="text-sm font-bold text-gray-900 w-12 text-right">
+                      {item.value.toFixed(1)}%
+                    </span>
                     <Progress 
                       percent={item.value} 
                       strokeColor={item.color}
@@ -310,18 +468,36 @@ function DashboardPage () {
             </div>
 
             <div className="mt-6 pt-6 border-t border-gray-200">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Total Jobs</p>
-                  <p className="text-lg sm:text-xl font-bold text-gray-900">{totalJobs}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Avg. Margin</p>
-                  <p className="text-lg sm:text-xl font-bold text-green-600">
-                    {avgMargin}%
+              {totalJobs === 0 ? (
+                <div className="text-center py-4">
+                  <p className="text-sm text-gray-500 mb-2">No completed jobs with analytics yet</p>
+                  <p className="text-xs text-gray-400">
+                    Complete jobs and configure overhead target in Settings to view analytics
                   </p>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Total Jobs</p>
+                      <p className="text-lg sm:text-xl font-bold text-gray-900">{totalJobs}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Net Profit Margin</p>
+                      <p className={`text-lg sm:text-xl font-bold ${
+                        avgMargin >= 8 ? 'text-green-600' : avgMargin >= 0 ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {avgMargin.toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="text-xs text-gray-500 bg-blue-50 p-3 rounded-lg">
+                    <p className="font-medium text-gray-700 mb-1">Analytics Formula:</p>
+                    <p>Materials (actual) + Labor (actual/estimated) + Overhead (allocated) + Net Profit (remainder) = 100%</p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

@@ -70,13 +70,11 @@ export const jobsService = {
 
   /**
    * Update area progress for Job Progress Tracker
+   * Supports all pricing schemes
    */
-  async updateAreaProgress(jobId, areaId, status) {
+  async updateAreaProgress(jobId, progressData) {
     try {
-      const response = await apiService.post(`/jobs/${jobId}/area-progress`, {
-        areaId,
-        status
-      });
+      const response = await apiService.post(`/jobs/${jobId}/area-progress`, progressData);
       return response;
     } catch (error) {
       console.error('Update area progress error:', error);
@@ -242,6 +240,49 @@ export const jobsService = {
       'other': 'Other'
     };
     return labels[reason] || reason;
+  },
+
+  /**
+   * Get job documents
+   */
+  async getJobDocuments(jobId) {
+    try {
+      const response = await apiService.get(`/jobs/${jobId}/documents`);
+      return response;
+    } catch (error) {
+      console.error('Get job documents error:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Download job document
+   */
+  async downloadJobDocument(jobId, documentType) {
+    try {
+      const response = await apiService.get(
+        `/jobs/${jobId}/documents/${documentType}`,
+        null,
+        { responseType: 'blob' }
+      );
+      return response;
+    } catch (error) {
+      console.error('Download job document error:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Generate job documents
+   */
+  async generateJobDocuments(jobId) {
+    try {
+      const response = await apiService.post(`/jobs/${jobId}/documents/generate`);
+      return response;
+    } catch (error) {
+      console.error('Generate job documents error:', error);
+      throw error;
+    }
   }
 };
 

@@ -41,6 +41,7 @@ import ContractorPortalControls from '../components/ContractorPortalControls';
 import MarkDepositPaidModal from '../components/AdminActions/MarkDepositPaidModal';
 import ReopenQuoteModal from '../components/AdminActions/ReopenQuoteModal';
 import SyncPaymentModal from '../components/AdminActions/SyncPaymentModal';
+import MarkJobCompleteModal from '../components/MarkJobCompleteModal';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -62,6 +63,8 @@ const QuotesListPage = () => {
   const [reopenQuoteModalVisible, setReopenQuoteModalVisible] = useState(false);
   const [syncPaymentModalVisible, setSyncPaymentModalVisible] = useState(false);
   const [selectedQuoteForAction, setSelectedQuoteForAction] = useState(null);
+  const [markCompleteModalVisible, setMarkCompleteModalVisible] = useState(false);
+  const [selectedQuoteForComplete, setSelectedQuoteForComplete] = useState(null);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -320,6 +323,16 @@ const QuotesListPage = () => {
     }
   };
 
+  const handleMarkJobComplete = (quote) => {
+    setSelectedQuoteForComplete(quote);
+    setMarkCompleteModalVisible(true);
+  };
+
+  const handleJobCompleteSuccess = (data) => {
+    message.success('Job marked as complete! Analytics are now available.');
+    fetchQuotes(); // Refresh the quotes list
+  };
+
   const StatusBadge = ({ status }) => {
     const statusConfig = {
       draft: { color: 'default', icon: <FileTextOutlined />, label: 'DRAFT' },
@@ -505,6 +518,34 @@ const QuotesListPage = () => {
                 Duplicate
               </Button>
 
+              {/* Mark Job Complete Button - Only show for accepted/deposit_paid quotes that aren't completed */}
+              {(record.status === 'accepted' || record.status === 'deposit_paid' || record.status === 'scheduled') && !record.jobCompletedAt && (
+                <Button
+                  type="link"
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => handleMarkJobComplete(record)}
+                  size="small"
+                  style={{ color: '#52c41a' }}
+                  title="Mark Job Complete"
+                >
+                  Complete
+                </Button>
+              )}
+
+              {/* Job Analytics Button - Only show for completed jobs */}
+              {record.jobCompletedAt && (
+                <Button
+                  type="link"
+                  icon={<DollarCircleOutlined />}
+                  onClick={() => navigate(`/job-analytics/${record.id}`)}
+                  size="small"
+                  style={{ color: '#52c41a' }}
+                  title="View Job Analytics"
+                >
+                  Analytics
+                </Button>
+              )}
+
               {/* {record.clientId && (
                 <Button
                   type="link"
@@ -552,6 +593,26 @@ const QuotesListPage = () => {
                 size="small"
                 title="Copy"
               />
+              {/* Mark Job Complete Button - Mobile */}
+              {(record.status === 'accepted' || record.status === 'deposit_paid' || record.status === 'scheduled') && !record.jobCompletedAt && (
+                <Button
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => handleMarkJobComplete(record)}
+                  size="small"
+                  style={{ color: '#52c41a' }}
+                  title="Mark Job Complete"
+                />
+              )}
+              {/* Job Analytics Button - Mobile */}
+              {record.jobCompletedAt && (
+                <Button
+                  icon={<DollarCircleOutlined />}
+                  onClick={() => navigate(`/job-analytics/${record.id}`)}
+                  size="small"
+                  style={{ color: '#52c41a' }}
+                  title="View Job Analytics"
+                />
+              )}
               {/* {record.clientId && (
                 <Button
                   icon={<MailOutlined />}
@@ -1219,6 +1280,17 @@ const QuotesListPage = () => {
             fetchQuotes();
           }}
           quote={selectedQuoteForAction}
+        />
+
+        {/* Mark Job Complete Modal */}
+        <MarkJobCompleteModal
+          visible={markCompleteModalVisible}
+          onCancel={() => {
+            setMarkCompleteModalVisible(false);
+            setSelectedQuoteForComplete(null);
+          }}
+          onSuccess={handleJobCompleteSuccess}
+          quote={selectedQuoteForComplete}
         />
       </div>
     </div>

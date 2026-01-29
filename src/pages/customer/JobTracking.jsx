@@ -30,6 +30,7 @@ import {
 } from '@stripe/react-stripe-js'
 import { customerPortalAPI } from '../../services/customerPortalAPI'
 import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader'
+import JobProgressView from '../../components/CustomerPortal/JobProgressView'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -118,7 +119,8 @@ const JobTracking = () => {
     try {
       setLoading(true)
       const response = await customerPortalAPI.getJobDetails(jobId)
-      setJob(response.job)
+      // API returns {success: true, data: job}
+      setJob(response.data || response.job)
       setLoading(false)
     } catch (err) {
       console.error('Error fetching job:', err)
@@ -349,6 +351,16 @@ const JobTracking = () => {
             </div>
           </Card>
         </div>
+
+        {/* Job Progress Section */}
+        {(job.status === 'in_progress' || job.status === 'completed' || job.status === 'scheduled') && (
+          <>
+            <Divider>Project Progress</Divider>
+            <div className='mb-6'>
+              <JobProgressView job={job} />
+            </div>
+          </>
+        )}
 
         {/* Final Payment CTA */}
         {job.status === 'completed' &&

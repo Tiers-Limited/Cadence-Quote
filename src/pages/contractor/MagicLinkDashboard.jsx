@@ -265,7 +265,7 @@ const MagicLinkDashboard = () => {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Magic Link Management</h1>
+      <h1 className="text-2xl font-bold mb-6">Cadence Pulse Management</h1>
 
       {/* Statistics */}
       {stats && (

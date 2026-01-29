@@ -223,7 +223,14 @@ function MainLayout ({ children }) {
           icon: <FiTool size={18} />,
           label: 'Jobs',
           onClick: () => handleMenuClick('/jobs')
-        }
+        },
+        // {
+        //   key: 'job-analytics',
+        //   path: '/job-analytics',
+        //   icon: <FiTrendingUp size={18} />,
+        //   label: 'Job Analytics',
+        //   onClick: () => handleMenuClick('/job-analytics')
+        // }
       ]
     },
     {
@@ -241,7 +248,7 @@ function MainLayout ({ children }) {
         {
   key: 'magic-links',
   icon: <FiLink  />,
-  label: 'Magic Links',
+  label: 'Cadence Pulse',
   path: '/magic-links',
   onClick: () => handleMenuClick('/magic-links')
 },
