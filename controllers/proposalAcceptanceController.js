@@ -45,7 +45,28 @@ exports.getProposal = async (req, res) => {
     });
     
     const depositPercentage = parseFloat(settings?.depositPercentage || 50);
-    const depositAmount = (parseFloat(quote.total) * depositPercentage) / 100;
+    const baseTotal = parseFloat(quote.total || 0);
+    const depositAmount = (baseTotal * depositPercentage) / 100;
+    
+    // Calculate tier pricing for GBB quotes
+    let pricingTiers = null;
+    if (quote.productStrategy === 'GBB') {
+      const tierMultipliers = { good: 0.85, better: 1.0, best: 1.15 };
+      pricingTiers = {};
+      
+      Object.entries(tierMultipliers).forEach(([tier, multiplier]) => {
+        const tierTotal = parseFloat((baseTotal * multiplier).toFixed(2));
+        const tierDeposit = parseFloat((tierTotal * (depositPercentage / 100)).toFixed(2));
+        
+        pricingTiers[tier] = {
+          total: tierTotal,
+          deposit: tierDeposit,
+          description: tier === 'good' ? 'Basic preparation focused on repainting the space cleanly. Spot patching only.' :
+                      tier === 'better' ? 'Expanded surface preparation including feather sanding. Recommended for most homes.' :
+                      'Advanced surface correction including skim coating. Best for luxury spaces.'
+        };
+      });
+    }
     
     // Check payment status
     let paymentStatus = 'not_started';
@@ -55,12 +76,22 @@ exports.getProposal = async (req, res) => {
       paymentStatus = 'pending';
     }
     
+    // If tier is already selected, use that tier's deposit
+    let effectiveDepositAmount = depositAmount;
+    if (quote.gbbSelectedTier && pricingTiers && pricingTiers[quote.gbbSelectedTier.toLowerCase()]) {
+      effectiveDepositAmount = pricingTiers[quote.gbbSelectedTier.toLowerCase()].deposit;
+    }
+    
     res.json({
       success: true,
-      quote: quote.toJSON(),
-      depositPercentage,
-      depositAmount,
-      paymentStatus,
+      data: {
+        ...quote.toJSON(),
+        pricingTiers,
+        tiers: pricingTiers, // Alias for compatibility
+        depositPercentage,
+        depositAmount: effectiveDepositAmount,
+        paymentStatus,
+      },
     });
   } catch (error) {
     console.error('Get proposal error:', error);
@@ -162,7 +193,7 @@ exports.acceptProposal = async (req, res) => {
               quoteNumber: quote.quoteNumber,
               status: quote.status,
               acceptedAt: quote.acceptedAt,
-              selectedTier: quote.selectedTier || selectedTier,
+              selectedTier: quote.gbbSelectedTier || selectedTier,
               depositAmount: quote.depositAmount,
             },
             payment: {
@@ -208,24 +239,43 @@ exports.acceptProposal = async (req, res) => {
     });
     
     const depositPercentage = parseFloat(settings?.depositPercentage || 30);
-    const total = parseFloat(quote.total || 0);
+    const baseTotal = parseFloat(quote.total || 0);
     
     // Calculate deposit amount for selected tier
     let depositAmount = 0;
-    let tierTotal = total;
+    let tierTotal = baseTotal;
     
-    if (quote.productStrategy === 'GBB' && quote.pricingTiers) {
-      const tiers = typeof quote.pricingTiers === 'string' 
-        ? JSON.parse(quote.pricingTiers) 
-        : quote.pricingTiers;
+    if (quote.productStrategy === 'GBB' && selectedTier) {
+      // Try to get tier pricing from stored data first
+      let tierPricing = null;
       
-      const tier = tiers[selectedTier];
-      if (tier && tier.total) {
-        tierTotal = parseFloat(tier.total);
+      if (quote.gbbTierPricing && typeof quote.gbbTierPricing === 'object' && Object.keys(quote.gbbTierPricing).length > 0) {
+        tierPricing = typeof quote.gbbTierPricing === 'string' 
+          ? JSON.parse(quote.gbbTierPricing) 
+          : quote.gbbTierPricing;
+      }
+      
+      // If tier pricing exists and has the selected tier, use it
+      if (tierPricing && tierPricing[selectedTier] && tierPricing[selectedTier].total) {
+        tierTotal = parseFloat(tierPricing[selectedTier].total);
+      } else {
+        // Calculate tier pricing on-the-fly using standard multipliers
+        const tierMultipliers = {
+          good: 0.85,
+          better: 1.0,
+          best: 1.15
+        };
+        
+        const multiplier = tierMultipliers[selectedTier.toLowerCase()] || 1.0;
+        tierTotal = parseFloat((baseTotal * multiplier).toFixed(2));
+        
+        console.log(`Calculated tier pricing on-the-fly: ${selectedTier} tier = $${tierTotal} (base: $${baseTotal} × ${multiplier})`);
       }
     }
     
     depositAmount = Math.round(tierTotal * (depositPercentage / 100) * 100) / 100;
+    
+    console.log(`Deposit calculation: tierTotal=$${tierTotal}, depositPercentage=${depositPercentage}%, depositAmount=$${depositAmount}`);
     
     // Create Stripe Payment Intent
     const paymentIntent = await stripe.paymentIntents.create({
@@ -246,8 +296,9 @@ exports.acceptProposal = async (req, res) => {
     await quote.update({
       status: 'accepted',
       acceptedAt: new Date(),
-      selectedTier: selectedTier || null,
+      gbbSelectedTier: selectedTier || null,  // Fixed: use correct field name
       depositAmount: depositAmount,
+      total: tierTotal,  // Update total to match selected tier
       stripePaymentIntentId: paymentIntent.id,
     }, { transaction });
     
@@ -394,6 +445,105 @@ exports.confirmDepositPayment = async (req, res) => {
     
     await transaction.commit();
     
+    // Generate invoice based on selected tier
+    let invoicePdfUrl = null;
+    try {
+      const invoiceTemplateService = require('../services/invoiceTemplateService');
+      const Tenant = require('../models/Tenant');
+      
+      const tenant = await Tenant.findByPk(tenantId);
+      
+      // Determine tier pricing
+      let tierTotal = parseFloat(quote.total || 0);
+      let tierDeposit = parseFloat(quote.depositAmount || 0);
+      
+      if (quote.productStrategy === 'GBB' && quote.gbbTierPricing) {
+        const tiers = typeof quote.gbbTierPricing === 'string' 
+          ? JSON.parse(quote.gbbTierPricing) 
+          : quote.gbbTierPricing;
+        
+        const selectedTier = quote.gbbSelectedTier || 'better';
+        const tier = tiers[selectedTier];
+        
+        if (tier) {
+          tierTotal = parseFloat(tier.total || tierTotal);
+          tierDeposit = parseFloat(tier.deposit || tierDeposit);
+        }
+      }
+      
+      const contractorInfo = {
+        name: tenant?.companyName || 'Contractor',
+        email: tenant?.email || '',
+        phone: tenant?.phoneNumber || '',
+        address: tenant?.businessAddress || '',
+        logo: tenant?.companyLogoUrl || null,
+      };
+      
+      const templateType = quote.productStrategy === 'GBB' ? 'gbb' : 'single';
+      const templateStyle = settings?.invoiceTemplateStyle || 'light';
+      
+      const invoiceData = {
+        invoiceNumber: quote.quoteNumber,
+        issueDate: new Date().toLocaleDateString('en-US'),
+        projectName: `${quote.customerName} Project`,
+        projectAddress: [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', '),
+        customerName: quote.customerName,
+        customerPhone: quote.customerPhone,
+        customerEmail: quote.customerEmail,
+        selectedTier: quote.gbbSelectedTier || null,
+        pricingItems: [{
+          name: 'Project Total',
+          qty: 1,
+          amount: tierTotal
+        }],
+        projectInvestment: tierTotal,
+        deposit: tierDeposit,
+        balance: tierTotal - tierDeposit,
+        depositPaid: true,
+        depositPaidDate: new Date().toLocaleDateString('en-US'),
+      };
+      
+      const pdfBuffer = await invoiceTemplateService.generateInvoice({
+        templateType,
+        style: templateStyle,
+        invoiceData,
+        contractorInfo
+      });
+      
+      // Save invoice to disk
+      const fs = require('fs').promises;
+      const path = require('path');
+      const tempDir = path.join(__dirname, '..', 'temp');
+      
+      try {
+        await fs.mkdir(tempDir, { recursive: true });
+      } catch (mkdirError) {
+        // Directory already exists
+      }
+      
+      const timestamp = Date.now();
+      const invoiceFileName = `invoice-${quote.id}-${timestamp}.pdf`;
+      const invoicePath = path.join(tempDir, invoiceFileName);
+      
+      await fs.writeFile(invoicePath, pdfBuffer);
+      
+      invoicePdfUrl = `/temp/${invoiceFileName}`;
+      
+      // Update quote with invoice URL
+      await Quote.update(
+        {
+          invoicePdfUrl,
+          invoicePdfGeneratedAt: new Date(),
+        },
+        { where: { id: quote.id, tenantId } }
+      );
+      
+      console.log(`✅ Invoice generated and saved: ${invoicePdfUrl}`);
+    } catch (invoiceError) {
+      console.error('⚠️ Failed to generate invoice:', invoiceError);
+      // Don't fail the request if invoice generation fails
+    }
+    
     // Create audit log
     await createAuditLog({
       category: 'customer_portal',
@@ -408,6 +558,7 @@ exports.confirmDepositPayment = async (req, res) => {
         depositAmount: quote.depositAmount,
         paymentIntentId,
         portalExpiresAt: portalExpiryDate,
+        invoiceGenerated: !!invoicePdfUrl,
       },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
@@ -554,3 +705,4 @@ exports.rejectProposal = async (req, res) => {
 };
 
 module.exports = exports;
+

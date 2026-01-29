@@ -7,6 +7,8 @@ const Client = require('../models/Client');
 const { Op } = require('sequelize');
 const { createAuditLog } = require('./auditLogController');
 const emailService = require('../services/emailService');
+const path = require('path');
+const fs = require('fs');
 
 // Import optimization utilities
 const { optimizationSystem } = require('../optimization');
@@ -165,7 +167,12 @@ exports.getJobById = async (req, res) => {
         {
           model: Quote,
           as: 'quote',
-          attributes: ['id', 'quoteNumber', 'areas', 'breakdown']
+          attributes: ['id', 'quoteNumber', 'areas', 'breakdown', 'flatRateItems', 'productSets', 'pricingSchemeId'],
+          include: [{
+            model: require('../models/PricingScheme'),
+            as: 'pricingScheme',
+            attributes: ['id', 'name', 'type']
+          }]
         }
       ]
     });
@@ -451,11 +458,12 @@ exports.updateJobStatus = async (req, res) => {
 
 /**
  * Update area progress for job progress tracker
+ * Supports all pricing schemes: production_based, rate_based, turnkey, flat_rate_unit
  */
 exports.updateAreaProgress = async (req, res) => {
   try {
     const { jobId } = req.params;
-    const { areaId, status } = req.body;
+    const { areaId, itemKey, status } = req.body; // itemKey for flat rate items
     const tenantId = req.user.tenantId;
 
     const validStatuses = ['not_started', 'prepped', 'in_progress', 'touch_ups', 'completed'];
@@ -471,7 +479,12 @@ exports.updateAreaProgress = async (req, res) => {
       include: [{ 
         model: Quote, 
         as: 'quote', 
-        attributes: ['id', 'quoteNumber', 'areas'] 
+        attributes: ['id', 'quoteNumber', 'areas', 'flatRateItems', 'productSets', 'pricingSchemeId'],
+        include: [{
+          model: require('../models/PricingScheme'),
+          as: 'pricingScheme',
+          attributes: ['id', 'name', 'type']
+        }]
       }]
     });
 
@@ -484,31 +497,75 @@ exports.updateAreaProgress = async (req, res) => {
 
     // Update area progress JSON
     const areaProgress = job.areaProgress || {};
-    areaProgress[areaId] = {
+    
+    // Use itemKey for flat rate items, areaId for others
+    const progressKey = itemKey || areaId;
+    
+    areaProgress[progressKey] = {
       status,
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      itemKey: itemKey || null, // Store itemKey for flat rate items
+      areaId: areaId || null
     };
 
     // Mark the JSON field as changed so Sequelize saves it
     job.changed('areaProgress', true);
     await job.update({ areaProgress });
 
-    // Auto-complete job if all areas are marked completed
+    // Auto-complete job if all items are marked completed
     let jobStatusUpdate = null;
-    if (job.quote && Array.isArray(job.quote.areas) && job.quote.areas.length > 0) {
-      const allCompleted = job.quote.areas.every(area => {
-        const key = String(area.id);
-        const entry = areaProgress[key] || areaProgress[area.id];
+    const pricingSchemeType = job.quote?.pricingScheme?.type;
+    
+    let allCompleted = false;
+    
+    if (pricingSchemeType === 'flat_rate_unit') {
+      // Check flat rate items completion
+      const flatRateItems = job.quote.flatRateItems || {};
+      const allItems = [];
+      
+      if (flatRateItems.interior) {
+        Object.keys(flatRateItems.interior).forEach(key => {
+          if (flatRateItems.interior[key] > 0) {
+            allItems.push(`interior_${key}`);
+          }
+        });
+      }
+      
+      if (flatRateItems.exterior) {
+        Object.keys(flatRateItems.exterior).forEach(key => {
+          if (flatRateItems.exterior[key] > 0) {
+            allItems.push(`exterior_${key}`);
+          }
+        });
+      }
+      
+      allCompleted = allItems.length > 0 && allItems.every(itemKey => {
+        const entry = areaProgress[itemKey];
         return entry && entry.status === 'completed';
       });
-
-      if (allCompleted && job.status !== 'completed') {
-        jobStatusUpdate = {
-          status: 'completed',
-          actualEndDate: job.actualEndDate || new Date()
-        };
-        await job.update(jobStatusUpdate);
+      
+    } else if (pricingSchemeType === 'turnkey' || pricingSchemeType === 'sqft_turnkey') {
+      // For turnkey, check if the single "whole_house" item is completed
+      const entry = areaProgress['whole_house'];
+      allCompleted = entry && entry.status === 'completed';
+      
+    } else {
+      // For production_based and rate_based, check areas
+      if (job.quote && Array.isArray(job.quote.areas) && job.quote.areas.length > 0) {
+        allCompleted = job.quote.areas.every(area => {
+          const key = String(area.id);
+          const entry = areaProgress[key] || areaProgress[area.id];
+          return entry && entry.status === 'completed';
+        });
       }
+    }
+
+    if (allCompleted && job.status !== 'completed') {
+      jobStatusUpdate = {
+        status: 'completed',
+        actualEndDate: job.actualEndDate || new Date()
+      };
+      await job.update(jobStatusUpdate);
     }
 
     // Create audit log
@@ -519,9 +576,22 @@ exports.updateAreaProgress = async (req, res) => {
       category: 'job',
       entityType: 'Job',
       entityId: jobId,
-      details: { areaId, status, ...(jobStatusUpdate || {}) },
+      details: { areaId, itemKey, status, ...(jobStatusUpdate || {}) },
       req
     });
+
+    // Invalidate cache for this job
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cacheKey = CACHE_KEYS.JOB_DETAIL(tenantId, jobId);
+      await utils.cache?.delete(cacheKey);
+      
+      // Also invalidate customer cache if exists
+      if (job.clientId) {
+        const customerCacheKey = CACHE_KEYS.JOB_DETAIL(job.clientId, jobId);
+        await utils.cache?.delete(customerCacheKey);
+      }
+    }
 
     res.json({
       success: true,
@@ -796,3 +866,272 @@ exports.getJobStats = async (req, res) => {
 };
 
 module.exports = exports;
+
+
+/**
+ * GET /api/jobs/:jobId/documents
+ * Get job documents (material list, paint order, work order)
+ * Only available after quote acceptance and deposit payment
+ */
+exports.getJobDocuments = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const tenantId = req.user.tenantId;
+
+    const job = await Job.findOne({
+      where: {
+        id: jobId,
+        tenantId
+      }
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    // Check if quote has been accepted and deposit paid
+    if (!job.depositPaid) {
+      return res.status(403).json({
+        success: false,
+        message: 'Job documents will be available after the customer accepts the quote and pays the deposit.',
+        documentsAvailable: false
+      });
+    }
+
+    const documents = {
+      materialList: {
+        url: job.materialListUrl,
+        available: !!job.materialListUrl,
+        title: 'Material List'
+      },
+      paintOrder: {
+        url: job.paintOrderUrl,
+        available: !!job.paintOrderUrl,
+        title: 'Paint Product Order'
+      },
+      workOrder: {
+        url: job.workOrderUrl,
+        available: !!job.workOrderUrl,
+        title: 'Work Order'
+      },
+      generatedAt: job.documentsGeneratedAt
+    };
+
+    res.json({
+      success: true,
+      documents,
+      documentsAvailable: true
+    });
+
+  } catch (error) {
+    console.error('[JobController] Error getting job documents:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve job documents',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * POST /api/jobs/:jobId/documents/generate
+ * Trigger job document generation
+ * Called after quote acceptance and deposit payment
+ */
+exports.generateJobDocuments = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const tenantId = req.user.tenantId;
+
+    const job = await Job.findOne({
+      where: {
+        id: jobId,
+        tenantId
+      }
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    // Check if deposit has been paid
+    if (!job.depositPaid) {
+      return res.status(403).json({
+        success: false,
+        message: 'Job documents can only be generated after deposit payment'
+      });
+    }
+
+    // Import document generation service
+    const documentGenerationService = require('../services/documentGenerationService');
+
+    // Generate job documents
+    const result = await documentGenerationService.generateJobDocuments(job.quoteId, jobId);
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Job document generation failed',
+        errors: result.errors
+      });
+    }
+
+    res.json({
+      success: true,
+      documents: result.documents,
+      message: 'Job documents generated successfully'
+    });
+
+  } catch (error) {
+    console.error('[JobController] Error generating job documents:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate job documents',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/jobs/:jobId/documents/:documentType
+ * Download a specific job document
+ * documentType: material-list, paint-order, work-order
+ */
+exports.downloadJobDocument = async (req, res) => {
+  try {
+    const { jobId, documentType } = req.params;
+    const tenantId = req.user.tenantId;
+
+    const job = await Job.findOne({
+      where: {
+        id: jobId,
+        tenantId
+      }
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    // Check if deposit has been paid
+    if (!job.depositPaid) {
+      return res.status(403).json({
+        success: false,
+        message: 'Job documents are not available until deposit is paid'
+      });
+    }
+
+    // Get document URL based on type
+    let documentUrl;
+    let filename;
+
+    switch (documentType) {
+      case 'material-list':
+        documentUrl = job.materialListUrl;
+        filename = `material-list-${jobId}.pdf`;
+        break;
+      case 'paint-order':
+        documentUrl = job.paintOrderUrl;
+        filename = `paint-order-${jobId}.pdf`;
+        break;
+      case 'work-order':
+        documentUrl = job.workOrderUrl;
+        filename = `work-order-${jobId}.pdf`;
+        break;
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid document type'
+        });
+    }
+
+    if (!documentUrl) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found or not yet generated'
+      });
+    }
+
+    // Serve the file directly
+    const filePath = path.join(__dirname, '..', documentUrl);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document file not found on server'
+      });
+    }
+
+    // Set headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    // Send the file
+    res.sendFile(filePath);
+
+  } catch (error) {
+    console.error('[JobController] Error downloading job document:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to download document',
+      error: error.message
+    });
+  }
+};
+
+
+/**
+ * Quote Acceptance Trigger
+ * Called when a quote is accepted and deposit is paid
+ * Generates job documents automatically
+ */
+exports.onQuoteAcceptance = async (quoteId, jobId) => {
+  try {
+    console.log(`[JobController] Quote acceptance trigger for quote ${quoteId}, job ${jobId}`);
+
+    // Import document generation service
+    const documentGenerationService = require('../services/documentGenerationService');
+
+    // Generate job documents
+    const result = await documentGenerationService.generateJobDocuments(quoteId, jobId);
+
+    if (result.success) {
+      console.log(`[JobController] Job documents generated successfully for job ${jobId}`);
+      
+      // Update job with document URLs (already done in documentGenerationService)
+      // Just log success
+      return {
+        success: true,
+        documents: result.documents
+      };
+    } else {
+      // Log errors and notify contractor
+      console.error(`[JobController] Job document generation failed for job ${jobId}:`, result.errors);
+      
+      // TODO: Send notification to contractor about document generation failure
+      // await notifyContractor(jobId, 'Document generation failed');
+      
+      return {
+        success: false,
+        errors: result.errors
+      };
+    }
+
+  } catch (error) {
+    console.error('[JobController] Error in quote acceptance trigger:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};

@@ -104,15 +104,14 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     defaultValue: 0.00,
     field: 'product_config_default_tax_rate',
     comment: 'Default tax rate for product configurations'
-  }
-  ,
+  },
   // Global Pricing & Metrics (Pricing Engine)
-  defaultLaborHourRate: {
+  defaultBillableLaborRate: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
     defaultValue: 0.00,
-    field: 'default_labor_hour_rate',
-    comment: 'Global labor hourly rate used for time & materials'
+    field: 'default_billable_labor_rate',
+    comment: 'Global billable labor rate used for time & materials'
   },
   laborMarkupPercent: {
     type: DataTypes.DECIMAL(5, 2),
@@ -141,21 +140,6 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     defaultValue: 0.00,
     field: 'net_profit_percent',
     comment: 'Target net profit percentage'
-  },
-  // Quote Settings
-  depositPercentage: {
-    type: DataTypes.DECIMAL(5, 2),
-    allowNull: false,
-    defaultValue: 50.00,
-    field: 'deposit_percentage',
-    comment: 'Required deposit percentage'
-  },
-  quoteValidityDays: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 30,
-    field: 'quote_validity_days',
-    comment: 'Number of days quote remains valid'
   },
   // Customer Portal Settings
   portalDurationDays: {
@@ -301,13 +285,47 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     field: 'production_cabinets',
     comment: 'Cabinets production rate (units/hour)'
   },
+  
+  // Billable Labor Rates per Painter
+  billableLaborRates: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'billable_labor_rates',
+    defaultValue: {
+      1: 50.00,
+      2: 50.00,
+      3: 50.00
+    },
+    comment: 'Billable labor rates per individual painter (painterId: rate)'
+  },
   // Flat Rate Unit Prices
   flatRateUnitPrices: {
     type: DataTypes.JSONB,
     allowNull: true,
     field: 'flat_rate_unit_prices',
-    defaultValue: {},
-    comment: 'Flat rate unit prices for surfaces, items, and rooms'
+    defaultValue: {
+      // Interior items
+      door: 85,
+      doors: 85,
+      smallRoom: 350,
+      mediumRoom: 450,
+      largeRoom: 600,
+      closet: 150,
+      accentWall: 200,
+      cabinet: 125,
+      cabinets: 125,
+      
+      // Exterior items
+      exteriorDoor: 95,
+      exteriorDoors: 95,
+      window: 75,
+      windows: 75,
+      garageDoor: 200,
+      garageDoors: 200,
+      shutter: 50,
+      shutters: 50
+    },
+    comment: 'Flat rate unit prices for items and rooms'
   },
   // Material Settings (Global Defaults)
   includeMaterials: {
@@ -341,9 +359,45 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
   crewSize: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    defaultValue: 2,
+    defaultValue: 1,
     field: 'crew_size',
     comment: 'Default crew size (number of painters)'
+  },
+  
+  // Proposal Template Settings
+  selectedProposalTemplate: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'classic-professional',
+    field: 'selected_proposal_template',
+    comment: 'Selected proposal template (classic-professional, modern-minimal, detailed-comprehensive, simple-budget)'
+  },
+  proposalTemplateSettings: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'proposal_template_settings',
+    defaultValue: {
+      showCompanyLogo: true,
+      showAreaBreakdown: true,
+      showProductDetails: true,
+      showWarrantySection: true,
+      colorScheme: 'blue'
+    },
+    comment: 'Template-specific settings and customizations'
+  },
+  
+  // GBB (Good-Better-Best) Pricing Tiers
+  gbbEnabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'gbb_enabled'
+  },
+  gbbTiers: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'gbb_tiers',
+    defaultValue: {}
   }
 }, {
   timestamps: true,
@@ -352,6 +406,10 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
     {
       
       fields: ['tenant_id']
+    },
+    {
+      using: 'GIN',
+      fields: ['gbb_tiers']
     }
   ]
 });

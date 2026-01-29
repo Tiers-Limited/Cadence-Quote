@@ -75,4 +75,25 @@ router.post('/:jobId/area-progress', jobController.updateAreaProgress);
  */
 router.post('/:jobId/lost-reason', jobController.recordLostJobReason);
 
+/**
+ * GET /api/jobs/:jobId/documents
+ * Get job documents (material list, paint order, work order)
+ * Only available after quote acceptance and deposit payment
+ */
+router.get('/:jobId/documents', jobController.getJobDocuments);
+
+/**
+ * POST /api/jobs/:jobId/documents/generate
+ * Trigger job document generation
+ * Called after quote acceptance and deposit payment
+ */
+router.post('/:jobId/documents/generate', jobController.generateJobDocuments);
+
+/**
+ * GET /api/jobs/:jobId/documents/:documentType
+ * Download a specific job document
+ * documentType: material-list, paint-order, work-order
+ */
+router.get('/:jobId/documents/:documentType', jobController.downloadJobDocument);
+
 module.exports = router;

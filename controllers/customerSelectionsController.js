@@ -80,8 +80,66 @@ exports.getSelectionOptions = async (req, res) => {
       productSets = [];
     }
     
+    // Get pricing scheme type to determine how to build selections
+    const pricingSchemeType = quote.pricingScheme?.type;
+    const isFlatRate = pricingSchemeType === 'flat_rate_unit';
+    
+    // For flat rate pricing, if productSets is empty but flatRateItems exists, build productSets from flatRateItems
+    if (isFlatRate && productSets.length === 0 && quote.flatRateItems) {
+      console.info('CustomerSelections: Building productSets from flatRateItems for flat rate pricing');
+      
+      let flatRateItems = quote.flatRateItems;
+      if (typeof flatRateItems === 'string') {
+        try {
+          flatRateItems = JSON.parse(flatRateItems);
+        } catch (e) {
+          flatRateItems = { interior: {}, exterior: {} };
+        }
+      }
+      
+      // Build productSets from flatRateItems
+      const tempProductSets = [];
+      
+      // Process interior items
+      if (flatRateItems.interior) {
+        Object.entries(flatRateItems.interior).forEach(([key, count]) => {
+          if (count > 0) {
+            tempProductSets.push({
+              id: `flat_rate_interior_${key}`,
+              areaId: `flat_rate_interior_${key}`,
+              areaName: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}`,
+              surfaceType: key,
+              type: 'flat_rate',
+              category: 'interior',
+              products: {} // Will be populated from existing selections or default
+            });
+          }
+        });
+      }
+      
+      // Process exterior items
+      if (flatRateItems.exterior) {
+        Object.entries(flatRateItems.exterior).forEach(([key, count]) => {
+          if (count > 0) {
+            tempProductSets.push({
+              id: `flat_rate_exterior_${key}`,
+              areaId: `flat_rate_exterior_${key}`,
+              areaName: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}`,
+              surfaceType: key,
+              type: 'flat_rate',
+              category: 'exterior',
+              products: {} // Will be populated from existing selections or default
+            });
+          }
+        });
+      }
+      
+      productSets = tempProductSets;
+      console.info(`CustomerSelections: Built ${productSets.length} productSets from flatRateItems`);
+    }
+    
     // Get selected tier for GBB
-    const selectedTier = quote.selectedTier || 'good';
+    const selectedTier = quote.gbbSelectedTier || 'good';
     
     // Build selection options by extracting product IDs and batch-loading product configs
     const options = [];
@@ -118,31 +176,93 @@ exports.getSelectionOptions = async (req, res) => {
     }
 
     for (const productSet of productSets) {
-      const areaId = productSet.areaId;
-      const areaName = productSet.areaName;
-      const surfaceType = productSet.surfaceType;
+      const areaId = productSet.areaId || productSet.id;
+      const areaName = productSet.areaName || productSet.label || productSet.name || `Area ${areaId}`;
+      // For turnkey pricing, use a generic surfaceType since it applies to entire home
+      const surfaceType = productSet.surfaceType || productSet.type || 'general';
       const products = productSet.products || {};
 
       let productId = null;
       if (quote.productStrategy === 'GBB') {
-        productId = products[selectedTier];
+        // Use selectedTier, but default to 'good' if not set
+        const tier = selectedTier || 'good';
+        productId = products[tier];
       } else {
         productId = products.single || products.good || products.better || products.best;
       }
 
+      // If no product is assigned, provide a default placeholder
+      // This allows customers to select colors even if contractor hasn't assigned products yet
       if (!productId) {
-        console.warn(`No product found for ${surfaceType} in area ${areaName}`);
+        console.warn(`No product found for ${surfaceType} in area ${areaName}, using default placeholder`);
+        
+        options.push({
+          areaId,
+          areaName,
+          surfaceType,
+          product: {
+            id: null,
+            name: 'Custom Product',
+            brand: 'Behr',
+            brandId: null,
+            fullName: 'Behr Custom Product',
+          },
+          // Default sheens for custom products
+          availableSheens: ['Flat', 'Egg Shell', 'Satin', 'Semi-Gloss', 'Gloss'],
+        });
         continue;
       }
 
       const productConfig = productConfigsMap.get(productId);
-      if (!productConfig || !productConfig.globalProduct) {
-        console.warn(`Product ${productId} not found (bulk fetch)`);
+      if (!productConfig) {
+        console.warn(`Product ${productId} not found (bulk fetch), using default placeholder`);
+        
+        options.push({
+          areaId,
+          areaName,
+          surfaceType,
+          product: {
+            id: null,
+            name: 'Custom Product',
+            brand: 'Behr',
+            brandId: null,
+            fullName: 'Behr Custom Product',
+          },
+          availableSheens: ['Flat', 'Egg Shell', 'Satin', 'Semi-Gloss', 'Gloss'],
+        });
         continue;
       }
 
-      const product = productConfig.globalProduct;
-      const brand = product.brand;
+      // Support both global and custom products
+      let product, brand, productName, brandName;
+      if (productConfig.isCustom && productConfig.customProduct) {
+        productName = productConfig.customProduct.name || 'Custom Product';
+        brandName = productConfig.customProduct.brandName || 'Custom';
+        brand = { id: null, name: brandName };
+        product = { name: productName };
+      } else if (productConfig.globalProduct) {
+        product = productConfig.globalProduct;
+        brand = product.brand;
+        productName = product.name;
+        brandName = brand?.name || 'Unknown';
+      } else {
+        console.warn(`Product ${productId} has no globalProduct or customProduct`);
+        
+        options.push({
+          areaId,
+          areaName,
+          surfaceType,
+          product: {
+            id: null,
+            name: 'Custom Product',
+            brand: 'Behr',
+            brandId: null,
+            fullName: 'Behr Custom Product',
+          },
+          availableSheens: ['Flat', 'Egg Shell', 'Satin', 'Semi-Gloss', 'Gloss'],
+        });
+        continue;
+      }
 
       // Normalize sheens to an array of sheen names for frontend's Select component
       const sheenOptions = (productConfig.sheens || []).map(s => (typeof s === 'string' ? s : s.sheen));
@@ -153,13 +273,13 @@ exports.getSelectionOptions = async (req, res) => {
         surfaceType,
         product: {
           id: productConfig.id,
-          name: product.name,
-          brand: brand?.name || 'Unknown',
+          name: productName,
+          brand: brandName,
           brandId: brand?.id || null,
-          fullName: `${brand?.name || ''} ${product.name}`.trim(),
+          fullName: `${brandName} ${productName}`.trim(),
         },
         // Colors will be fetched by the frontend via /customer-portal/colors?brandId=xxx
-        availableSheens: sheenOptions,
+        availableSheens: sheenOptions.length > 0 ? sheenOptions : ['Flat', 'Egg Shell', 'Satin', 'Semi-Gloss', 'Gloss'],
       });
     }
     
@@ -266,7 +386,7 @@ exports.saveSelections = async (req, res) => {
     }
 
     // Selected tier used for GBB product strategy
-    const selectedTier = quote.selectedTier || 'good';
+    const selectedTier = quote.gbbSelectedTier || 'better';
     
     // Check if this is turnkey pricing
     const isTurnkey = quote.pricingScheme && (quote.pricingScheme.type === 'turnkey' || quote.pricingScheme.type === 'sqft_turnkey');
@@ -327,6 +447,53 @@ exports.saveSelections = async (req, res) => {
         productSets = [];
       }
       
+      // For flat rate pricing, if productSets is empty but flatRateItems exists, build from flatRateItems
+      if (productSets.length === 0 && quote.flatRateItems) {
+        console.info('CustomerSelections: Building productSets from flatRateItems for turnkey flat rate pricing');
+        
+        let flatRateItems = quote.flatRateItems;
+        if (typeof flatRateItems === 'string') {
+          try {
+            flatRateItems = JSON.parse(flatRateItems);
+          } catch (e) {
+            flatRateItems = { interior: {}, exterior: {} };
+          }
+        }
+        
+        // Build productSets from flatRateItems
+        if (flatRateItems.interior) {
+          Object.entries(flatRateItems.interior).forEach(([key, count]) => {
+            if (count > 0) {
+              productSets.push({
+                id: `flat_rate_interior_${key}`,
+                areaId: `flat_rate_interior_${key}`,
+                areaName: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}`,
+                surfaceType: key,
+                type: 'flat_rate',
+                category: 'interior',
+              });
+            }
+          });
+        }
+        
+        if (flatRateItems.exterior) {
+          Object.entries(flatRateItems.exterior).forEach(([key, count]) => {
+            if (count > 0) {
+              productSets.push({
+                id: `flat_rate_exterior_${key}`,
+                areaId: `flat_rate_exterior_${key}`,
+                areaName: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}`,
+                surfaceType: key,
+                type: 'flat_rate',
+                category: 'exterior',
+              });
+            }
+          });
+        }
+        
+        console.info(`CustomerSelections: Built ${productSets.length} productSets from flatRateItems`);
+      }
+      
       if (productSets.length === 0) {
         await transaction.rollback();
         return res.status(400).json({
@@ -359,15 +526,23 @@ exports.saveSelections = async (req, res) => {
       // Apply the selection to all areas in productSets
       for (const productSet of productSets) {
         try {
-          const areaId = productSet.areaId || null; // Ensure null instead of undefined
-          const areaName = productSet.areaName || `Area ${areaId || 'Unknown'}`;
-          const surfaceType = productSet.surfaceType;
+          // For turnkey, areaId might be a string like "turnkey_general" which won't work with BIGINT field
+          // Only use areaId if it's numeric, otherwise set to null
+          let areaId = productSet.areaId || productSet.id || null;
+          if (areaId && typeof areaId === 'string' && isNaN(parseInt(areaId))) {
+            // If areaId is a non-numeric string, set to null (e.g., "turnkey_general")
+            areaId = null;
+          }
+          
+          const areaName = productSet.areaName || productSet.label || productSet.name || `Area ${areaId || 'Unknown'}`;
+          // For turnkey pricing, use a generic surfaceType since it applies to entire home
+          const surfaceType = productSet.surfaceType || productSet.type || 'general';
           
           console.info(`CustomerSelections: Processing turnkey area - areaId=${areaId}, areaName="${areaName}", surfaceType="${surfaceType}"`);
           
-          // Validate required fields
-          if (!surfaceType) {
-            console.warn(`CustomerSelections: Skipping area with missing surfaceType - areaId=${areaId}, areaName="${areaName}"`);
+          // Validate required fields - surfaceType is now always set
+          if (!surfaceType || surfaceType === 'undefined') {
+            console.warn(`CustomerSelections: Skipping area with invalid surfaceType - areaId=${areaId}, areaName="${areaName}"`);
             continue;
           }
           
@@ -415,6 +590,7 @@ exports.saveSelections = async (req, res) => {
               areaId: areaId, // Already ensured to be null instead of undefined
               areaName: areaName,
               surfaceType,
+              brandId: null,  // Add missing field
               productId: null,
               productName: null,
               colorId: colorId || null,
@@ -424,6 +600,7 @@ exports.saveSelections = async (req, res) => {
               sheen: sheen || null,
               customerNotes: notes || null,
               selectedAt: new Date(),
+              isLocked: false,  // Add missing field
               createdAt: new Date(),
               updatedAt: new Date(),
             };
@@ -502,25 +679,49 @@ exports.saveSelections = async (req, res) => {
     for (const selection of selections) {
       const { areaId, areaName, surfaceType, color, sheen, notes } = selection;
 
-      if (!surfaceType || (!areaId && !areaName)) {
-        continue; // Skip invalid entries
+      // For flat-rate items, surfaceType alone is sufficient (we'll resolve areaName from productSets)
+      if (!surfaceType) {
+        console.warn(`CustomerSelections: Skipping selection - missing surfaceType`);
+        continue;
       }
 
-      // Resolve areaName if missing (try productSets or quote.areas)
+      // Convert string areaId to null (for flat-rate items like "flat_rate_interior_doors")
+      // The database expects areaId to be BIGINT, so string IDs must be stored as null
+      let numericAreaId = null;
+      if (areaId && !isNaN(parseInt(areaId))) {
+        numericAreaId = parseInt(areaId);
+      }
+
+      // Resolve areaName if missing - check productSets for flat-rate items
       let resolvedAreaName = areaName || null;
-      if (!resolvedAreaName && areaId) {
+      let flatRateItemId = null;
+      
+      if (!resolvedAreaName || !areaId) {
         try {
           const ps = Array.isArray(quote.productSets) ? quote.productSets : (typeof quote.productSets === 'string' ? JSON.parse(quote.productSets || '[]') : []);
-          const found = ps.find(p => String(p.areaId) === String(areaId) || String(p.id) === String(areaId));
-          if (found) resolvedAreaName = found.areaName || found.name || null;
+          
+          // For flat-rate items, match by surfaceType or id
+          const found = ps.find(p => {
+            // Match by surfaceType
+            if (p.surfaceType === surfaceType) return true;
+            // Match by id if areaId is provided
+            if (areaId && (String(p.id) === String(areaId) || String(p.areaId) === String(areaId))) return true;
+            return false;
+          });
+          
+          if (found) {
+            resolvedAreaName = found.label || found.areaName || found.name || null;
+            flatRateItemId = found.id || areaId;
+            console.info(`CustomerSelections: Matched flat-rate item - id="${flatRateItemId}", label="${resolvedAreaName}", surface="${surfaceType}"`);
+          }
         } catch (e) {
-          // ignore parse errors
+          console.error('CustomerSelections: Error parsing productSets:', e);
         }
       }
 
       // Last-resort fallback to ensure NOT NULL constraint
       if (!resolvedAreaName) {
-        resolvedAreaName = areaId ? `Area ${areaId}` : 'Unknown Area';
+        resolvedAreaName = flatRateItemId || areaId || `Area ${surfaceType}`;
         console.warn(`Resolved missing areaName for selection: using fallback "${resolvedAreaName}" (quote ${quote.id})`);
       }
 
@@ -545,12 +746,12 @@ exports.saveSelections = async (req, res) => {
         colorName = color;
       }
 
-      console.info(`CustomerSelections: processing selection for quote ${quote.id}: areaId=${areaId}, areaName="${normalizedAreaName}", surface="${normalizedSurface}", colorId=${colorId}, colorName=${colorName}`);
+      console.info(`CustomerSelections: processing selection for quote ${quote.id}: areaId=${areaId} (numeric: ${numericAreaId}), areaName="${normalizedAreaName}", surface="${normalizedSurface}", colorId=${colorId}, colorName=${colorName}`);
 
       // Find existing selection by areaId+surface OR areaName+surface (case-insensitive)
       let record = existingSelections.find(s => {
         const sSurface = String(s.surfaceType || '').trim().toLowerCase();
-        const matchByIdAndSurface = s.areaId && areaId && String(s.areaId) === String(areaId) && sSurface === normalizedSurface;
+        const matchByIdAndSurface = s.areaId && numericAreaId && s.areaId === numericAreaId && sSurface === normalizedSurface;
         const sAreaName = (s.areaName || '').trim().toLowerCase();
         const matchByNameAndSurface = sAreaName && normalizedAreaName.toLowerCase() && sSurface === normalizedSurface && sAreaName === normalizedAreaName.toLowerCase();
         return matchByIdAndSurface || matchByNameAndSurface;
@@ -561,7 +762,7 @@ exports.saveSelections = async (req, res) => {
       if (record) {
         // Use explicit assignment so provided values are applied even if falsy
         await record.update({
-          areaId: areaId !== undefined ? areaId : record.areaId,
+          areaId: numericAreaId !== undefined ? numericAreaId : record.areaId,
           areaName: normalizedAreaName,
           colorId: colorId !== undefined ? colorId : record.colorId,
           colorName: colorName !== undefined ? colorName : record.colorName,
@@ -586,9 +787,10 @@ exports.saveSelections = async (req, res) => {
           quoteId: quote.id,
           tenantId,
           clientId,
-          areaId: areaId || null,
+          areaId: numericAreaId,  // Use numeric version or null
           areaName: normalizedAreaName,
           surfaceType,
+          brandId: null,
           productId: null,
           productName: null,
           colorId: colorId || null,
@@ -598,6 +800,7 @@ exports.saveSelections = async (req, res) => {
           sheen: sheen || null,
           customerNotes: notes || null,
           selectedAt: new Date(),
+          isLocked: false,
           createdAt: new Date(),
           updatedAt: new Date(),
         }, { transaction });
@@ -756,7 +959,10 @@ exports.submitSelections = async (req, res) => {
       };
 
       for (const s of selections) {
-        const key = `${String(s.areaId || s.areaName)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
+        // For flat-rate items (areaId is null), use areaName for key
+        // For numeric areaId, use areaId
+        const keyIdentifier = s.areaId || s.areaName;
+        const key = `${String(keyIdentifier)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
         const existing = selectionMap.get(key);
         if (!existing) {
           selectionMap.set(key, s);
@@ -773,14 +979,21 @@ exports.submitSelections = async (req, res) => {
       const incompleteAreas = [];
       for (const productSet of productSets) {
         const aId = productSet.areaId;
-        const aName = productSet.areaName;
+        const aName = productSet.areaName || productSet.label;
         const surf = String(productSet.surfaceType || '').trim().toLowerCase();
-        const key = `${String(aId || aName)}::${surf}`;
+        
+        // For flat-rate items (string areaId), use areaName for matching
+        // For numeric areaId, use areaId
+        const useAreaName = aId && isNaN(parseInt(aId));
+        const keyIdentifier = useAreaName ? aName : (aId || aName);
+        const key = `${String(keyIdentifier)}::${surf}`;
+        
         const best = selectionMap.get(key);
 
         // Debug: list candidates for this productSet
         const candidates = selections.filter(s => {
-          const sKey = `${String(s.areaId || s.areaName)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
+          const sIdentifier = useAreaName ? s.areaName : (s.areaId || s.areaName);
+          const sKey = `${String(sIdentifier)}::${String((s.surfaceType || '').trim().toLowerCase())}`;
           return sKey === key;
         });
         console.info(`CustomerSelections: submit-check area="${aName}" surface="${productSet.surfaceType}" key="${key}" candidates=${candidates.length} best=${best ? `id=${best.id || 'n/a'} colorId=${best.colorId || best.colorName || 'n/a'} sheen=${best.sheen || 'n/a'}` : 'none'}`);
@@ -1080,10 +1293,24 @@ async function buildSelectionResponse(quote, savedRecords, selectedTier) {
 
     if (!productId) continue;
     const productConfig = pcMap.get(productId);
-    if (!productConfig || !productConfig.globalProduct) continue;
+    if (!productConfig) continue;
 
-    const product = productConfig.globalProduct;
-    const brand = product.brand;
+    // Support both global and custom products
+    let product, brand, productName, brandName;
+    if (productConfig.isCustom && productConfig.customProduct) {
+      productName = productConfig.customProduct.name || 'Custom Product';
+      brandName = productConfig.customProduct.brandName || 'Custom';
+      brand = { id: null, name: brandName };
+      product = { name: productName };
+    } else if (productConfig.globalProduct) {
+      product = productConfig.globalProduct;
+      brand = product.brand;
+      productName = product.name;
+      brandName = brand?.name || 'Unknown';
+    } else {
+      continue;
+    }
+    
     const sheenOptions = (productConfig.sheens || []).map(s => (typeof s === 'string' ? s : s.sheen));
 
     options.push({
@@ -1092,8 +1319,8 @@ async function buildSelectionResponse(quote, savedRecords, selectedTier) {
       surfaceType,
       product: {
         id: productConfig.id,
-        name: product.name,
-        brand: brand?.name || 'Unknown',
+        name: productName,
+        brand: brandName,
         brandId: brand?.id || null,
         fullName: `${brand?.name || ''} ${product.name}`.trim(),
       },
@@ -1120,19 +1347,18 @@ async function buildSelectionResponse(quote, savedRecords, selectedTier) {
     const oAreaName = (opt.areaName || '').trim().toLowerCase();
 
     // find all persisted candidates for this area/surface
+    // IMPORTANT: Only match by areaId+surface OR areaName+surface, NOT by surface alone
+    // This prevents cascading selections across different areas
     const candidates = persisted.filter(p => {
       const pSurface = String(p.surfaceType || '').trim().toLowerCase();
       const matchByIdAndSurface = p.areaId && opt.areaId && String(p.areaId) === String(opt.areaId) && pSurface === oSurface;
       const pAreaName = (p.areaName || '').trim().toLowerCase();
       const matchByNameAndSurface = pAreaName && oAreaName && pSurface === oSurface && pAreaName === oAreaName;
       
-      // For turnkey pricing, also try to match just by surface type if no other matches
-      const matchBySurfaceOnly = pSurface === oSurface;
-      
-      const matches = matchByIdAndSurface || matchByNameAndSurface || matchBySurfaceOnly;
+      const matches = matchByIdAndSurface || matchByNameAndSurface;
       
       if (matches) {
-        console.info(`CustomerSelections: Found candidate match - record id=${p.id}, matchType=${matchByIdAndSurface ? 'id+surface' : matchByNameAndSurface ? 'name+surface' : 'surface-only'}`);
+        console.info(`CustomerSelections: Found candidate match - record id=${p.id}, matchType=${matchByIdAndSurface ? 'id+surface' : 'name+surface'}`);
       }
       
       return matches;
@@ -1181,3 +1407,4 @@ async function buildSelectionResponse(quote, savedRecords, selectedTier) {
 }
 
 module.exports = exports;
+

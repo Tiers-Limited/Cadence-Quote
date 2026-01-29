@@ -2,10 +2,10 @@
 const express = require('express');
 const router = express.Router();
 const settingsController = require('../controllers/settingsController');
-const { authenticateToken } = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 
 // All routes require authentication
-router.use(authenticateToken);
+router.use(auth);
 
 // Get contractor settings
 router.get('/', settingsController.getSettings);
@@ -15,5 +15,14 @@ router.put('/', settingsController.updateSettings);
 
 // Update company info (Tenant table)
 router.put('/company', settingsController.updateCompanyInfo);
+
+// Get available proposal templates
+router.get('/templates', settingsController.getAvailableTemplates);
+
+// Save template preference
+router.post('/template', settingsController.saveTemplatePreference);
+
+// Generate template preview
+router.post('/template/preview', settingsController.generateTemplatePreview);
 
 module.exports = router;

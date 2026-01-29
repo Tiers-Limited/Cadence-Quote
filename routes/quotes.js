@@ -120,4 +120,67 @@ router.delete('/:id', quoteController.deleteQuote);
  */
 router.post('/:id/duplicate', quoteController.duplicateQuote);
 
+/**
+ * @route   POST /api/quotes/recalculate-production-based
+ * @desc    Recalculate all production-based quotes when production rates change
+ * @access  Contractor
+ */
+router.post('/recalculate-production-based', quoteController.recalculateProductionBasedQuotes);
+
+// ====================
+// Product Configuration Endpoints
+// ====================
+
+/**
+ * @route   GET /api/quotes/:quoteId/product-configuration
+ * @desc    Get product configuration for a quote with available products
+ * @params  quoteId - Quote ID
+ * @access  Contractor
+ */
+router.get('/:quoteId/product-configuration', quoteController.getProductConfiguration);
+
+/**
+ * @route   PUT /api/quotes/:quoteId/product-configuration
+ * @desc    Save product configuration for a quote
+ * @params  quoteId - Quote ID
+ * @body    productSets - Product configuration object, autoSaveVersion - Version for conflict detection
+ * @access  Contractor
+ */
+router.put('/:quoteId/product-configuration', quoteController.updateProductConfiguration);
+
+/**
+ * @route   POST /api/quotes/:quoteId/product-configuration/apply-to-all
+ * @desc    Apply a product to all specified categories
+ * @params  quoteId - Quote ID
+ * @body    productId - Product ID to apply, targetCategories - Array of category names, scheme - Pricing scheme type, categoryType - Optional interior/exterior for flat_rate_unit
+ * @access  Contractor
+ */
+router.post('/:quoteId/product-configuration/apply-to-all', quoteController.applyProductToAll);
+
+/**
+ * @route   POST /api/quotes/:quoteId/product-configuration/validate
+ * @desc    Validate product configuration for a quote
+ * @params  quoteId - Quote ID
+ * @body    productSets - Product configuration object to validate, scheme - Optional pricing scheme type
+ * @access  Contractor
+ */
+router.post('/:quoteId/product-configuration/validate', quoteController.validateProductConfiguration);
+
 module.exports = router;
+
+
+/**
+ * @route   POST /api/quotes/:quoteId/generate-proposal
+ * @desc    Generate proposal PDF for a quote
+ * @params  quoteId - Quote ID
+ * @access  Contractor
+ */
+router.post('/:quoteId/generate-proposal', quoteController.generateProposalPDF);
+
+/**
+ * @route   POST /api/quotes/:quoteId/regenerate-proposal
+ * @desc    Regenerate proposal PDF with latest quote data
+ * @params  quoteId - Quote ID
+ * @access  Contractor
+ */
+router.post('/:quoteId/regenerate-proposal', quoteController.regenerateProposalPDF);

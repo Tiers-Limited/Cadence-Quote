@@ -84,7 +84,7 @@ const PricingScheme = sequelize.define('PricingScheme', {
     //   },
     //   
     //   // For "production_based" (Production-Based):
-    //   "hourlyLaborRate": 50,                      // Per painter per hour
+    //   "billableLaborRate": 50,                      // Per painter per hour
     //   "productionRates": {
     //     "walls": 300,                             // Sq ft per hour
     //     "ceilings": 250,

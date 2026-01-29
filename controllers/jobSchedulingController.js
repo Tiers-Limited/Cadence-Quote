@@ -326,13 +326,19 @@ exports.completeJob = async (req, res) => {
     const {
       completionNotes,
       crewLeadSignature,
+      finalInvoiceAmount,
+      actualMaterialCost,
+      actualLaborCost,
     } = req.body;
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
     
     const job = await Job.findOne({
       where: { id, tenantId },
-      include: [{ model: Client, as: 'client' }],
+      include: [
+        { model: Client, as: 'client' },
+        { model: Quote, as: 'quote' }
+      ],
       transaction,
     });
     
@@ -357,6 +363,7 @@ exports.completeJob = async (req, res) => {
     const depositPaid = parseFloat(job.depositAmount || 0);
     const balanceRemaining = total - depositPaid;
     
+    // Update job status
     await job.update({
       status: 'completed',
       completionNotes,
@@ -364,6 +371,17 @@ exports.completeJob = async (req, res) => {
       balanceRemaining,
       finalPaymentStatus: balanceRemaining > 0 ? 'pending' : 'not_required',
     }, { transaction });
+    
+    // CRITICAL: Mark the associated Quote as complete for Job Analytics
+    if (job.quote) {
+      const invoiceAmount = finalInvoiceAmount || total;
+      await job.quote.markJobComplete(
+        invoiceAmount,
+        actualMaterialCost || null,
+        actualLaborCost || null
+      );
+      await job.quote.save({ transaction });
+    }
     
     await transaction.commit();
     
@@ -378,6 +396,8 @@ exports.completeJob = async (req, res) => {
       metadata: {
         jobNumber: job.jobNumber,
         balanceRemaining,
+        finalInvoiceAmount: job.quote?.finalInvoiceAmount || null,
+        canCalculateAnalytics: job.quote?.canCalculateAnalytics() || false,
       },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
@@ -407,6 +427,12 @@ exports.completeJob = async (req, res) => {
         status: job.status,
         balanceRemaining,
         finalPaymentRequired: balanceRemaining > 0,
+        quote: job.quote ? {
+          id: job.quote.id,
+          jobCompletedAt: job.quote.jobCompletedAt,
+          finalInvoiceAmount: job.quote.finalInvoiceAmount,
+          canCalculateAnalytics: job.quote.canCalculateAnalytics(),
+        } : null,
       },
     });
     
@@ -688,7 +714,12 @@ exports.getJobDetails = async (req, res) => {
         {
           model: Quote,
           as: 'quote',
-          attributes: ['id', 'quoteNumber', 'selectedTier', 'productStrategy', 'productSets'],
+          attributes: ['id', 'quoteNumber', 'gbbSelectedTier', 'productStrategy', 'productSets', 'areas', 'breakdown', 'flatRateItems', 'pricingSchemeId'],
+          include: [{
+            model: require('../models/PricingScheme'),
+            as: 'pricingScheme',
+            attributes: ['id', 'name', 'type']
+          }]
         },
       ],
     });
@@ -751,8 +782,12 @@ exports.getJobDetails = async (req, res) => {
           quoteNumber: job.quote?.quoteNumber,
           selectedTier: job.quote?.selectedTier,
           productStrategy: job.quote?.productStrategy,
-          areas,
+          areas: job.quote?.areas || areas,
           productSets: job.quote?.productSets || null,
+          breakdown: job.quote?.breakdown || null,
+          flatRateItems: job.quote?.flatRateItems || null,
+          pricingSchemeId: job.quote?.pricingSchemeId || null,
+          pricingScheme: job.quote?.pricingScheme || null
         },
         address,
         areaProgress: job.areaProgress || {},
@@ -773,3 +808,4 @@ exports.getJobDetails = async (req, res) => {
 };
 
 module.exports = exports;
+

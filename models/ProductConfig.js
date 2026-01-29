@@ -36,14 +36,27 @@ const ProductConfig = sequelize.define('ProductConfig', {
   },
   globalProductId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
+    allowNull: true,
     references: {
       model: 'global_products',
       key: 'id',
     },
     onDelete: 'CASCADE',
     field: 'global_product_id',
-    comment: 'FK to global product being configured',
+    comment: 'FK to global product being configured (nullable for contractor custom products)',
+  },
+  isCustom: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'is_custom',
+    comment: 'True when this product config represents a contractor-created custom product',
+  },
+  customProduct: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'custom_product',
+    comment: 'Custom product details when isCustom=true. Example: { name, brandName, category, description, sheens: [...] }',
   },
   sheens: {
     type: DataTypes.JSONB,
@@ -72,70 +85,7 @@ const ProductConfig = sequelize.define('ProductConfig', {
       },
     },
   },
-  laborRates: {
-    type: DataTypes.JSONB,
-    allowNull: false,
-    defaultValue: DEFAULT_LABOR_RATES,
-    comment: 'Labor rates object: {interior: [...], exterior: [...]}',
-    validate: {
-      isValidLaborRates(value) {
-        if (!value || typeof value !== 'object') {
-          throw new Error('Labor rates must be an object');
-        }
-        ['interior', 'exterior'].forEach(type => {
-          if (!Array.isArray(value[type])) {
-            throw new Error(`Labor rates must include ${type} array`);
-          }
-          value[type].forEach((item, index) => {
-            if (!item.category || typeof item.rate !== 'number' || item.rate < 0) {
-              throw new Error(`Invalid labor rate at ${type}[${index}]`);
-            }
-          });
-        });
-      },
-    },
-  },
-  defaultMarkup: {
-    type: DataTypes.DECIMAL(5, 2),
-    allowNull: false,
-    defaultValue: DEFAULT_MARKUP,
-    field: 'default_markup',
-    comment: 'Default markup percentage applied to products (e.g., 15.00 for 15%)',
-    validate: {
-      min: 0,
-      max: 999.99,
-    },
-  },
-  productMarkups: {
-    type: DataTypes.JSONB,
-    allowNull: false,
-    defaultValue: {},
-    field: 'product_markups',
-    comment: 'Product-specific markup overrides: {globalProductId: markupPercent}',
-    validate: {
-      isValidMarkups(value) {
-        if (typeof value !== 'object' || Array.isArray(value)) {
-          throw new Error('Product markups must be an object');
-        }
-        Object.entries(value).forEach(([productId, markup]) => {
-          if (typeof markup !== 'number' || markup < 0 || markup > 999.99) {
-            throw new Error(`Invalid markup for product ${productId}`);
-          }
-        });
-      },
-    },
-  },
-  taxRate: {
-    type: DataTypes.DECIMAL(5, 2),
-    allowNull: false,
-    defaultValue: DEFAULT_TAX_RATE,
-    field: 'tax_rate',
-    comment: 'Tax rate percentage (e.g., 8.25 for 8.25%)',
-    validate: {
-      min: 0,
-      max: 100,
-    },
-  },
+ 
   isActive: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
@@ -156,10 +106,7 @@ const ProductConfig = sequelize.define('ProductConfig', {
       name: 'product_configs_user_id_idx',
       fields: ['user_id'],
     },
-    {
-      name: 'product_configs_global_product_id_idx',
-      fields: ['global_product_id'],
-    },
+   
     {
       name: 'product_configs_is_active_idx',
       fields: ['is_active'],

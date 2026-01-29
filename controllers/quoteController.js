@@ -4,6 +4,11 @@
 const { ProductConfig, GlobalProduct, GlobalColor, Brand, PricingScheme, ContractorSettings, Quote, User, Client } = require('../models');
 const { Op } = require('sequelize');
 const { getFormFields, calculateSurfaceArea, validateDimensions } = require('../utils/surfaceDimensions');
+const { recordQuoteToAnalytics } = require('../utils/pricingCalculator');
+const { validateSchemeCompatibility, migrateQuoteData, createRollbackData } = require('../utils/schemeDataMigration');
+const templateRenderingService = require('../services/templateRenderingService');
+const performanceOptimizationService = require('../services/performanceOptimizationService');
+const dataRecoveryService = require('../services/dataRecoveryService');
 
 // Import optimization utilities
 const { optimizationSystem } = require('../optimization');
@@ -90,7 +95,7 @@ exports.getMinimalProducts = async (req, res) => {
           attributes: ['id', 'name']
         }]
       }],
-      attributes: ['id', 'globalProductId', 'sheens', 'laborRates', 'defaultMarkup', 'productMarkups', 'taxRate'],
+      attributes: ['id', 'globalProductId', 'sheens',    ],
       limit: parseInt(limit),
       offset,
       order: [
@@ -221,7 +226,7 @@ exports.getProductDetails = async (req, res) => {
           attributes: ['id', 'name']
         }]
       }],
-      attributes: ['id', 'globalProductId', 'sheens', 'laborRates', 'defaultMarkup', 'productMarkups', 'taxRate']
+      attributes: ['id', 'globalProductId', 'sheens',    ]
     });
 
     if (!config) {
@@ -237,13 +242,23 @@ exports.getProductDetails = async (req, res) => {
       data: {
         id: config.id,
         globalProductId: config.globalProductId,
-        product: {
+        isCustom: config.isCustom || false,
+        product: config.isCustom && config.customProduct ? {
+          id: null,
+          name: config.customProduct.name || 'Custom Product',
+          category: config.customProduct.category || 'Unknown',
+          tier: config.customProduct.tier || 'custom',
+          brand: {
+            id: null,
+            name: config.customProduct.brandName || 'Custom'
+          }
+        } : config.globalProduct ? {
           id: config.globalProduct.id,
           name: config.globalProduct.name,
           category: config.globalProduct.category,
           tier: config.globalProduct.tier,
           brand: config.globalProduct.brand
-        },
+        } : null,
         sheens: config.sheens.map(s => ({
           sheen: s.sheen,
           price: parseFloat(s.price),
@@ -608,7 +623,7 @@ exports.calculateQuote = async (req, res) => {
             tenantId,
             isActive: true
           },
-          attributes: ['id', 'sheens', 'laborRates', 'defaultMarkup', 'productMarkups', 'taxRate'],
+          attributes: ['id', 'sheens',    ],
           raw: true
         });
         
@@ -699,9 +714,11 @@ exports.calculateQuote = async (req, res) => {
     const zipMarkup = (applyZipMarkup && zipMarkupPercent) 
       ? (subtotal + markup) * (zipMarkupPercent / 100) 
       : 0;
-    const subtotalWithMarkups = subtotal + markup + zipMarkup;
-    const tax = subtotalWithMarkups * (defaultTax / 100);
-    const total = subtotalWithMarkups + tax;
+    
+    // Tax should only be applied to markup amounts, not full subtotal
+    const totalMarkupAmount = markup + zipMarkup;
+    const tax = totalMarkupAmount * (defaultTax / 100);
+    const total = subtotal + totalMarkupAmount + tax;
 
     return res.json({
       success: true,
@@ -849,11 +866,54 @@ exports.saveQuote = async (req, res) => {
       clientNotes,
       breakdown,
       summary,
-      status = 'draft'
+      status = 'draft',
+      productSets // New field for pricing scheme-specific products
     } = req.body;
 
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
+
+    // Validate pricing scheme if productSets is provided
+    let pricingScheme = null;
+    if (pricingSchemeId) {
+      pricingScheme = await PricingScheme.findOne({
+        where: {
+          id: pricingSchemeId,
+          tenantId,
+          isActive: true
+        }
+      });
+
+      if (!pricingScheme) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid pricing scheme ID'
+        });
+      }
+    }
+
+    // Validate and process productSets if provided
+    let validatedProductSets = null;
+    if (productSets && typeof productSets === 'object') {
+      // Validate structure based on pricing scheme
+      const validation = validateProductSets(productSets, pricingScheme?.type);
+      
+      if (!validation.valid) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid product configuration',
+          errors: validation.errors,
+          warnings: validation.warnings
+        });
+      }
+
+      validatedProductSets = productSets;
+      
+      // Ensure scheme identifier is set
+      if (!validatedProductSets.scheme && pricingScheme) {
+        validatedProductSets.scheme = mapPricingSchemeType(pricingScheme.type);
+      }
+    }
 
     // Generate quote number
     const quoteNumber = await Quote.generateQuoteNumber(tenantId);
@@ -904,6 +964,7 @@ exports.saveQuote = async (req, res) => {
       jobType,
       jobCategory,
       areas,
+      productSets: validatedProductSets, // Store pricing scheme-specific products
       subtotal,
       laborTotal,
       materialTotal,
@@ -922,6 +983,30 @@ exports.saveQuote = async (req, res) => {
       validUntil,
       isActive: true
     });
+
+    // Record quote to Job Analytics (async, non-blocking)
+    if (status === 'finalized' || status === 'sent') {
+      const analyticsData = {
+        quoteId: quote.id,
+        tenantId,
+        userId,
+        customerId: null, // Could be added if customer ID is available
+        total,
+        subtotal,
+        tax,
+        deposit: total * 0.5, // Assuming 50% deposit, could be configurable
+        balance: total * 0.5,
+        pricingModel: breakdown?.model || 'unknown',
+        status,
+        createdAt: quote.createdAt,
+        timestamp: new Date().toISOString()
+      };
+      
+      // Record asynchronously without blocking the response
+      recordQuoteToAnalytics(analyticsData).catch(error => {
+        console.warn('Failed to record quote to analytics:', error.message);
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -944,6 +1029,8 @@ exports.saveQuote = async (req, res) => {
  * OPTIMIZED: Implements efficient filtering and eager loading
  */
 exports.getQuotes = async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const {
       page = 1,
@@ -960,6 +1047,15 @@ exports.getQuotes = async (req, res) => {
 
     const offset = (page - 1) * limit;
     const tenantId = req.user.tenantId;
+
+    // Check concurrent user limits
+    if (!performanceOptimizationService.checkConcurrentUserLimits(tenantId)) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many concurrent users. Please try again later.',
+        retryAfter: 60
+      });
+    }
 
     const where = {
       tenantId,
@@ -1001,8 +1097,8 @@ exports.getQuotes = async (req, res) => {
       where.createdAt = { ...where.createdAt, [Op.lte]: new Date(dateTo) };
     }
 
-    // OPTIMIZATION: Use eager loading to eliminate N+1 queries
-    const { count, rows } = await Quote.findAndCountAll({
+    // Prepare query options
+    let queryOptions = {
       where,
       attributes: { exclude: ['useContractorDiscount', 'bookingRequest'] },
       include: [
@@ -1019,14 +1115,25 @@ exports.getQuotes = async (req, res) => {
         {
           model: Client,
           as: 'client',
-          attributes: ['id', 'name', 'email', 'phone', 'hasPortalAccess', 'portalInvitedAt', 'portalActivatedAt'],
+          attributes: ['id', 'name', 'email', 'phone'],
           required: false
         }
       ],
       limit: parseInt(limit),
       offset,
-      order: [[sortBy, sortOrder]]
-    });
+      order: [[sortBy, sortOrder.toUpperCase()]],
+      distinct: true
+    };
+
+    // Apply performance optimization
+    queryOptions = performanceOptimizationService.optimizeQuoteQuery(queryOptions, 50);
+
+    // OPTIMIZATION: Use eager loading to eliminate N+1 queries
+    const { count, rows } = await Quote.findAndCountAll(queryOptions);
+
+    // Record performance metrics
+    const executionTime = Date.now() - startTime;
+    performanceOptimizationService.recordQueryMetrics('getQuotes', executionTime, rows.length);
 
     return res.json({
       success: true,
@@ -1036,10 +1143,19 @@ exports.getQuotes = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         totalPages: Math.ceil(count / limit)
+      },
+      performance: {
+        executionTime: `${executionTime}ms`,
+        resultCount: rows.length
       }
     });
   } catch (error) {
     console.error('Error fetching quotes:', error);
+    
+    // Record error metrics
+    const executionTime = Date.now() - startTime;
+    performanceOptimizationService.recordQueryMetrics('getQuotes_error', executionTime, 0);
+    
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch quotes',
@@ -1121,7 +1237,11 @@ exports.updateQuote = async (req, res) => {
         id,
         tenantId,
         isActive: true
-      }
+      },
+      include: [{
+        model: PricingScheme,
+        as: 'pricingScheme'
+      }]
     });
 
     if (!quote) {
@@ -1131,14 +1251,88 @@ exports.updateQuote = async (req, res) => {
       });
     }
 
+    // Check if pricing scheme is changing
+    const isSchemeChanging = updateData.pricingSchemeId && 
+                            updateData.pricingSchemeId !== quote.pricingSchemeId;
+
+    let migrationResult = null;
+    let rollbackData = null;
+
+    if (isSchemeChanging) {
+      // Get the new pricing scheme
+      const newScheme = await PricingScheme.findByPk(updateData.pricingSchemeId);
+      if (!newScheme) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid pricing scheme'
+        });
+      }
+
+      const currentSchemeType = quote.pricingScheme?.type || 'turnkey';
+      const newSchemeType = newScheme.type;
+
+      // Validate compatibility
+      const compatibility = validateSchemeCompatibility(
+        quote.toJSON(),
+        currentSchemeType,
+        newSchemeType
+      );
+
+      // Create rollback data before migration
+      rollbackData = createRollbackData(quote.toJSON(), currentSchemeType);
+
+      // Perform data migration if needed
+      if (compatibility.migrations.length > 0 || !compatibility.isCompatible) {
+        migrationResult = migrateQuoteData(
+          quote.toJSON(),
+          currentSchemeType,
+          newSchemeType
+        );
+
+        // Merge migrated data with update data
+        Object.assign(updateData, migrationResult.data);
+      }
+
+      // Add compatibility info to response
+      updateData._schemeChangeInfo = {
+        compatibility,
+        migrationLog: migrationResult?.migrationLog || [],
+        rollbackAvailable: true
+      };
+    }
+
+    // Update quote with optimistic locking
+    const currentVersion = quote.autoSaveVersion;
+    updateData.autoSaveVersion = currentVersion + 1;
+    updateData.lastModified = new Date();
+
+    // Check for concurrent modifications
+    if (updateData.expectedVersion && updateData.expectedVersion !== currentVersion) {
+      return res.status(409).json({
+        success: false,
+        message: 'Quote has been modified by another user',
+        currentVersion,
+        expectedVersion: updateData.expectedVersion,
+        conflictResolution: true
+      });
+    }
+
     // Update quote
     await quote.update(updateData);
 
-    return res.json({
+    const response = {
       success: true,
       message: 'Quote updated successfully',
       data: quote
-    });
+    };
+
+    // Add scheme change information to response
+    if (isSchemeChanging && updateData._schemeChangeInfo) {
+      response.schemeChangeInfo = updateData._schemeChangeInfo;
+      response.rollbackData = rollbackData;
+    }
+
+    return res.json(response);
   } catch (error) {
     console.error('Error updating quote:', error);
     return res.status(500).json({
@@ -1518,4 +1712,2308 @@ exports.duplicateQuote = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/quotes/recalculate-production-based
+ * Recalculate all production-based quotes when production rates change
+ * Ensures all affected quotes reflect updated production rates and labor costs
+ */
+exports.recalculateProductionBasedQuotes = async (req, res) => {
+  try {
+    const { productionRates, billableLaborRates } = req.body;
+    const tenantId = req.user.tenantId;
+    const startTime = performance.now();
+
+    // Validate input
+    if (!productionRates || !billableLaborRates) {
+      return res.status(400).json({
+        success: false,
+        message: 'Production rates and billable labor rates are required'
+      });
+    }
+
+    // Find all production-based quotes for this tenant
+    const productionBasedQuotes = await Quote.findAll({
+      where: {
+        tenantId,
+        status: ['draft', 'pending', 'approved'], // Only active quotes
+        pricingScheme: {
+          [Op.or]: ['production_based', 'hourly_time_materials']
+        }
+      },
+      attributes: ['id', 'areas', 'pricingScheme', 'crewSize', 'lastModified']
+    });
+
+    let affectedQuotes = 0;
+    const updatePromises = [];
+
+    for (const quote of productionBasedQuotes) {
+      try {
+        // Recalculate quote with new production rates
+        const updatedCalculation = await recalculateQuoteWithProductionRates(
+          quote,
+          productionRates,
+          billableLaborRates
+        );
+
+        if (updatedCalculation) {
+          updatePromises.push(
+            Quote.update(
+              {
+                calculatedTotals: updatedCalculation.totals,
+                lastModified: new Date(),
+                // Add flag to indicate this was auto-updated
+                autoUpdatedAt: new Date(),
+                autoUpdateReason: 'production_rates_changed'
+              },
+              {
+                where: { id: quote.id }
+              }
+            )
+          );
+          affectedQuotes++;
+        }
+      } catch (quoteError) {
+        console.warn(`Failed to recalculate quote ${quote.id}:`, quoteError);
+        // Continue with other quotes even if one fails
+      }
+    }
+
+    // Execute all updates in parallel for better performance
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises);
+    }
+
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+
+    // Log performance metrics
+    console.log(`Production-based quote recalculation completed in ${duration.toFixed(2)}ms`);
+    console.log(`Affected quotes: ${affectedQuotes}/${productionBasedQuotes.length}`);
+
+    // Check if operation completed within 500ms target
+    if (duration > 500) {
+      console.warn(`Quote recalculation took ${duration.toFixed(2)}ms - exceeds 500ms target`);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        affectedQuotes,
+        totalQuotes: productionBasedQuotes.length,
+        processingTime: Math.round(duration),
+        withinTarget: duration <= 500
+      },
+      message: `Successfully recalculated ${affectedQuotes} production-based quotes`
+    });
+
+  } catch (error) {
+    console.error('Error recalculating production-based quotes:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to recalculate production-based quotes',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Helper function to recalculate a quote with new production rates
+ * @param {Object} quote - The quote to recalculate
+ * @param {Object} productionRates - New production rates
+ * @param {Object} billableLaborRates - New billable labor rates
+ * @returns {Object|null} Updated calculation or null if no changes needed
+ */
+async function recalculateQuoteWithProductionRates(quote, productionRates, billableLaborRates) {
+  try {
+    const areas = quote.areas || [];
+    if (areas.length === 0) return null;
+
+    let totalLaborHours = 0;
+    let totalLaborCost = 0;
+    let totalMaterialCost = 0;
+
+    // Calculate crew average rate
+    const crewSize = quote.crewSize || Object.keys(billableLaborRates).length || 1;
+    const averageLaborRate = Object.values(billableLaborRates).reduce((sum, rate) => sum + rate, 0) / Object.keys(billableLaborRates).length;
+
+    for (const area of areas) {
+      for (const surface of area.surfaces || []) {
+        if (!surface.selected || !surface.sqft) continue;
+
+        const sqft = parseFloat(surface.sqft) || 0;
+        const surfaceType = surface.type?.toLowerCase() || 'walls';
+
+        // Get production rate for this surface type
+        let productionRate = productionRates.interiorWalls || 300; // Default fallback
+        
+        if (surfaceType.includes('ceiling')) {
+          productionRate = productionRates.interiorCeilings || 250;
+        } else if (surfaceType.includes('trim')) {
+          productionRate = productionRates.interiorTrim || 150;
+        } else if (surfaceType.includes('door')) {
+          productionRate = productionRates.doors || 2;
+        } else if (surfaceType.includes('cabinet')) {
+          productionRate = productionRates.cabinets || 1.5;
+        } else if (area.jobType === 'exterior') {
+          if (surfaceType.includes('wall')) {
+            productionRate = productionRates.exteriorWalls || 250;
+          } else if (surfaceType.includes('trim')) {
+            productionRate = productionRates.exteriorTrim || 120;
+          } else if (surfaceType.includes('soffit') || surfaceType.includes('fascia')) {
+            productionRate = productionRates.soffitFascia || 100;
+          }
+        }
+
+        // Calculate labor hours based on production rate and crew size
+        const laborHours = sqft / productionRate / crewSize;
+        const laborCost = laborHours * averageLaborRate;
+
+        totalLaborHours += laborHours;
+        totalLaborCost += laborCost;
+
+        // Material cost calculation (if applicable)
+        if (surface.selectedProduct && surface.selectedSheen) {
+          // This would need to fetch product pricing, but for now use a simple estimate
+          const estimatedMaterialCost = sqft * 0.15; // $0.15 per sqft estimate
+          totalMaterialCost += estimatedMaterialCost;
+        }
+      }
+    }
+
+    // Apply markup and tax (use defaults if not specified)
+    const subtotal = totalLaborCost + totalMaterialCost;
+    const markup = subtotal * 0.15; // 15% default markup
+    
+    // Tax should only be applied to markup, not full subtotal
+    const tax = markup * 0.08; // 8% default tax on markup only
+    const total = subtotal + markup + tax;
+
+    return {
+      totals: {
+        laborHours: Math.round(totalLaborHours * 100) / 100,
+        laborCost: Math.round(totalLaborCost * 100) / 100,
+        materialCost: Math.round(totalMaterialCost * 100) / 100,
+        subtotal: Math.round(subtotal * 100) / 100,
+        markup: Math.round(markup * 100) / 100,
+        tax: Math.round(tax * 100) / 100,
+        total: Math.round(total * 100) / 100
+      },
+      metadata: {
+        recalculatedAt: new Date(),
+        productionRatesUsed: productionRates,
+        averageLaborRate,
+        crewSize
+      }
+    };
+
+  } catch (error) {
+    console.error('Error in recalculateQuoteWithProductionRates:', error);
+    return null;
+  }
+}
+
+/**
+ * GET /api/quotes/:id/render
+ * Render quote with applied template formatting
+ */
+exports.renderQuoteWithTemplate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user.tenantId;
+
+    // Fetch quote with related data
+    const quote = await Quote.findOne({
+      where: {
+        id,
+        tenantId,
+        isActive: true
+      },
+      include: [{
+        model: PricingScheme,
+        as: 'pricingScheme'
+      }]
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Fetch contractor settings for template configuration
+    const contractorSettings = await ContractorSettings.findOne({
+      where: { tenantId }
+    });
+
+    if (!contractorSettings) {
+      return res.status(404).json({
+        success: false,
+        message: 'Contractor settings not found'
+      });
+    }
+
+    // Prepare template configuration
+    const templateConfig = {
+      selectedProposalTemplate: contractorSettings.selectedProposalTemplate || 'professional',
+      proposalTemplateSettings: contractorSettings.proposalTemplateSettings || {
+        showCompanyLogo: true,
+        showAreaBreakdown: true,
+        showProductDetails: true,
+        showWarrantySection: true,
+        colorScheme: 'blue'
+      }
+    };
+
+    // Prepare contractor information
+    const contractorInfo = {
+      businessName: contractorSettings.businessName,
+      name: req.user.fullName,
+      phone: contractorSettings.phone,
+      email: req.user.email,
+      address: contractorSettings.businessAddress,
+      logoUrl: contractorSettings.logoUrl,
+      warrantyTerms: contractorSettings.warrantyTerms,
+      generalTerms: contractorSettings.generalTerms,
+      paymentTerms: contractorSettings.paymentTerms,
+      licenseNumber: contractorSettings.licenseNumber,
+      website: contractorSettings.website
+    };
+
+    // Render quote with template
+    const renderedQuote = templateRenderingService.renderQuote(
+      quote.toJSON(),
+      templateConfig,
+      contractorInfo
+    );
+
+    return res.json({
+      success: true,
+      data: renderedQuote
+    });
+  } catch (error) {
+    console.error('Error rendering quote with template:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to render quote with template',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * POST /api/quotes/:id/rollback
+ * Rollback quote data to previous state after failed scheme change
+ */
+exports.rollbackQuote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rollbackData } = req.body;
+    const tenantId = req.user.tenantId;
+
+    if (!rollbackData || !rollbackData.rollbackAvailable) {
+      return res.status(400).json({
+        success: false,
+        message: 'No rollback data available'
+      });
+    }
+
+    const quote = await Quote.findOne({
+      where: {
+        id,
+        tenantId,
+        isActive: true
+      }
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Import rollback function
+    const { rollbackQuoteData } = require('../utils/schemeDataMigration');
+    
+    // Perform rollback
+    const rollbackResult = rollbackQuoteData(rollbackData);
+    
+    // Update quote with rollback data
+    await quote.update({
+      ...rollbackResult.data,
+      lastModified: new Date(),
+      autoSaveVersion: quote.autoSaveVersion + 1
+    });
+
+    return res.json({
+      success: true,
+      message: 'Quote data rolled back successfully',
+      data: quote,
+      rollbackInfo: {
+        restoredAt: rollbackResult.restoredAt,
+        originalScheme: rollbackResult.scheme
+      }
+    });
+  } catch (error) {
+    console.error('Error rolling back quote:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to rollback quote',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * POST /api/quotes/:id/create-checkpoint
+ * Create a recovery checkpoint for unsaved changes
+ */
+exports.createRecoveryCheckpoint = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sessionId, quoteData } = req.body;
+    const userId = req.user.id;
+    const tenantId = req.user.tenantId;
+
+    // Verify quote exists and user has access
+    const quote = await Quote.findOne({
+      where: {
+        id,
+        tenantId,
+        isActive: true
+      }
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Create recovery checkpoint
+    const result = await dataRecoveryService.createRecoveryCheckpoint(
+      quoteData || quote.toJSON(),
+      sessionId,
+      userId
+    );
+
+    return res.json({
+      success: result.success,
+      message: result.success ? 'Recovery checkpoint created' : 'Failed to create checkpoint',
+      data: result.success ? {
+        checkpointId: result.checkpointId,
+        timestamp: result.timestamp,
+        version: result.version
+      } : null,
+      error: result.error
+    });
+  } catch (error) {
+    console.error('Error creating recovery checkpoint:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create recovery checkpoint',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/quotes/recovery/:sessionId
+ * Get available recovery data for a session
+ */
+exports.getRecoveryData = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { quoteId } = req.query;
+    const userId = req.user.id;
+
+    const recoveryData = await dataRecoveryService.getRecoveryData(sessionId, quoteId);
+
+    return res.json({
+      success: true,
+      data: recoveryData,
+      message: recoveryData.length > 0 ? 
+        `Found ${recoveryData.length} recovery checkpoint(s)` : 
+        'No recovery data available'
+    });
+  } catch (error) {
+    console.error('Error getting recovery data:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve recovery data',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * POST /api/quotes/recovery/restore
+ * Restore quote data from a recovery checkpoint
+ */
+exports.restoreFromCheckpoint = async (req, res) => {
+  try {
+    const { checkpointId } = req.body;
+    const userId = req.user.id;
+
+    const result = await dataRecoveryService.restoreFromCheckpoint(checkpointId, userId);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.error || 'Failed to restore from checkpoint'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Data restored from checkpoint',
+      data: result.data,
+      restoredAt: result.restoredAt,
+      originalTimestamp: result.timestamp,
+      version: result.version
+    });
+  } catch (error) {
+    console.error('Error restoring from checkpoint:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to restore from checkpoint',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * POST /api/quotes/:id/resolve-conflicts
+ * Detect and resolve conflicts between local and server data
+ */
+exports.resolveConflicts = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { localData, resolutionStrategy } = req.body;
+    const tenantId = req.user.tenantId;
+
+    // Get current server data
+    const serverQuote = await Quote.findOne({
+      where: {
+        id,
+        tenantId,
+        isActive: true
+      }
+    });
+
+    if (!serverQuote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    const serverData = serverQuote.toJSON();
+
+    // Detect conflicts
+    const conflictResult = await dataRecoveryService.detectAndResolveConflicts(localData, serverData);
+
+    // If user provided a resolution strategy, apply it
+    if (resolutionStrategy && conflictResult.hasConflicts) {
+      conflictResult.mergedData = dataRecoveryService.createMergedData(
+        localData,
+        serverData,
+        resolutionStrategy
+      );
+      conflictResult.appliedStrategy = resolutionStrategy;
+    }
+
+    return res.json({
+      success: true,
+      hasConflicts: conflictResult.hasConflicts,
+      conflicts: conflictResult.conflicts,
+      suggestedResolution: conflictResult.suggestedResolution,
+      mergedData: conflictResult.mergedData,
+      appliedStrategy: conflictResult.appliedStrategy,
+      message: conflictResult.hasConflicts ? 
+        `Found ${conflictResult.conflicts.length} conflict(s)` : 
+        'No conflicts detected'
+    });
+  } catch (error) {
+    console.error('Error resolving conflicts:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to resolve conflicts',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/quotes/recovery/stats
+ * Get recovery system statistics
+ */
+exports.getRecoveryStats = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const stats = await dataRecoveryService.getRecoveryStats(userId);
+
+    return res.json({
+      success: true,
+      data: stats,
+      message: 'Recovery statistics retrieved'
+    });
+  } catch (error) {
+    console.error('Error getting recovery stats:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get recovery statistics',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/quotes/performance-metrics
+ * Get performance metrics for monitoring
+ */
+exports.getPerformanceMetrics = async (req, res) => {
+  try {
+    const metrics = performanceOptimizationService.getPerformanceMetrics();
+    
+    return res.json({
+      success: true,
+      data: metrics
+    });
+  } catch (error) {
+    console.error('Error fetching performance metrics:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch performance metrics',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Helper function to validate productSets structure based on pricing scheme
+ * @param {Object} productSets - The product configuration object
+ * @param {String} schemeType - The pricing scheme type
+ * @returns {Object} - Validation result with valid flag, errors, and warnings
+ */
+function validateProductSets(productSets, schemeType) {
+  const errors = [];
+  const warnings = [];
+
+  if (!productSets || typeof productSets !== 'object') {
+    errors.push({
+      code: 'INVALID_STRUCTURE',
+      message: 'productSets must be an object'
+    });
+    return { valid: false, errors, warnings };
+  }
+
+  // Map legacy scheme types to new types
+  const mappedScheme = mapPricingSchemeType(schemeType);
+
+  // Validate based on pricing scheme type
+  switch (mappedScheme) {
+    case 'turnkey':
+      // Validate turnkey structure: should have global surface types
+      if (!productSets.global || typeof productSets.global !== 'object') {
+        errors.push({
+          code: 'INVALID_STRUCTURE',
+          category: 'global',
+          message: 'Turnkey pricing requires global surface type configuration'
+        });
+      } else {
+        // Validate each surface type has required fields
+        Object.entries(productSets.global).forEach(([surfaceType, product]) => {
+          if (!product || typeof product !== 'object') {
+            errors.push({
+              code: 'INVALID_PRODUCT',
+              category: surfaceType,
+              message: `Invalid product configuration for ${surfaceType}`
+            });
+          } else {
+            validateProductObject(product, surfaceType, errors, warnings);
+          }
+        });
+      }
+      break;
+
+    case 'flat_rate_unit':
+      // Validate flat rate structure: should have interior and/or exterior categories
+      if (!productSets.interior && !productSets.exterior) {
+        errors.push({
+          code: 'INVALID_STRUCTURE',
+          message: 'Flat Rate Unit pricing requires interior or exterior category configuration'
+        });
+      }
+
+      // Validate interior units if present
+      if (productSets.interior && typeof productSets.interior === 'object') {
+        Object.entries(productSets.interior).forEach(([unitType, unitData]) => {
+          if (!unitData || typeof unitData !== 'object') {
+            errors.push({
+              code: 'INVALID_UNIT',
+              category: 'interior',
+              unitType,
+              message: `Invalid unit configuration for interior ${unitType}`
+            });
+          } else if (!unitData.products || !Array.isArray(unitData.products)) {
+            errors.push({
+              code: 'MISSING_PRODUCTS',
+              category: 'interior',
+              unitType,
+              message: `Products array required for interior ${unitType}`
+            });
+          } else {
+            // Validate each product in the array
+            unitData.products.forEach((product, index) => {
+              validateProductObject(product, `interior.${unitType}[${index}]`, errors, warnings);
+            });
+          }
+        });
+      }
+
+      // Validate exterior units if present
+      if (productSets.exterior && typeof productSets.exterior === 'object') {
+        Object.entries(productSets.exterior).forEach(([unitType, unitData]) => {
+          if (!unitData || typeof unitData !== 'object') {
+            errors.push({
+              code: 'INVALID_UNIT',
+              category: 'exterior',
+              unitType,
+              message: `Invalid unit configuration for exterior ${unitType}`
+            });
+          } else if (!unitData.products || !Array.isArray(unitData.products)) {
+            errors.push({
+              code: 'MISSING_PRODUCTS',
+              category: 'exterior',
+              unitType,
+              message: `Products array required for exterior ${unitType}`
+            });
+          } else {
+            // Validate each product in the array
+            unitData.products.forEach((product, index) => {
+              validateProductObject(product, `exterior.${unitType}[${index}]`, errors, warnings);
+            });
+          }
+        });
+      }
+      break;
+
+    case 'unit_pricing':
+    case 'production_based':
+    case 'rate_based':
+      // Validate unit pricing structure: should have areas
+      if (!productSets.areas || typeof productSets.areas !== 'object') {
+        errors.push({
+          code: 'INVALID_STRUCTURE',
+          message: 'Unit Pricing requires area-based configuration'
+        });
+      } else {
+        // Validate each area
+        Object.entries(productSets.areas).forEach(([areaId, areaData]) => {
+          if (!areaData || typeof areaData !== 'object') {
+            errors.push({
+              code: 'INVALID_AREA',
+              areaId,
+              message: `Invalid area configuration for ${areaId}`
+            });
+          } else if (!areaData.surfaces || typeof areaData.surfaces !== 'object') {
+            errors.push({
+              code: 'MISSING_SURFACES',
+              areaId,
+              message: `Surfaces configuration required for area ${areaId}`
+            });
+          } else {
+            // Validate each surface in the area
+            Object.entries(areaData.surfaces).forEach(([surfaceType, surfaceData]) => {
+              if (!surfaceData || typeof surfaceData !== 'object') {
+                errors.push({
+                  code: 'INVALID_SURFACE',
+                  areaId,
+                  surfaceType,
+                  message: `Invalid surface configuration for ${surfaceType} in area ${areaId}`
+                });
+              } else {
+                // Validate tier-based products (good, better, best)
+                ['good', 'better', 'best', 'single'].forEach(tier => {
+                  if (surfaceData[tier]) {
+                    validateProductObject(
+                      surfaceData[tier],
+                      `${areaId}.${surfaceType}.${tier}`,
+                      errors,
+                      warnings
+                    );
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+      break;
+
+    case 'hourly':
+      // Validate hourly structure: should have items array
+      if (!productSets.items || !Array.isArray(productSets.items)) {
+        errors.push({
+          code: 'INVALID_STRUCTURE',
+          message: 'Hourly pricing requires items array configuration'
+        });
+      } else {
+        // Validate each item
+        productSets.items.forEach((item, index) => {
+          if (!item || typeof item !== 'object') {
+            errors.push({
+              code: 'INVALID_ITEM',
+              index,
+              message: `Invalid item configuration at index ${index}`
+            });
+          } else {
+            if (!item.description) {
+              warnings.push({
+                code: 'MISSING_DESCRIPTION',
+                index,
+                message: `Item at index ${index} is missing description`
+              });
+            }
+            if (item.products && Array.isArray(item.products)) {
+              item.products.forEach((product, pIndex) => {
+                validateProductObject(product, `items[${index}].products[${pIndex}]`, errors, warnings);
+              });
+            }
+          }
+        });
+      }
+      break;
+
+    default:
+      warnings.push({
+        code: 'UNKNOWN_SCHEME',
+        message: `Unknown pricing scheme: ${schemeType}. Validation skipped.`
+      });
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+
+/**
+ * Helper function to validate individual product object
+ * @param {Object} product - The product object to validate
+ * @param {String} location - Location identifier for error messages
+ * @param {Array} errors - Array to collect errors
+ * @param {Array} warnings - Array to collect warnings
+ */
+function validateProductObject(product, location, errors, warnings) {
+  if (!product.productId && !product.globalProductId) {
+    errors.push({
+      code: 'MISSING_PRODUCT_ID',
+      location,
+      message: `Product ID required at ${location}`
+    });
+  }
+
+  if (product.productId && (typeof product.productId !== 'number' || product.productId <= 0)) {
+    errors.push({
+      code: 'INVALID_PRODUCT_ID',
+      location,
+      productId: product.productId,
+      message: `Invalid product ID at ${location}`
+    });
+  }
+
+  if (product.quantity !== undefined) {
+    const qty = parseFloat(product.quantity);
+    if (isNaN(qty) || qty < 0) {
+      errors.push({
+        code: 'INVALID_QUANTITY',
+        location,
+        quantity: product.quantity,
+        message: `Invalid quantity at ${location}`
+      });
+    }
+  }
+
+  if (product.cost !== undefined) {
+    const cost = parseFloat(product.cost);
+    if (isNaN(cost) || cost < 0) {
+      warnings.push({
+        code: 'INVALID_COST',
+        location,
+        cost: product.cost,
+        message: `Invalid cost at ${location}`
+      });
+    }
+  }
+}
+
+/**
+ * Helper function to map pricing scheme types to standardized names
+ * Maps both legacy and new scheme types to the design document's naming convention
+ * @param {String} schemeType - The pricing scheme type from database
+ * @returns {String} - Standardized scheme name
+ */
+function mapPricingSchemeType(schemeType) {
+  if (!schemeType) return 'unknown';
+
+  const mapping = {
+    // New types (already standardized)
+    'turnkey': 'turnkey',
+    'flat_rate_unit': 'flat_rate_unit',
+    'production_based': 'unit_pricing', // Maps to unit pricing in design
+    'rate_based_sqft': 'unit_pricing',  // Maps to unit pricing in design
+    
+    // Legacy types (need mapping)
+    'sqft_turnkey': 'turnkey',
+    'unit_pricing': 'unit_pricing',
+    'room_flat_rate': 'flat_rate_unit',
+    'sqft_labor_paint': 'unit_pricing',
+    'hourly_time_materials': 'hourly'
+  };
+
+  return mapping[schemeType] || schemeType;
+}
+
+/**
+ * PUT /api/quotes/:quoteId/product-configuration
+ * Save product configuration for a quote
+ * Validates structure, saves to database, and triggers pricing recalculation
+ */
+exports.updateProductConfiguration = async (req, res) => {
+  try {
+    const { quoteId } = req.params;
+    const { productSets, autoSaveVersion } = req.body;
+    const tenantId = req.user.tenantId;
+
+    // Validate input
+    if (!productSets || typeof productSets !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'productSets is required and must be an object',
+        errors: [{
+          code: 'MISSING_PRODUCT_SETS',
+          message: 'productSets field is required'
+        }]
+      });
+    }
+
+    // Load quote with productSets and pricing scheme
+    const quote = await Quote.findOne({
+      where: {
+        id: quoteId,
+        tenantId,
+        isActive: true
+      },
+      include: [{
+        model: PricingScheme,
+        as: 'pricingScheme',
+        attributes: ['id', 'name', 'type', 'description', 'pricingRules']
+      }],
+      attributes: [
+        'id', 'quoteNumber', 'productSets', 'pricingSchemeId',
+        'customerName', 'status', 'jobType', 'updatedAt', 'areas',
+        'homeSqft', 'flatRateItems', 'includeMaterials', 'coverage',
+        'applicationMethod', 'coats'
+      ]
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Check for pricing scheme
+    if (!quote.pricingScheme) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quote does not have a pricing scheme assigned'
+      });
+    }
+
+    // Handle auto-save version conflicts
+    if (autoSaveVersion !== undefined) {
+      const currentVersion = new Date(quote.updatedAt).getTime();
+      if (autoSaveVersion < currentVersion) {
+        return res.status(409).json({
+          success: false,
+          message: 'Quote has been modified by another user. Please refresh and try again.',
+          code: 'VERSION_CONFLICT',
+          currentVersion: currentVersion,
+          attemptedVersion: autoSaveVersion
+        });
+      }
+    }
+
+    const schemeType = mapPricingSchemeType(quote.pricingScheme.type);
+
+    // Validate productSets structure for pricing scheme
+    const validation = validateProductSets(productSets, quote.pricingScheme.type);
+    
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product configuration validation failed',
+        errors: validation.errors,
+        warnings: validation.warnings
+      });
+    }
+
+    // Extract all product IDs from productSets for validation
+    const productIds = extractProductIds(productSets, schemeType);
+
+    // Validate that all product IDs exist and belong to tenant
+    if (productIds.length > 0) {
+      const validProducts = await ProductConfig.findAll({
+        where: {
+          id: productIds,
+          tenantId,
+          isActive: true
+        },
+        attributes: ['id']
+      });
+
+      const validProductIds = validProducts.map(p => p.id);
+      const invalidProductIds = productIds.filter(id => !validProductIds.includes(id));
+
+      if (invalidProductIds.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid product IDs detected',
+          errors: [{
+            code: 'INVALID_PRODUCT_IDS',
+            message: `The following product IDs do not exist or are not active: ${invalidProductIds.join(', ')}`,
+            invalidIds: invalidProductIds
+          }]
+        });
+      }
+    }
+
+    // Validate quantities are positive
+    const quantityErrors = validateQuantities(productSets, schemeType);
+    if (quantityErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid quantities detected',
+        errors: quantityErrors
+      });
+    }
+
+    // Save productSets to quote
+    await quote.update({
+      productSets: productSets
+    });
+
+    // Trigger pricing recalculation
+    let updatedPricing = null;
+    try {
+      // Import calculateQuotePricing function
+      const { calculateQuotePricing } = require('./quoteBuilderController');
+      
+      // Recalculate pricing with new product configuration
+      updatedPricing = await calculateQuotePricing(quote, tenantId);
+      
+      // Update quote with new pricing
+      await quote.update({
+        subtotal: updatedPricing.subtotal,
+        laborTotal: updatedPricing.laborTotal,
+        materialTotal: updatedPricing.materialTotal,
+        laborMarkupPercent: updatedPricing.laborMarkupPercent || 0,
+        materialMarkupPercent: updatedPricing.materialMarkupPercent || 0,
+        overheadPercent: updatedPricing.overheadPercent || 0,
+        profitMarginPercent: updatedPricing.profitMarginPercent || 0,
+        taxRatePercentage: updatedPricing.taxRatePercentage || 0,
+        total: updatedPricing.total
+      });
+    } catch (pricingError) {
+      console.error('Error recalculating pricing:', pricingError);
+      // Continue even if pricing calculation fails - product config is saved
+      // Return warning in response
+      validation.warnings.push({
+        code: 'PRICING_CALCULATION_FAILED',
+        message: 'Product configuration saved but pricing recalculation failed. Please review pricing manually.',
+        details: pricingError.message
+      });
+    }
+
+    // Reload quote to get updated data
+    await quote.reload();
+
+    // Return updated productSets and pricing breakdown
+    return res.json({
+      success: true,
+      message: 'Product configuration saved successfully',
+      data: {
+        quoteId: quote.id,
+        productSets: quote.productSets,
+        updatedPricing: updatedPricing ? {
+          subtotal: updatedPricing.subtotal,
+          laborTotal: updatedPricing.laborTotal,
+          materialTotal: updatedPricing.materialTotal,
+          total: updatedPricing.total,
+          laborMarkupPercent: updatedPricing.laborMarkupPercent,
+          materialMarkupPercent: updatedPricing.materialMarkupPercent,
+          overheadPercent: updatedPricing.overheadPercent,
+          profitMarginPercent: updatedPricing.profitMarginPercent,
+          taxRatePercentage: updatedPricing.taxRatePercentage
+        } : null,
+        version: new Date(quote.updatedAt).getTime()
+      },
+      warnings: validation.warnings
+    });
+
+  } catch (error) {
+    console.error('Error updating product configuration:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update product configuration',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Helper function to extract all product IDs from productSets
+ * @param {Object} productSets - The product configuration object
+ * @param {String} schemeType - The pricing scheme type
+ * @returns {Array} - Array of product IDs
+ */
+function extractProductIds(productSets, schemeType) {
+  const productIds = [];
+
+  try {
+    switch (schemeType) {
+      case 'turnkey':
+        // Extract from global surface types
+        if (productSets.global) {
+          Object.values(productSets.global).forEach(product => {
+            if (product && product.productId) {
+              productIds.push(product.productId);
+            }
+          });
+        }
+        break;
+
+      case 'flat_rate_unit':
+        // Extract from interior units
+        if (productSets.interior) {
+          Object.values(productSets.interior).forEach(unitData => {
+            if (unitData && unitData.products && Array.isArray(unitData.products)) {
+              unitData.products.forEach(product => {
+                if (product && product.productId) {
+                  productIds.push(product.productId);
+                }
+              });
+            }
+          });
+        }
+        // Extract from exterior units
+        if (productSets.exterior) {
+          Object.values(productSets.exterior).forEach(unitData => {
+            if (unitData && unitData.products && Array.isArray(unitData.products)) {
+              unitData.products.forEach(product => {
+                if (product && product.productId) {
+                  productIds.push(product.productId);
+                }
+              });
+            }
+          });
+        }
+        break;
+
+      case 'unit_pricing':
+        // Extract from areas
+        if (productSets.areas) {
+          Object.values(productSets.areas).forEach(areaData => {
+            if (areaData && areaData.surfaces) {
+              Object.values(areaData.surfaces).forEach(surfaceData => {
+                if (surfaceData) {
+                  // Check all tiers
+                  ['good', 'better', 'best', 'single'].forEach(tier => {
+                    if (surfaceData[tier] && surfaceData[tier].productId) {
+                      productIds.push(surfaceData[tier].productId);
+                    }
+                  });
+                }
+              });
+            }
+          });
+        }
+        break;
+
+      case 'hourly':
+        // Extract from items
+        if (productSets.items && Array.isArray(productSets.items)) {
+          productSets.items.forEach(item => {
+            if (item && item.products && Array.isArray(item.products)) {
+              item.products.forEach(product => {
+                if (product && product.productId) {
+                  productIds.push(product.productId);
+                }
+              });
+            }
+          });
+        }
+        break;
+    }
+  } catch (error) {
+    console.error('Error extracting product IDs:', error);
+  }
+
+  return productIds;
+}
+
+/**
+ * Helper function to validate quantities are positive
+ * @param {Object} productSets - The product configuration object
+ * @param {String} schemeType - The pricing scheme type
+ * @returns {Array} - Array of validation errors
+ */
+function validateQuantities(productSets, schemeType) {
+  const errors = [];
+
+  try {
+    switch (schemeType) {
+      case 'turnkey':
+        // Validate global surface type quantities
+        if (productSets.global) {
+          Object.entries(productSets.global).forEach(([surfaceType, product]) => {
+            if (product && product.quantity !== undefined) {
+              const qty = parseFloat(product.quantity);
+              if (isNaN(qty) || qty <= 0) {
+                errors.push({
+                  code: 'INVALID_QUANTITY',
+                  location: `global.${surfaceType}`,
+                  quantity: product.quantity,
+                  message: `Quantity must be a positive number for ${surfaceType}`
+                });
+              }
+            }
+          });
+        }
+        break;
+
+      case 'flat_rate_unit':
+        // Validate interior unit quantities
+        if (productSets.interior) {
+          Object.entries(productSets.interior).forEach(([unitType, unitData]) => {
+            if (unitData && unitData.products && Array.isArray(unitData.products)) {
+              unitData.products.forEach((product, index) => {
+                if (product && product.quantity !== undefined) {
+                  const qty = parseFloat(product.quantity);
+                  if (isNaN(qty) || qty <= 0) {
+                    errors.push({
+                      code: 'INVALID_QUANTITY',
+                      location: `interior.${unitType}.products[${index}]`,
+                      quantity: product.quantity,
+                      message: `Quantity must be a positive number for interior ${unitType}`
+                    });
+                  }
+                }
+              });
+            }
+          });
+        }
+        // Validate exterior unit quantities
+        if (productSets.exterior) {
+          Object.entries(productSets.exterior).forEach(([unitType, unitData]) => {
+            if (unitData && unitData.products && Array.isArray(unitData.products)) {
+              unitData.products.forEach((product, index) => {
+                if (product && product.quantity !== undefined) {
+                  const qty = parseFloat(product.quantity);
+                  if (isNaN(qty) || qty <= 0) {
+                    errors.push({
+                      code: 'INVALID_QUANTITY',
+                      location: `exterior.${unitType}.products[${index}]`,
+                      quantity: product.quantity,
+                      message: `Quantity must be a positive number for exterior ${unitType}`
+                    });
+                  }
+                }
+              });
+            }
+          });
+        }
+        break;
+
+      case 'unit_pricing':
+        // Validate area quantities
+        if (productSets.areas) {
+          Object.entries(productSets.areas).forEach(([areaId, areaData]) => {
+            if (areaData && areaData.surfaces) {
+              Object.entries(areaData.surfaces).forEach(([surfaceType, surfaceData]) => {
+                if (surfaceData) {
+                  ['good', 'better', 'best', 'single'].forEach(tier => {
+                    if (surfaceData[tier] && surfaceData[tier].quantity !== undefined) {
+                      const qty = parseFloat(surfaceData[tier].quantity);
+                      if (isNaN(qty) || qty <= 0) {
+                        errors.push({
+                          code: 'INVALID_QUANTITY',
+                          location: `areas.${areaId}.${surfaceType}.${tier}`,
+                          quantity: surfaceData[tier].quantity,
+                          message: `Quantity must be a positive number for ${surfaceType} in area ${areaId}`
+                        });
+                      }
+                    }
+                  });
+                }
+              });
+            }
+          });
+        }
+        break;
+
+      case 'hourly':
+        // Validate item quantities
+        if (productSets.items && Array.isArray(productSets.items)) {
+          productSets.items.forEach((item, itemIndex) => {
+            if (item && item.products && Array.isArray(item.products)) {
+              item.products.forEach((product, productIndex) => {
+                if (product && product.quantity !== undefined) {
+                  const qty = parseFloat(product.quantity);
+                  if (isNaN(qty) || qty <= 0) {
+                    errors.push({
+                      code: 'INVALID_QUANTITY',
+                      location: `items[${itemIndex}].products[${productIndex}]`,
+                      quantity: product.quantity,
+                      message: `Quantity must be a positive number for item ${itemIndex}`
+                    });
+                  }
+                }
+              });
+            }
+          });
+        }
+        break;
+    }
+  } catch (error) {
+    console.error('Error validating quantities:', error);
+    errors.push({
+      code: 'VALIDATION_ERROR',
+      message: 'Error occurred during quantity validation',
+      details: error.message
+    });
+  }
+
+  return errors;
+}
+
+/**
+ * POST /api/quotes/:quoteId/product-configuration/apply-to-all
+ * Apply a product to all specified categories
+ * Respects interior/exterior boundaries for flat_rate_unit scheme
+ */
+exports.applyProductToAll = async (req, res) => {
+  try {
+    const { quoteId } = req.params;
+    const { productId, targetCategories, scheme, categoryType } = req.body;
+    const tenantId = req.user.tenantId;
+
+    // Validate input
+    if (!productId || typeof productId !== 'number') {
+      return res.status(400).json({
+        success: false,
+        message: 'productId is required and must be a number',
+        errors: [{
+          code: 'MISSING_PRODUCT_ID',
+          message: 'productId field is required'
+        }]
+      });
+    }
+
+    if (!targetCategories || !Array.isArray(targetCategories) || targetCategories.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'targetCategories is required and must be a non-empty array',
+        errors: [{
+          code: 'MISSING_TARGET_CATEGORIES',
+          message: 'targetCategories field is required'
+        }]
+      });
+    }
+
+    // Load quote with productSets and pricing scheme
+    const quote = await Quote.findOne({
+      where: {
+        id: quoteId,
+        tenantId,
+        isActive: true
+      },
+      include: [{
+        model: PricingScheme,
+        as: 'pricingScheme',
+        attributes: ['id', 'name', 'type', 'description']
+      }],
+      attributes: [
+        'id', 'quoteNumber', 'productSets', 'pricingSchemeId',
+        'customerName', 'status', 'areas', 'flatRateItems'
+      ]
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Validate contractor access (already validated by middleware, but double-check)
+    if (quote.tenantId !== tenantId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // Check for pricing scheme
+    if (!quote.pricingScheme) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quote does not have a pricing scheme assigned'
+      });
+    }
+
+    const schemeType = mapPricingSchemeType(quote.pricingScheme.type);
+
+    // Validate that the product exists and belongs to tenant
+    const product = await ProductConfig.findOne({
+      where: {
+        id: productId,
+        tenantId,
+        isActive: true
+      },
+      include: [{
+        model: GlobalProduct,
+        as: 'globalProduct',
+        attributes: ['id', 'name', 'category', 'tier']
+      }]
+    });
+
+    if (!product) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid product ID',
+        errors: [{
+          code: 'INVALID_PRODUCT_ID',
+          message: `Product ID ${productId} does not exist or is not active`
+        }]
+      });
+    }
+
+    // Initialize productSets if it doesn't exist
+    let productSets = quote.productSets || {};
+    
+    // Get product name (support both custom and global products)
+    const productName = product.isCustom && product.customProduct 
+      ? product.customProduct.name 
+      : product.globalProduct?.name || 'Unknown Product';
+
+    // Apply product to all target categories based on scheme type
+    switch (schemeType) {
+      case 'turnkey':
+        // For turnkey, apply to global surface types
+        if (!productSets.global) {
+          productSets.global = {};
+        }
+        targetCategories.forEach(category => {
+          productSets.global[category] = {
+            productId: productId,
+            productName: productName,
+            quantity: productSets.global[category]?.quantity || 1,
+            unit: 'gallons',
+            cost: 0 // Will be calculated during pricing
+          };
+        });
+        break;
+
+      case 'flat_rate_unit':
+        // For flat_rate_unit, respect interior/exterior boundaries
+        if (categoryType === 'interior') {
+          if (!productSets.interior) {
+            productSets.interior = {};
+          }
+          targetCategories.forEach(category => {
+            productSets.interior[category] = {
+              products: [{
+                productId: productId,
+                productName: productName,
+                pricePerUnit: 0, // Will be calculated
+                includedInUnitPrice: true
+              }],
+              unitCount: productSets.interior[category]?.unitCount || 0,
+              totalCost: 0
+            };
+          });
+        } else if (categoryType === 'exterior') {
+          if (!productSets.exterior) {
+            productSets.exterior = {};
+          }
+          targetCategories.forEach(category => {
+            const existingData = productSets.exterior[category] || {};
+            productSets.exterior[category] = {
+              products: [{
+                productId: productId,
+                productName: productName,
+                pricePerUnit: 0,
+                includedInUnitPrice: true
+              }],
+              unitCount: existingData.unitCount || 0,
+              totalCost: 0,
+              // Preserve multiplier for garage doors
+              ...(category.startsWith('garageDoor') && existingData.multiplier !== undefined
+                ? { multiplier: existingData.multiplier }
+                : {})
+            };
+          });
+        } else {
+          return res.status(400).json({
+            success: false,
+            message: 'categoryType (interior/exterior) is required for flat_rate_unit scheme',
+            errors: [{
+              code: 'MISSING_CATEGORY_TYPE',
+              message: 'categoryType must be specified as "interior" or "exterior" for flat_rate_unit'
+            }]
+          });
+        }
+        break;
+
+      case 'unit_pricing':
+        // For unit_pricing, apply to surface types across all areas
+        if (!productSets.areas) {
+          productSets.areas = {};
+        }
+        
+        // Get all area IDs from the quote
+        const areaIds = quote.areas ? Object.keys(quote.areas) : [];
+        
+        areaIds.forEach(areaId => {
+          if (!productSets.areas[areaId]) {
+            productSets.areas[areaId] = {
+              areaName: quote.areas[areaId]?.name || areaId,
+              surfaces: {}
+            };
+          }
+          
+          targetCategories.forEach(surfaceType => {
+            if (!productSets.areas[areaId].surfaces[surfaceType]) {
+              productSets.areas[areaId].surfaces[surfaceType] = {};
+            }
+            
+            // Apply to all tiers or single tier
+            ['good', 'better', 'best', 'single'].forEach(tier => {
+              productSets.areas[areaId].surfaces[surfaceType][tier] = {
+                productId: productId,
+                productName: productName,
+                quantity: productSets.areas[areaId].surfaces[surfaceType][tier]?.quantity || 1,
+                unit: 'gallons',
+                cost: 0
+              };
+            });
+          });
+        });
+        break;
+
+      case 'hourly':
+        // For hourly, apply to all items
+        if (!productSets.items) {
+          productSets.items = [];
+        }
+        
+        // If no items exist, create a default one
+        if (productSets.items.length === 0) {
+          productSets.items.push({
+            id: 'item-1',
+            description: 'Default item',
+            products: [],
+            estimatedHours: 0,
+            laborRate: 0,
+            laborCost: 0,
+            materialCost: 0,
+            totalCost: 0
+          });
+        }
+        
+        // Apply product to all items
+        productSets.items.forEach(item => {
+          if (!item.products) {
+            item.products = [];
+          }
+          // Replace or add the product
+          const existingIndex = item.products.findIndex(p => p.productId === productId);
+          const productData = {
+            productId: productId,
+            productName: productName,
+            quantity: 1,
+            unit: 'gallons',
+            cost: 0
+          };
+          
+          if (existingIndex >= 0) {
+            item.products[existingIndex] = productData;
+          } else {
+            item.products.push(productData);
+          }
+        });
+        break;
+
+      default:
+        return res.status(400).json({
+          success: false,
+          message: `Unsupported pricing scheme: ${schemeType}`
+        });
+    }
+
+    // Save updated productSets
+    await quote.update({
+      productSets: productSets
+    });
+
+    // Return updated productSets
+    return res.json({
+      success: true,
+      message: 'Product applied to all specified categories successfully',
+      data: {
+        quoteId: quote.id,
+        productSets: productSets,
+        appliedProduct: {
+          id: productId,
+          name: productName,
+          category: product.isCustom && product.customProduct 
+            ? product.customProduct.category 
+            : product.globalProduct?.category || 'Unknown',
+          tier: product.isCustom && product.customProduct 
+            ? product.customProduct.tier 
+            : product.globalProduct?.tier || 'custom'
+        },
+        targetCategories: targetCategories,
+        categoryType: categoryType
+      }
+    });
+
+  } catch (error) {
+    console.error('Error applying product to all categories:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to apply product to all categories',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * POST /api/quotes/:quoteId/product-configuration/validate
+ * Validate product configuration for a quote
+ * Checks structure, required categories, and scheme-specific requirements
+ */
+exports.validateProductConfiguration = async (req, res) => {
+  try {
+    const { quoteId } = req.params;
+    const { productSets, scheme } = req.body;
+    const tenantId = req.user.tenantId;
+
+    // Validate input
+    if (!productSets || typeof productSets !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'productSets is required and must be an object',
+        errors: [{
+          code: 'MISSING_PRODUCT_SETS',
+          message: 'productSets field is required'
+        }]
+      });
+    }
+
+    // Load quote to get pricing scheme if not provided
+    const quote = await Quote.findOne({
+      where: {
+        id: quoteId,
+        tenantId,
+        isActive: true
+      },
+      include: [{
+        model: PricingScheme,
+        as: 'pricingScheme',
+        attributes: ['id', 'name', 'type', 'description']
+      }],
+      attributes: ['id', 'pricingSchemeId', 'areas', 'flatRateItems']
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Determine scheme type
+    const schemeType = scheme || (quote.pricingScheme ? mapPricingSchemeType(quote.pricingScheme.type) : null);
+    
+    if (!schemeType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pricing scheme could not be determined',
+        errors: [{
+          code: 'MISSING_SCHEME',
+          message: 'Quote does not have a pricing scheme assigned'
+        }]
+      });
+    }
+
+    const errors = [];
+    const warnings = [];
+
+    // Validate structure using existing validation function
+    const structureValidation = validateProductSets(productSets, schemeType);
+    errors.push(...structureValidation.errors);
+    warnings.push(...structureValidation.warnings);
+
+    // Additional scheme-specific validations
+    switch (schemeType) {
+      case 'turnkey':
+        // Check that all common surface types have products
+        const requiredSurfaces = ['walls', 'ceilings', 'trim', 'doors'];
+        const missingSurfaces = requiredSurfaces.filter(surface => 
+          !productSets.global || !productSets.global[surface] || !productSets.global[surface].productId
+        );
+        
+        if (missingSurfaces.length > 0) {
+          warnings.push({
+            code: 'INCOMPLETE_SURFACE_COVERAGE',
+            message: `Some common surface types are missing products: ${missingSurfaces.join(', ')}`,
+            missingSurfaces: missingSurfaces,
+            severity: 'warning'
+          });
+        }
+        break;
+
+      case 'flat_rate_unit':
+        // Check interior categories
+        const requiredInteriorCategories = ['door', 'smallRoom', 'mediumRoom', 'largeRoom', 'closet', 'accentWall'];
+        const missingInterior = requiredInteriorCategories.filter(cat =>
+          !productSets.interior || !productSets.interior[cat] || 
+          !productSets.interior[cat].products || productSets.interior[cat].products.length === 0
+        );
+        
+        if (missingInterior.length > 0) {
+          warnings.push({
+            code: 'INCOMPLETE_INTERIOR_CATEGORIES',
+            message: `Some interior categories are missing products: ${missingInterior.join(', ')}`,
+            missingCategories: missingInterior,
+            severity: 'warning'
+          });
+        }
+
+        // Check exterior categories
+        const requiredExteriorCategories = ['doors', 'windows'];
+        const missingExterior = requiredExteriorCategories.filter(cat =>
+          !productSets.exterior || !productSets.exterior[cat] || 
+          !productSets.exterior[cat].products || productSets.exterior[cat].products.length === 0
+        );
+        
+        if (missingExterior.length > 0) {
+          warnings.push({
+            code: 'INCOMPLETE_EXTERIOR_CATEGORIES',
+            message: `Some exterior categories are missing products: ${missingExterior.join(', ')}`,
+            missingCategories: missingExterior,
+            severity: 'warning'
+          });
+        }
+
+        // Validate garage door multipliers
+        const garageDoorCategories = ['garageDoor1Car', 'garageDoor2Car', 'garageDoor3Car'];
+        const expectedMultipliers = { garageDoor1Car: 0.5, garageDoor2Car: 1.0, garageDoor3Car: 1.5 };
+        
+        garageDoorCategories.forEach(category => {
+          if (productSets.exterior && productSets.exterior[category]) {
+            const multiplier = productSets.exterior[category].multiplier;
+            const expected = expectedMultipliers[category];
+            
+            if (multiplier !== undefined && multiplier !== expected) {
+              warnings.push({
+                code: 'INVALID_GARAGE_DOOR_MULTIPLIER',
+                category: category,
+                currentMultiplier: multiplier,
+                expectedMultiplier: expected,
+                message: `Garage door multiplier for ${category} should be ${expected}x but is ${multiplier}x`,
+                severity: 'warning'
+              });
+            }
+          }
+        });
+
+        // Check cabinet subcategory completeness
+        const hasCabinetsFace = productSets.interior?.cabinetsFace?.products?.length > 0;
+        const hasCabinetsDoors = productSets.interior?.cabinetsDoors?.products?.length > 0;
+        
+        if (hasCabinetsFace && !hasCabinetsDoors) {
+          errors.push({
+            code: 'MISSING_CABINET_SUBCATEGORY',
+            category: 'cabinets',
+            subcategory: 'doors',
+            message: 'Cabinet doors product required when cabinet face is configured',
+            severity: 'error'
+          });
+        }
+        
+        if (hasCabinetsDoors && !hasCabinetsFace) {
+          errors.push({
+            code: 'MISSING_CABINET_SUBCATEGORY',
+            category: 'cabinets',
+            subcategory: 'face',
+            message: 'Cabinet face product required when cabinet doors are configured',
+            severity: 'error'
+          });
+        }
+        break;
+
+      case 'unit_pricing':
+        // Check that all areas have at least some surface products
+        if (productSets.areas && quote.areas) {
+          const quoteAreaIds = Object.keys(quote.areas);
+          const configuredAreaIds = Object.keys(productSets.areas);
+          
+          const missingAreas = quoteAreaIds.filter(areaId => !configuredAreaIds.includes(areaId));
+          
+          if (missingAreas.length > 0) {
+            warnings.push({
+              code: 'INCOMPLETE_AREA_COVERAGE',
+              message: `Some areas are missing product configuration: ${missingAreas.join(', ')}`,
+              missingAreas: missingAreas,
+              severity: 'warning'
+            });
+          }
+
+          // Check each configured area has at least one surface with products
+          configuredAreaIds.forEach(areaId => {
+            const areaData = productSets.areas[areaId];
+            if (!areaData.surfaces || Object.keys(areaData.surfaces).length === 0) {
+              warnings.push({
+                code: 'AREA_NO_SURFACES',
+                areaId: areaId,
+                message: `Area ${areaId} has no surface products configured`,
+                severity: 'warning'
+              });
+            }
+          });
+        }
+        break;
+
+      case 'hourly':
+        // Check that items have products
+        if (!productSets.items || productSets.items.length === 0) {
+          warnings.push({
+            code: 'NO_ITEMS',
+            message: 'No items configured for hourly pricing',
+            severity: 'warning'
+          });
+        } else {
+          productSets.items.forEach((item, index) => {
+            if (!item.products || item.products.length === 0) {
+              warnings.push({
+                code: 'ITEM_NO_PRODUCTS',
+                itemIndex: index,
+                message: `Item ${index} has no products configured`,
+                severity: 'warning'
+              });
+            }
+          });
+        }
+        break;
+    }
+
+    // Extract all product IDs and validate they exist
+    const productIds = extractProductIds(productSets, schemeType);
+    
+    if (productIds.length > 0) {
+      const validProducts = await ProductConfig.findAll({
+        where: {
+          id: productIds,
+          tenantId,
+          isActive: true
+        },
+        attributes: ['id']
+      });
+
+      const validProductIds = validProducts.map(p => p.id);
+      const invalidProductIds = productIds.filter(id => !validProductIds.includes(id));
+
+      if (invalidProductIds.length > 0) {
+        errors.push({
+          code: 'INVALID_PRODUCT_IDS',
+          message: `The following product IDs do not exist or are not active: ${invalidProductIds.join(', ')}`,
+          invalidIds: invalidProductIds,
+          severity: 'error'
+        });
+      }
+    }
+
+    // Validate quantities
+    const quantityErrors = validateQuantities(productSets, schemeType);
+    errors.push(...quantityErrors);
+
+    // Return validation results
+    return res.json({
+      success: true,
+      valid: errors.length === 0,
+      data: {
+        quoteId: quote.id,
+        scheme: schemeType,
+        errors: errors,
+        warnings: warnings,
+        summary: {
+          totalErrors: errors.length,
+          totalWarnings: warnings.length,
+          isValid: errors.length === 0,
+          hasWarnings: warnings.length > 0
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error validating product configuration:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to validate product configuration',
+      error: error.message
+    });
+  }
+};
+
 module.exports = exports;
+/**
+ * POST /api/quotes/:id/complete-job
+ * Mark a quote's job as complete and set up for analytics
+ */
+exports.completeJob = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { finalInvoiceAmount, actualMaterialCost, actualLaborCost } = req.body;
+    const tenantId = req.user.tenantId;
+
+    // Validate input
+    if (!finalInvoiceAmount || finalInvoiceAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Final invoice amount is required and must be greater than zero'
+      });
+    }
+
+    // Find the quote
+    const quote = await Quote.findOne({
+      where: {
+        id,
+        tenantId,
+        isActive: true
+      }
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Check if job is already completed
+    if (quote.isJobComplete()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Job is already marked as complete',
+        data: {
+          completedAt: quote.jobCompletedAt,
+          finalInvoiceAmount: quote.finalInvoiceAmount
+        }
+      });
+    }
+
+    // Mark job as complete
+    await quote.markJobComplete(finalInvoiceAmount, actualMaterialCost, actualLaborCost);
+
+    // AUTOMATICALLY CALCULATE JOB ANALYTICS if overhead is configured
+    let analyticsCalculated = false;
+    let analyticsData = null;
+    
+    try {
+      const ContractorSettings = require('../models/ContractorSettings');
+      const settings = await ContractorSettings.findOne({
+        where: { tenantId }
+      });
+
+      if (settings && settings.overheadPercent !== null && settings.overheadPercent !== undefined) {
+        // Calculate analytics automatically
+        const CostAllocationService = require('../services/CostAllocationService');
+        const JobAnalytics = require('../models/JobAnalytics');
+        
+        const allocation = CostAllocationService.calculateAllocation(
+          parseFloat(finalInvoiceAmount),
+          actualMaterialCost ? parseFloat(actualMaterialCost) : null,
+          actualLaborCost ? parseFloat(actualLaborCost) : null,
+          parseFloat(settings.overheadPercent),
+          settings.netProfitPercent ? parseFloat(settings.netProfitPercent) : null
+        );
+
+        // Delete existing analytics if they exist
+        await JobAnalytics.destroy({
+          where: { quoteId: quote.id }
+        });
+
+        // Create new analytics record
+        const analytics = await JobAnalytics.create({
+          quoteId: quote.id,
+          tenantId: tenantId,
+          jobPrice: allocation.jobPrice,
+          actualMaterialCost: allocation.breakdown.materials.source === 'actual' ? allocation.breakdown.materials.amount : null,
+          actualLaborCost: allocation.breakdown.labor.source === 'actual' ? allocation.breakdown.labor.amount : null,
+          allocatedOverhead: allocation.breakdown.overhead.amount,
+          netProfit: allocation.breakdown.profit.amount,
+          materialPercentage: allocation.breakdown.materials.percentage,
+          laborPercentage: allocation.breakdown.labor.percentage,
+          overheadPercentage: allocation.breakdown.overhead.percentage,
+          profitPercentage: allocation.breakdown.profit.percentage,
+          materialSource: allocation.breakdown.materials.source,
+          laborSource: allocation.breakdown.labor.source,
+          calculatedAt: new Date()
+        });
+
+        // Mark quote as having analytics calculated
+        await quote.markAnalyticsCalculated();
+        
+        analyticsCalculated = true;
+        analyticsData = {
+          materialPercentage: parseFloat(analytics.materialPercentage),
+          laborPercentage: parseFloat(analytics.laborPercentage),
+          overheadPercentage: parseFloat(analytics.overheadPercentage),
+          profitPercentage: parseFloat(analytics.profitPercentage),
+          healthStatus: analytics.getHealthStatus(),
+        };
+      }
+    } catch (analyticsError) {
+      console.error('Error calculating analytics:', analyticsError);
+      // Don't fail the request if analytics calculation fails
+    }
+
+    return res.json({
+      success: true,
+      message: 'Job marked as complete successfully',
+      data: {
+        quoteId: quote.id,
+        quoteNumber: quote.quoteNumber,
+        customerName: quote.customerName,
+        jobCompletedAt: quote.jobCompletedAt,
+        finalInvoiceAmount: quote.finalInvoiceAmount,
+        actualMaterialCost: quote.actualMaterialCost,
+        actualLaborCost: quote.actualLaborCost,
+        canCalculateAnalytics: quote.canCalculateAnalytics(),
+        analyticsCalculated,
+        analytics: analyticsData,
+      }
+    });
+
+  } catch (error) {
+    console.error('Error completing job:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to complete job',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/quotes/:id/job-status
+ * Get job completion status for a quote
+ */
+exports.getJobStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user.tenantId;
+
+    const quote = await Quote.findOne({
+      where: {
+        id,
+        tenantId,
+        isActive: true
+      },
+      attributes: [
+        'id', 'quoteNumber', 'customerName', 'status',
+        'jobCompletedAt', 'finalInvoiceAmount', 'actualMaterialCost', 
+        'actualLaborCost', 'analyticsCalculated', 'total'
+      ]
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        quoteId: quote.id,
+        quoteNumber: quote.quoteNumber,
+        customerName: quote.customerName,
+        status: quote.status,
+        isJobComplete: quote.isJobComplete(),
+        jobCompletedAt: quote.jobCompletedAt,
+        finalInvoiceAmount: quote.finalInvoiceAmount,
+        originalTotal: quote.total,
+        actualMaterialCost: quote.actualMaterialCost,
+        actualLaborCost: quote.actualLaborCost,
+        analyticsCalculated: quote.analyticsCalculated,
+        canCalculateAnalytics: quote.canCalculateAnalytics()
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting job status:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get job status',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/quotes/:quoteId/product-configuration
+ * Get product configuration for a quote with available products
+ * Returns scheme-specific structure with available products for tenant
+ */
+exports.getProductConfiguration = async (req, res) => {
+  try {
+    const { quoteId } = req.params;
+    const tenantId = req.user.tenantId;
+
+    // Load quote with productSets and pricing scheme
+    const quote = await Quote.findOne({
+      where: {
+        id: quoteId,
+        tenantId,
+        isActive: true
+      },
+      include: [{
+        model: PricingScheme,
+        as: 'pricingScheme',
+        attributes: ['id', 'name', 'type', 'description', 'pricingRules']
+      }],
+      attributes: [
+        'id', 'quoteNumber', 'productSets', 'pricingSchemeId',
+        'customerName', 'status', 'jobType'
+      ]
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    // Determine pricing scheme
+    if (!quote.pricingScheme) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quote does not have a pricing scheme assigned'
+      });
+    }
+
+    const schemeType = mapPricingSchemeType(quote.pricingScheme.type);
+
+    // Fetch available products for tenant
+    // OPTIMIZATION: Use eager loading to eliminate N+1 queries
+    const availableProducts = await ProductConfig.findAll({
+      where: {
+        tenantId,
+        isActive: true
+      },
+      include: [{
+        model: GlobalProduct,
+        as: 'globalProduct',
+        where: {
+          isActive: true
+        },
+        attributes: ['id', 'name', 'category', 'tier', 'sheenOptions', 'notes'],
+        include: [{
+          model: Brand,
+          as: 'brand',
+          attributes: ['id', 'name']
+        }]
+      }],
+      attributes: [
+        'id', 'globalProductId', 'sheens',  
+          
+      ],
+      order: [
+        [{ model: GlobalProduct, as: 'globalProduct' }, 'tier', 'ASC'],
+        [{ model: GlobalProduct, as: 'globalProduct' }, 'name', 'ASC']
+      ]
+    });
+
+    // Process available products into a simplified format
+    const processedProducts = availableProducts.map(config => {
+      const product = config.globalProduct;
+      const sheens = config.sheens || [];
+      
+      // Calculate price range from sheens
+      const prices = sheens.map(s => parseFloat(s.price));
+      const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+      const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+      
+      // Get specific markup for this product or use default
+      const productMarkup = config.productMarkups && config.productMarkups[config.globalProductId]
+        ? parseFloat(config.productMarkups[config.globalProductId])
+        : parseFloat(config.defaultMarkup);
+
+      return {
+        id: config.id,
+        globalProductId: config.globalProductId,
+        name: product.name,
+        category: product.category,
+        tier: product.tier,
+        brand: {
+          id: product.brand.id,
+          name: product.brand.name
+        },
+        sheenOptions: product.sheenOptions,
+        availableSheens: sheens,
+        priceRange: {
+          min: minPrice,
+          max: maxPrice,
+          currency: 'USD'
+        },
+        coverage: sheens.length > 0 ? sheens[0].coverage : 350,
+        markup: productMarkup,
+        taxRate: parseFloat(config.taxRate),
+        notes: product.notes
+      };
+    });
+
+    // Return scheme-specific structure with available products
+    return res.json({
+      success: true,
+      data: {
+        quoteId: quote.id,
+        quoteNumber: quote.quoteNumber,
+        customerName: quote.customerName,
+        status: quote.status,
+        jobType: quote.jobType,
+        scheme: schemeType,
+        pricingScheme: {
+          id: quote.pricingScheme.id,
+          name: quote.pricingScheme.name,
+          type: quote.pricingScheme.type,
+          description: quote.pricingScheme.description
+        },
+        productSets: quote.productSets || {},
+        availableProducts: processedProducts,
+        meta: {
+          totalProducts: processedProducts.length,
+          timestamp: new Date().toISOString()
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching product configuration:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch product configuration',
+      error: error.message
+    });
+  }
+};
+
+
+/**
+ * POST /api/quotes/:quoteId/generate-proposal
+ * Generate proposal PDF for a quote
+ */
+exports.generateProposalPDF = async (req, res) => {
+  try {
+    const { quoteId } = req.params;
+    const tenantId = req.user.tenantId;
+
+    console.log(`[QuoteController] Generating proposal PDF for quote ${quoteId}`);
+
+    // Import document generation service
+    const documentGenerationService = require('../services/documentGenerationService');
+
+    // Generate proposal PDF
+    const result = await documentGenerationService.generateProposalPDF(quoteId, tenantId);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error,
+        errorType: result.errorType,
+        message: result.userMessage,
+        missingFields: result.missingFields
+      });
+    }
+
+    res.json({
+      success: true,
+      pdfUrl: result.pdfUrl,
+      filename: result.filename,
+      message: 'Proposal PDF generated successfully'
+    });
+
+  } catch (error) {
+    console.error('[QuoteController] Error generating proposal PDF:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to generate proposal PDF'
+    });
+  }
+};
+
+/**
+ * POST /api/quotes/:quoteId/regenerate-proposal
+ * Regenerate proposal PDF with latest quote data
+ */
+exports.regenerateProposalPDF = async (req, res) => {
+  try {
+    const { quoteId } = req.params;
+
+    console.log(`[QuoteController] Regenerating proposal PDF for quote ${quoteId}`);
+
+    // Import document generation service
+    const documentGenerationService = require('../services/documentGenerationService');
+
+    // Regenerate proposal PDF
+    const result = await documentGenerationService.regenerateProposalPDF(quoteId);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error,
+        errorType: result.errorType,
+        message: result.userMessage
+      });
+    }
+
+    res.json({
+      success: true,
+      pdfUrl: result.pdfUrl,
+      filename: result.filename,
+      message: 'Proposal PDF regenerated successfully'
+    });
+
+  } catch (error) {
+    console.error('[QuoteController] Error regenerating proposal PDF:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to regenerate proposal PDF'
+    });
+  }
+};

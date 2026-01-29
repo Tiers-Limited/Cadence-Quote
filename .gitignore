@@ -33,7 +33,9 @@ Thumbs.db
 # Build
 dist/
 build/
-
+tests/
+migrations/
+scripts/
 # Markdown files
 *.md
 

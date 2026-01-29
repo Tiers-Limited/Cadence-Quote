@@ -1,4 +1,4 @@
-// controllers/customerPortalController.js
+﻿// controllers/customerPortalController.js
 // Customer Portal Controller - Handles customer portal access and selections
 
 const Quote = require('../models/Quote');
@@ -34,24 +34,42 @@ async function resolveProductNamesFromIds(productIds, tenantId) {
       }
     });
     
-    // Get global product IDs
-    const globalProductIds = productConfigs.map(pc => pc.globalProductId).filter(Boolean);
-    
-    if (globalProductIds.length === 0) return new Map();
-    
-    const globalProducts = await GlobalProduct.findAll({
-      where: { id: globalProductIds },
-      include: [{ model: Brand, as: 'brand' }]
-    });
-    
-    // Create lookup map
+    // Create lookup map supporting both custom and global products
     const productLookup = new Map();
+    
+    // Get global product IDs for non-custom products
+    const globalProductIds = productConfigs
+      .filter(pc => !pc.isCustom && pc.globalProductId)
+      .map(pc => pc.globalProductId);
+    
+    let globalProducts = [];
+    if (globalProductIds.length > 0) {
+      globalProducts = await GlobalProduct.findAll({
+        where: { id: globalProductIds },
+        include: [{ model: Brand, as: 'brand' }]
+      });
+    }
+    
+    // Build lookup map
     productConfigs.forEach(config => {
-      const globalProduct = globalProducts.find(gp => gp.id === config.globalProductId);
-      if (globalProduct) {
-        const productName = globalProduct.brand ? 
-          `${globalProduct.brand.name} ${globalProduct.name}` : 
-          globalProduct.name;
+      let productName;
+      
+      if (config.isCustom && config.customProduct) {
+        // Custom product
+        productName = config.customProduct.brandName 
+          ? `${config.customProduct.brandName} ${config.customProduct.name}`
+          : config.customProduct.name;
+      } else if (config.globalProductId) {
+        // Global product
+        const globalProduct = globalProducts.find(gp => gp.id === config.globalProductId);
+        if (globalProduct) {
+          productName = globalProduct.brand 
+            ? `${globalProduct.brand.name} ${globalProduct.name}` 
+            : globalProduct.name;
+        }
+      }
+      
+      if (productName) {
         productLookup.set(config.id, productName);
       }
     });
@@ -112,7 +130,7 @@ function addTierPricingToInvoiceData(invoiceData, proposal) {
   });
 
   invoiceData.tiers = tierPricing;
-  invoiceData.selectedTier = proposal.selectedTier?.toLowerCase() || null;
+  invoiceData.selectedTier = proposal.gbbSelectedTier?.toLowerCase() || null;
   
   return invoiceData;
 }
@@ -740,7 +758,7 @@ exports.getCustomerProposals = async (req, res) => {
         'customerName',
         'customerEmail',
         'status',
-        'selectedTier',
+        'gbbSelectedTier',
         'depositVerified',
         'depositAmount',
         'finishStandardsAcknowledged',
@@ -885,10 +903,11 @@ exports.getProposalDetail = async (req, res) => {
         // OPTIMIZATION: Single batch query for all products
         const productConfigs = await ProductConfig.findAll({
           where: { id: Array.from(allProductIds) },
-          attributes: ['id', 'globalProductId', 'sheens'],
+          attributes: ['id', 'globalProductId', 'isCustom', 'customProduct', 'sheens'],
           include: [
             {
               association: 'globalProduct',
+              required: false,
               attributes: ['name'],
               include: [
                 {
@@ -903,12 +922,28 @@ exports.getProposalDetail = async (req, res) => {
         // Create lookup map for O(1) access
         const productLookup = new Map();
         productConfigs.forEach(config => {
+          let brandName, productName;
+          
+          if (config.isCustom && config.customProduct) {
+            // Custom product
+            brandName = config.customProduct.brandName || 'Custom';
+            productName = config.customProduct.name || 'Custom Product';
+          } else if (config.globalProduct) {
+            // Global product
+            brandName = config.globalProduct.brand?.name || 'Unknown';
+            productName = config.globalProduct.name || 'Unknown';
+          } else {
+            brandName = 'Unknown';
+            productName = 'Unknown';
+          }
+          
           productLookup.set(config.id, {
             id: config.id,
             productId: config.id,
             globalProductId: config.globalProductId,
-            brandName: config.globalProduct?.brand?.name || 'Unknown',
-            productName: config.globalProduct?.name || 'Unknown',
+            isCustom: config.isCustom || false,
+            brandName: brandName,
+            productName: productName,
             pricePerGallon: config.sheens?.[0]?.price || 0
           });
         });
@@ -975,7 +1010,7 @@ exports.getProposalDetail = async (req, res) => {
             
             const coats = item.numberOfCoats > 0 ? ` (${item.numberOfCoats} coat${item.numberOfCoats > 1 ? 's' : ''})` : '';
             
-            scopeParts.push(`  � ${item.categoryName}: ${qty} ${unit}${coats}`);
+            scopeParts.push(`  ? ${item.categoryName}: ${qty} ${unit}${coats}`);
           });
           
           scopeParts.push(''); // Empty line
@@ -1004,8 +1039,8 @@ exports.getProposalDetail = async (req, res) => {
 
     // If tier is already selected, ensure depositAmount matches that tier
     let effectiveDepositAmount = proposal.depositAmount;
-    if (proposal.selectedTier && tiers[proposal.selectedTier.toLowerCase()]) {
-      effectiveDepositAmount = tiers[proposal.selectedTier.toLowerCase()].deposit;
+    if (proposal.gbbSelectedTier && tiers[proposal.gbbSelectedTier.toLowerCase()]) {
+      effectiveDepositAmount = tiers[proposal.gbbSelectedTier.toLowerCase()].deposit;
     }
 
     const result = {
@@ -1107,7 +1142,7 @@ exports.acceptProposal = async (req, res) => {
     // Update proposal status - mark as accepted but portal remains closed until deposit
     await proposal.update({
       status: 'accepted',
-      selectedTier,
+      gbbSelectedTier: selectedTier, // Fixed: use correct field name
       depositAmount,
       total: parseFloat(tierTotal.toFixed(2)), // Update total to match selected tier
       acceptedAt: new Date(),
@@ -1148,7 +1183,7 @@ exports.acceptProposal = async (req, res) => {
           quoteNumber: proposal.quoteNumber,
           customerName: proposal.customerName,
           customerEmail: client?.email || 'N/A',
-          selectedTier: proposal.selectedTier,
+          selectedTier: proposal.gbbSelectedTier,
           total: tierTotal,
           depositAmount,
           id: proposal.id
@@ -1593,7 +1628,7 @@ exports.submitAllSelections = async (req, res) => {
         await emailService.sendSelectionsCompletedEmail(contractor.email, {
           quoteNumber: proposal.quoteNumber,
           customerName: proposal.customerName,
-          selectedTier: proposal.selectedTier,
+          selectedTier: proposal.gbbSelectedTier,
           id: proposal.id
         });
       }
@@ -1618,6 +1653,7 @@ exports.submitAllSelections = async (req, res) => {
 
 /**
  * Get available documents
+ * UPDATED: Only shows proposal PDF to customers (job documents are contractor-only)
  */
 exports.getDocuments = async (req, res) => {
   try {
@@ -1649,43 +1685,33 @@ exports.getDocuments = async (req, res) => {
 
     const documents = [];
 
-    // Invoice/Proposal - Always available
+    // Proposal PDF - Always available to customers
     documents.push({
-      type: 'invoice',
-      title: 'Invoice / Proposal',
-      description: 'Your invoice and proposal document',
-      available: true
+      type: 'proposal',
+      title: 'Proposal',
+      description: 'Your project proposal document',
+      available: true,
+      url: proposal.proposalPdfUrl,
+      generatedAt: proposal.proposalPdfGeneratedAt,
+      version: proposal.proposalPdfVersion || 1
     });
-
-    // Work Order - Available after selections complete
-    if (proposal.selectionsComplete || proposal.status === 'deposit_paid') {
+    
+    // Invoice PDF - Available after deposit is paid
+    if (proposal.depositVerified && proposal.invoicePdfUrl) {
       documents.push({
-        type: 'work_order',
-        title: 'Work Order',
-        description: 'Detailed work order for the crew',
-        available: true
+        type: 'invoice',
+        title: 'Invoice',
+        description: 'Your project invoice with selected tier pricing',
+        available: true,
+        url: proposal.invoicePdfUrl,
+        generatedAt: proposal.invoicePdfGeneratedAt,
+        depositPaid: true,
+        selectedTier: proposal.gbbSelectedTier || null
       });
     }
 
-    // Paint Product Order Form - Available after selections complete
-    if (proposal.selectionsComplete || proposal.status === 'deposit_paid') {
-      documents.push({
-        type: 'product_order',
-        title: 'Paint Product Order Form',
-        description: 'Store-ready paint order form',
-        available: true
-      });
-    }
-
-    // Material List - Available after selections complete
-    if (proposal.selectionsComplete || proposal.status === 'deposit_paid') {
-      documents.push({
-        type: 'material_list',
-        title: 'Material List',
-        description: 'Complete material list organized by product',
-        available: true
-      });
-    }
+    // NOTE: Material list, paint order, and work order are contractor-only documents
+    // They are NOT shown in the customer portal per requirements
 
     res.json({
       success: true,
@@ -1738,7 +1764,7 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
       }
     });
     
-    // Add product IDs from productSets
+    // Add product IDs from productSets - THIS IS CRITICAL FOR DOCUMENTS
     if (quote.productSets) {
       let productSets;
       try {
@@ -1746,6 +1772,7 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
         if (Array.isArray(productSets)) {
           productSets.forEach(ps => {
             const products = ps.products || {};
+            // Add ALL tier products, not just the selected tier
             Object.values(products).forEach(productId => {
               if (productId && typeof productId === 'number') {
                 productIdsToResolve.add(productId);
@@ -1774,34 +1801,55 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
           }
         });
         
-        const globalProductIds = productConfigs.map(pc => pc.globalProductId).filter(Boolean);
+        // Get global product IDs for non-custom products
+        const globalProductIds = productConfigs
+          .filter(pc => !pc.isCustom && pc.globalProductId)
+          .map(pc => pc.globalProductId);
         
+        let globalProducts = [];
         if (globalProductIds.length > 0) {
-          const globalProducts = await GlobalProduct.findAll({
+          globalProducts = await GlobalProduct.findAll({
             where: { id: globalProductIds },
             include: [{ model: Brand, as: 'brand' }]
           });
+        }
+        
+        // Create lookup maps supporting both custom and global products
+        productConfigs.forEach(config => {
+          let productName;
           
-          // Create lookup maps
-          productConfigs.forEach(config => {
+          if (config.isCustom && config.customProduct) {
+            // Custom product
+            const customProd = typeof config.customProduct === 'string' 
+              ? JSON.parse(config.customProduct) 
+              : config.customProduct;
+            productName = customProd.brandName 
+              ? `${customProd.brandName} ${customProd.name}`
+              : customProd.name;
+          } else if (config.globalProductId) {
+            // Global product
             const globalProduct = globalProducts.find(gp => gp.id === config.globalProductId);
             if (globalProduct) {
-              const productName = globalProduct.brand ? 
-                `${globalProduct.brand.name} ${globalProduct.name}` : 
-                globalProduct.name;
-              productLookup.set(config.id, productName);
-              
-              // Extract sheen information
-              if (config.sheens && Array.isArray(config.sheens) && config.sheens.length > 0) {
-                // Get the first/default sheen
-                const defaultSheen = config.sheens[0];
-                if (defaultSheen && defaultSheen.sheen) {
-                  productSheenLookup.set(config.id, defaultSheen.sheen);
-                }
-              }
+              productName = globalProduct.brand 
+                ? `${globalProduct.brand.name} ${globalProduct.name}` 
+                : globalProduct.name;
             }
-          });
-        }
+          }
+          
+          if (productName) {
+            productLookup.set(config.id, productName);
+          }
+          
+          // Extract sheen information
+          if (config.sheens && Array.isArray(config.sheens) && config.sheens.length > 0) {
+            // Get the first/default sheen
+            const defaultSheen = config.sheens[0];
+            if (defaultSheen && defaultSheen.sheen) {
+              productSheenLookup.set(config.id, defaultSheen.sheen);
+            }
+          }
+        });
+        
       } catch (error) {
         console.error('Error resolving product names and sheens in buildEnrichedQuoteWithSelections:', error);
       }
@@ -1817,30 +1865,23 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
           const key = `${String(p.areaId || p.areaName)}::${String((p.surfaceType || '').trim().toLowerCase())}`;
           const sel = csMap.get(key);
           
-          // Determine the best product name to use
+          // Product comes from productSets based on selected tier
+          // Customer selections only store color and sheen, NOT product
           let resolvedProductName = null;
           let resolvedProductId = null;
           
-          // First, try customer selection product ID
-          if (sel?.productId && productLookup.has(sel.productId)) {
-            resolvedProductName = productLookup.get(sel.productId);
-            resolvedProductId = sel.productId;
-          }
-          // If no customer selection product ID, try customer selection product name
-          else if (sel?.productName && sel.productName !== 'null' && sel.productName.trim() !== '') {
-            resolvedProductName = sel.productName;
-          }
-          // If no valid customer selection product, fall back to productSets
-          else if (p.products && quote.selectedTier) {
-            const tierProductId = p.products[quote.selectedTier.toLowerCase()];
+          // PRIMARY: Use productSets with the selected tier
+          if (p.products && quote.gbbSelectedTier) {
+            const tierProductId = p.products[quote.gbbSelectedTier.toLowerCase()];
             if (tierProductId && productLookup.has(tierProductId)) {
               resolvedProductName = productLookup.get(tierProductId);
               resolvedProductId = tierProductId;
             }
           }
-          // If no selected tier, try any tier from productSets
-          else if (p.products) {
-            const tiers = ['better', 'good', 'best'];
+          
+          // FALLBACK 1: If no selected tier, try any tier from productSets
+          if (!resolvedProductName && p.products) {
+            const tiers = ['best', 'better', 'good']; // Try best first
             for (const tier of tiers) {
               const tierProductId = p.products[tier];
               if (tierProductId && productLookup.has(tierProductId)) {
@@ -1851,33 +1892,38 @@ async function buildEnrichedQuoteWithSelections(quoteInstance) {
             }
           }
           
-          // Final fallback to any available product name
-          if (!resolvedProductName) {
-            resolvedProductName = 
-              p.productName ||
-              p.product ||
-              p.products?.single?.name ||
-              p.products?.good?.name ||
-              p.products?.better?.name ||
-              p.products?.best?.name ||
-              'Not selected';
+          // FALLBACK 2: Try customer selection product (legacy support)
+          if (!resolvedProductName && sel?.productId && productLookup.has(sel.productId)) {
+            resolvedProductName = productLookup.get(sel.productId);
+            resolvedProductId = sel.productId;
           }
           
-          // Determine the best sheen to use
+          // FALLBACK 3: Try customer selection product name (legacy support)
+          if (!resolvedProductName && sel?.productName && sel.productName !== 'null' && sel.productName.trim() !== '') {
+            resolvedProductName = sel.productName;
+          }
+          
+          // FINAL FALLBACK: Use placeholder
+          if (!resolvedProductName) {
+            resolvedProductName = 'Not selected';
+          }
+          
+          // Sheen resolution priority:
+          // 1. Customer selection sheen (what they actually picked)
+          // 2. Product's default sheen from database
           let resolvedSheen = null;
           
-          // First, try to get sheen from the resolved product
-          if (resolvedProductId && productSheenLookup.has(resolvedProductId)) {
-            resolvedSheen = productSheenLookup.get(resolvedProductId);
-          }
-          // If customer selection has a valid sheen (not the placeholder), use it
-          else if (sel?.sheen && sel.sheen !== 'Various Specialty Finishes' && sel.sheen.trim() !== '') {
+          // PRIMARY: Use customer selection sheen (this is what they chose)
+          if (sel?.sheen && sel.sheen !== 'Various Specialty Finishes' && sel.sheen.trim() !== '') {
             resolvedSheen = sel.sheen;
           }
-          // If the product's default sheen is "Various Specialty Finishes", that's actually valid for some products
+          // FALLBACK: Use product's default sheen
+          else if (resolvedProductId && productSheenLookup.has(resolvedProductId)) {
+            resolvedSheen = productSheenLookup.get(resolvedProductId);
+          }
+          // Handle "Various Specialty Finishes" as valid if it's the product's actual sheen
           else if (resolvedProductId && productSheenLookup.has(resolvedProductId)) {
             const productSheen = productSheenLookup.get(resolvedProductId);
-            // Only use "Various Specialty Finishes" if it's the actual product sheen, not a placeholder
             if (productSheen === 'Various Specialty Finishes') {
               resolvedSheen = productSheen;
             }
@@ -2072,9 +2118,15 @@ exports.downloadDocument = async (req, res) => {
           // Enrich for scope/materials generation (does not affect invoice pricing)
           const enrichedForInvoice = await buildEnrichedQuoteWithSelections(proposal);
 
+          // Get scope of work from ProposalDefaults if not set on quote
+          const ProposalDefaults = require('../models/ProposalDefaults');
+          const proposalDefaults = await ProposalDefaults.findOne({ where: { tenantId } });
+          
           const derivedScope = (proposal.scopeOfWork && proposal.scopeOfWork.length > 0)
             ? proposal.scopeOfWork
-            : (proposal.jobScope ? [proposal.jobScope] : []);
+            : (proposalDefaults?.scopeOfWork 
+                ? [proposalDefaults.scopeOfWork]
+                : (proposal.jobScope ? [proposal.jobScope] : []));
 
           // Build a simple materials/selections list from enriched areas
           const materialsSelections = Array.isArray(enrichedForInvoice?.areas)
@@ -2114,7 +2166,7 @@ exports.downloadDocument = async (req, res) => {
           // If no materials from customer selections, try to extract from productSets using helper function
           if (materialsSelections.length === 0 && proposal.productSets) {
             try {
-              const selectedTier = proposal.selectedTier?.toLowerCase();
+              const selectedTier = proposal.gbbSelectedTier?.toLowerCase();
               const productIds = extractProductIdsFromProductSets(proposal.productSets, selectedTier);
               
               if (productIds.length > 0) {
@@ -2144,7 +2196,7 @@ exports.downloadDocument = async (req, res) => {
               console.error('Error resolving product names from database:', error);
               // Fallback to old method if database lookup fails
               const extractedProducts = extractProductNamesFromProductSets(proposal.productSets);
-              const selectedTier = proposal.selectedTier?.toLowerCase();
+              const selectedTier = proposal.gbbSelectedTier?.toLowerCase();
               
               if (selectedTier && extractedProducts[selectedTier]) {
                 extractedProducts[selectedTier].forEach(productName => {
@@ -2177,7 +2229,8 @@ exports.downloadDocument = async (req, res) => {
             materialsSelections,
             estimatedDuration: proposal.estimatedDuration || null,
             estimatedStartDate: proposal.scheduledStartDate || null,
-            pricingItems: [
+            selectedTier: proposal.gbbSelectedTier ? proposal.gbbSelectedTier.toUpperCase() : null,
+ pricingItems: [
               {
                 name: proposal.jobTitle || 'Project',
                 qty: 1,
@@ -2305,10 +2358,168 @@ Note: PDF generation is temporarily unavailable. Please contact us for a formatt
           break;
 
         case 'proposal':
-          // Legacy support - generate proposal PDF
-          const quoteBuilderController = require('./quoteBuilderController');
-          pdfBuffer = await quoteBuilderController.generateProposalPdf(proposal);
-          fileName = `Proposal-${proposal.quoteNumber}.pdf`;
+          // Check if proposal PDF already exists
+          if (proposal.proposalPdfUrl) {
+            // Use existing PDF
+            const fs = require('fs').promises;
+            const path = require('path');
+            const pdfPath = path.join(__dirname, '..', proposal.proposalPdfUrl);
+            
+            try {
+              pdfBuffer = await fs.readFile(pdfPath);
+              fileName = `Proposal-${proposal.quoteNumber}.pdf`;
+            } catch (readError) {
+              console.warn('[CustomerPortal] Existing PDF not found, regenerating:', readError.message);
+              // Fall through to generation if file doesn't exist
+            }
+          }
+          
+          // Generate new PDF if no existing one or read failed
+          if (!pdfBuffer) {
+            const documentGenerationService = require('../services/documentGenerationService');
+            const result = await documentGenerationService.generateProposalPDF(proposal.id, tenantId);
+            
+            if (!result.success) {
+              // If validation fails, fall back to invoice template as proposal
+              console.warn('[CustomerPortal] Proposal PDF generation failed, using invoice template:', result.error);
+              const invoiceTemplateService = require('../services/invoiceTemplateService');
+              const ContractorSettings = require('../models/ContractorSettings');
+              
+              const settings = await ContractorSettings.findOne({ where: { tenantId } });
+              const templateType = proposal.productStrategy === 'GBB' ? 'gbb' : 'single';
+              const templateStyle = settings?.invoice_template_style || 'light';
+              
+              const invoiceData = {
+                invoiceNumber: proposal.quoteNumber,
+                issueDate: new Date().toLocaleDateString('en-US'),
+                projectName: proposal.jobTitle || `${proposal.customerName} Project`,
+                projectAddress: [proposal.street, proposal.city, proposal.state, proposal.zipCode].filter(Boolean).join(', '),
+                customerName: proposal.customerName,
+                customerPhone: proposal.customerPhone,
+                customerEmail: proposal.customerEmail,
+                pricingItems: [{
+                  name: proposal.jobTitle || 'Project',
+                  qty: 1,
+                  amount: parseFloat(proposal.total || 0)
+                }],
+                projectInvestment: proposal.total,
+                deposit: proposal.depositAmount,
+                balance: (proposal.total || 0) - (proposal.depositAmount || 0)
+              };
+              
+              pdfBuffer = await invoiceTemplateService.generateInvoice({
+                templateType,
+                style: templateStyle,
+                invoiceData,
+                contractorInfo
+              });
+            } else {
+              // Read the generated PDF file
+              const fs = require('fs').promises;
+              const path = require('path');
+              const pdfPath = path.join(__dirname, '..', result.pdfUrl);
+              pdfBuffer = await fs.readFile(pdfPath);
+            }
+            
+            fileName = `Proposal-${proposal.quoteNumber}.pdf`;
+          }
+          break;
+          
+        case 'invoice':
+          // Invoice is only available after deposit is paid
+          if (!proposal.depositVerified) {
+            return res.status(403).json({
+              success: false,
+              message: 'Invoice not available until deposit is paid'
+            });
+          }
+          
+          // Check if invoice PDF already exists
+          if (proposal.invoicePdfUrl) {
+            // Use existing PDF
+            const fs = require('fs').promises;
+            const path = require('path');
+            const pdfPath = path.join(__dirname, '..', proposal.invoicePdfUrl);
+            
+            try {
+              pdfBuffer = await fs.readFile(pdfPath);
+              fileName = `Invoice-${proposal.quoteNumber}.pdf`;
+            } catch (readError) {
+              console.warn('[CustomerPortal] Existing invoice PDF not found, regenerating:', readError.message);
+              // Fall through to generation if file doesn't exist
+            }
+          }
+          
+          // Generate new invoice if no existing one or read failed
+          if (!pdfBuffer) {
+            const invoiceTemplateService = require('../services/invoiceTemplateService');
+            const ContractorSettings = require('../models/ContractorSettings');
+            const Tenant = require('../models/Tenant');
+            
+            const [settings, tenant] = await Promise.all([
+              ContractorSettings.findOne({ where: { tenantId } }),
+              Tenant.findByPk(tenantId)
+            ]);
+            
+            // Determine tier pricing
+            let tierTotal = parseFloat(proposal.total || 0);
+            let tierDeposit = parseFloat(proposal.depositAmount || 0);
+            
+            if (proposal.productStrategy === 'GBB' && proposal.gbbTierPricing) {
+              const tiers = typeof proposal.gbbTierPricing === 'string' 
+                ? JSON.parse(proposal.gbbTierPricing) 
+                : proposal.gbbTierPricing;
+              
+              const selectedTier = proposal.gbbSelectedTier || 'better';
+              const tier = tiers[selectedTier];
+              
+              if (tier) {
+                tierTotal = parseFloat(tier.total || tierTotal);
+                tierDeposit = parseFloat(tier.deposit || tierDeposit);
+              }
+            }
+            
+            const templateType = proposal.productStrategy === 'GBB' ? 'gbb' : 'single';
+            const templateStyle = settings?.invoiceTemplateStyle || 'light';
+            
+            const invoiceData = {
+              invoiceNumber: proposal.quoteNumber,
+              issueDate: new Date().toLocaleDateString('en-US'),
+              projectName: `${proposal.customerName} Project`,
+              projectAddress: [proposal.street, proposal.city, proposal.state, proposal.zipCode].filter(Boolean).join(', '),
+              customerName: proposal.customerName,
+              customerPhone: proposal.customerPhone,
+              customerEmail: proposal.customerEmail,
+              selectedTier: proposal.gbbSelectedTier || null,
+              pricingItems: [{
+                name: 'Project Total',
+                qty: 1,
+                amount: tierTotal
+              }],
+              projectInvestment: tierTotal,
+              deposit: tierDeposit,
+              balance: tierTotal - tierDeposit,
+              depositPaid: true,
+              depositPaidDate: proposal.depositPaidAt ? new Date(proposal.depositPaidAt).toLocaleDateString('en-US') : new Date().toLocaleDateString('en-US'),
+            };
+            
+            const updatedContractorInfo = {
+              name: tenant?.companyName || contractorInfo.name,
+              email: tenant?.email || contractorInfo.email,
+              phone: tenant?.phoneNumber || contractorInfo.phone,
+              address: tenant?.businessAddress || contractorInfo.address,
+              logo: tenant?.companyLogoUrl || contractorInfo.logo,
+            };
+            
+            pdfBuffer = await invoiceTemplateService.generateInvoice({
+              templateType,
+              style: templateStyle,
+              invoiceData,
+              contractorInfo: updatedContractorInfo
+            });
+            
+            fileName = `Invoice-${proposal.quoteNumber}.pdf`;
+          }
           break;
 
         default:
@@ -2453,9 +2664,15 @@ exports.viewDocument = async (req, res) => {
           // Enrich for scope/materials generation (does not affect invoice pricing)
           const enrichedForInvoice = await buildEnrichedQuoteWithSelections(proposal);
 
+          // Get scope of work from ProposalDefaults if not set on quote
+          const ProposalDefaults = require('../models/ProposalDefaults');
+          const proposalDefaults = await ProposalDefaults.findOne({ where: { tenantId } });
+          
           const derivedScope = (proposal.scopeOfWork && proposal.scopeOfWork.length > 0)
             ? proposal.scopeOfWork
-            : (proposal.jobScope ? [proposal.jobScope] : []);
+            : (proposalDefaults?.scopeOfWork 
+                ? [proposalDefaults.scopeOfWork]
+                : (proposal.jobScope ? [proposal.jobScope] : []));
 
           // Build a simple materials/selections list from enriched areas
           const materialsSelections = Array.isArray(enrichedForInvoice?.areas)
@@ -2487,7 +2704,7 @@ exports.viewDocument = async (req, res) => {
                   parts.push(colorParts.join(' '));
                 }
                 
-                return parts.length > 0 ? parts.join(' � ') : null;
+                return parts.length > 0 ? parts.join(' ? ') : null;
               })
               .filter(Boolean)
             : [];
@@ -2495,7 +2712,7 @@ exports.viewDocument = async (req, res) => {
           // If no materials from customer selections, try to extract from productSets using helper function
           if (materialsSelections.length === 0 && proposal.productSets) {
             try {
-              const selectedTier = proposal.selectedTier?.toLowerCase();
+              const selectedTier = proposal.gbbSelectedTier?.toLowerCase();
               const productIds = extractProductIdsFromProductSets(proposal.productSets, selectedTier);
               
               if (productIds.length > 0) {
@@ -2525,7 +2742,7 @@ exports.viewDocument = async (req, res) => {
               console.error('Error resolving product names from database:', error);
               // Fallback to old method if database lookup fails
               const extractedProducts = extractProductNamesFromProductSets(proposal.productSets);
-              const selectedTier = proposal.selectedTier?.toLowerCase();
+              const selectedTier = proposal.gbbSelectedTier?.toLowerCase();
               
               if (selectedTier && extractedProducts[selectedTier]) {
                 extractedProducts[selectedTier].forEach(productName => {
@@ -2558,7 +2775,8 @@ exports.viewDocument = async (req, res) => {
             materialsSelections,
             estimatedDuration: proposal.estimatedDuration || null,
             estimatedStartDate: proposal.scheduledStartDate || null,
-            pricingItems: [
+            selectedTier: proposal.gbbSelectedTier ? proposal.gbbSelectedTier.toUpperCase() : null,
+ pricingItems: [
               {
                 name: proposal.jobTitle || 'Project',
                 qty: 1,
@@ -2744,7 +2962,7 @@ exports.createPaymentIntent = async (req, res) => {
           quoteNumber: proposal.quoteNumber,
           customerId: customerId,
           customerEmail: proposal.customerEmail,
-          selectedTier: proposal.selectedTier
+          selectedTier: proposal.gbbSelectedTier
         },
         automatic_payment_methods: {
           enabled: true,
@@ -3011,7 +3229,7 @@ exports.verifyDepositAndOpenPortal = async (req, res) => {
         depositPaid: true,
         depositPaidAt: new Date(),
         balanceRemaining: proposal.total - proposal.depositAmount,
-        selectedTier: proposal.selectedTier,
+        selectedTier: proposal.gbbSelectedTier,
         jobType: proposal.jobType || 'interior',
         customerSelectionsComplete: proposal.selectionsComplete || false,
         customerSelectionsSubmittedAt: proposal.selectionsCompletedAt || null,
@@ -3401,7 +3619,7 @@ exports.requestTierChange = async (req, res) => {
       data: {
         proposalId,
         requestedTier: newTier,
-        currentTier: quote.selectedTier
+        currentTier: quote.gbbSelectedTier
       }
     });
   } catch (error) {
@@ -3451,7 +3669,7 @@ exports.getCustomerJobs = async (req, res) => {
         {
           model: Quote,
           as: 'quote',
-          attributes: ['id', 'quoteNumber', 'areas', 'selectedTier']
+          attributes: ['id', 'quoteNumber', 'areas', 'gbbSelectedTier']
         }
       ],
       attributes: [
@@ -3533,7 +3751,12 @@ exports.getJobDetail = async (req, res) => {
         {
           model: Quote,
           as: 'quote',
-          attributes: ['id', 'quoteNumber', 'areas', 'selectedTier', 'breakdown']
+          attributes: ['id', 'quoteNumber', 'areas', 'gbbSelectedTier', 'breakdown', 'flatRateItems', 'productSets', 'pricingSchemeId'],
+          include: [{
+            model: require('../models/PricingScheme'),
+            as: 'pricingScheme',
+            attributes: ['id', 'name', 'type']
+          }]
         },
         {
           model: Client,
@@ -3711,7 +3934,7 @@ exports.getQuotes = async (req, res) => {
         // Customer portal fields
         'depositAmount',
         'depositVerified',
-        'selectedTier',
+        'gbbSelectedTier',
         'portalOpen',
         'selectionsComplete'
       ],
@@ -4159,5 +4382,6 @@ exports.markQuoteViewed = async (req, res) => {
 };
 
 module.exports = exports;
+
 
 

@@ -36,6 +36,14 @@ const ProposalDefaults = sequelize.define('ProposalDefaults', {
     defaultValue: 'We are a professional painting company with years of experience in residential and commercial projects.'
   },
 
+  // ===== Scope of Work (Default) =====
+  scopeOfWork: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'scope_of_work',
+    defaultValue: 'Scope: Exterior/interior painting, preparation, priming, and two finish coats as applicable.'
+  },
+
   // ===== 2. PROCESSES =====
   interiorProcess: {
     type: DataTypes.TEXT,

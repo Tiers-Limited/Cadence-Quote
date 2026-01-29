@@ -227,6 +227,7 @@ async function calculateQuotePricing(quote, tenantId) {
       'sqft_labor_paint': 'rate_based_sqft',
       'hourly_time_materials': 'production_based',
       'unit_pricing': 'flat_rate_unit',
+        'flat_rate_unit': "flat_rate_unit",
       'room_flat_rate': 'flat_rate_unit',
     };
     
@@ -292,17 +293,39 @@ async function calculateQuotePricing(quote, tenantId) {
         doors: settings?.productionDoors || 2,
         cabinets: settings?.productionCabinets || 1.5,
       },
-      hourlyLaborRate: settings?.defaultLaborHourRate || 50,
-      crewSize: settings?.crewSize || 2,
+      billableLaborRate: settings?.defaultBillableLaborRate || 50,
+      crewSize: settings?.crewSize || 1,
       
       // Flat rate unit prices from contractor settings
-      unitPrices: settings?.flatRateUnitPrices || {
+      flatRateUnitPrices: settings?.flatRateUnitPrices || {
+        // Interior items
         door: 85,
+        doors: 85,
+        smallRoom: 350,
+        mediumRoom: 450,
+        largeRoom: 600,
+        closet: 150,
+        accentWall: 200,
+        cabinet: 125,
+        cabinets: 125,
+        cabinetsFace: 300,
+        cabinetsDoors: 400,
+        // Exterior items
+        exteriorDoor: 95,
+        exteriorDoors: 95,
         window: 75,
+        windows: 75,
+        garageDoor: 200,
+        garageDoors: 200,
+        garageDoor1Car: 150,  // 1-car garage door base price (will be multiplied by 0.5x)
+        garageDoor2Car: 200,  // 2-car garage door base price (will be multiplied by 1.0x)
+        garageDoor3Car: 250,  // 3-car garage door base price (will be multiplied by 1.5x)
+        shutter: 50,
+        shutters: 50,
+        // Legacy support
         room_small: 350,
         room_medium: 450,
         room_large: 600,
-        cabinet: 125,
         walls: 2.5,
         ceilings: 2.0,
         trim: 1.5,
@@ -332,9 +355,19 @@ async function calculateQuotePricing(quote, tenantId) {
       model,
       rules: mergedRules,
       areas: transformedAreas,
+      flatRateItems: quote.flatRateItems, // Add flat rate items support
+      productSets: quote.productSets, // Add product sets for turnkey and other pricing schemes
       homeSqft: quote.homeSqft || 0,
       jobScope: quote.jobType || 'interior',
+      conditionModifier: quote.conditionModifier || 'average', // CRITICAL: Pass condition modifier for turnkey
+      analytics: {
+        tenantId: quote.tenantId,
+        userId: quote.userId,
+        quoteId: quote.id
+      }
     };
+    // Include contractor settings so calculators can prefer tenant-specific rates
+    params.settings = settings || {};
     
     // Calculate base pricing using unified calculator
     const basePricing = calculatePricing(params);
@@ -481,8 +514,9 @@ async function calculateQuotePricingLegacy(quote, tenantId) {
     const profitAmount = subtotalBeforeProfit * (netProfitPercent / 100);
     const subtotal = subtotalBeforeProfit + profitAmount;
 
-    // Step 6: Calculate tax
-    const taxAmount = subtotal * (taxRate / 100);
+    // Step 6: Calculate tax (only on markup amounts, not full subtotal)
+    const totalMarkupAmount = laborMarkupAmount + materialMarkupAmount + overheadAmount + profitAmount;
+    const taxAmount = totalMarkupAmount * (taxRate / 100);
 
     // Final total
     const total = subtotal + taxAmount;
@@ -613,28 +647,18 @@ exports.detectExistingClient = async (req, res) => {
 };
 
 /**
- * Create or update quote (auto-save functionality)
+ * Create or update quote (enhanced auto-save functionality with optimistic locking)
  * POST /api/quote-builder/save-draft
  */
 exports.saveDraft = async (req, res) => {
   const transaction = await sequelize.transaction();
   
-  // Capture any transaction errors
-  let transactionError = null;
-  transaction.afterCommit(() => console.log('✅ Transaction committed successfully'));
-  
-  // Hook to catch transaction errors
-  const originalRollback = transaction.rollback.bind(transaction);
-  transaction.rollback = async function() {
-    console.log('🚨 Transaction rollback called');
-    return originalRollback();
-  };
-
   try {
     const userId = req.user.id;
     const tenantId = req.user.tenantId;
     const {
       quoteId,
+      lastModified, // Client's last known modification timestamp
       customerName,
       customerEmail,
       customerPhone,
@@ -649,24 +673,89 @@ exports.saveDraft = async (req, res) => {
       productStrategy,
       allowCustomerProductChoice,
       notes,
+      flatRateItems,  // CRITICAL: Flat rate items for unit-based pricing
     } = req.body;
 
     let quote;
     let client;
     let isNewQuote = false;
 
+    // OPTIMISTIC LOCKING: Check for conflicts if updating existing quote
+    if (quoteId) {
+      quote = await Quote.findOne({
+        where: { id: quoteId, tenantId },
+        transaction,
+      });
+
+      if (!quote) {
+        await transaction.rollback();
+        return res.status(404).json({
+          success: false,
+          message: 'Quote not found',
+        });
+      }
+
+      // Check for conflicts using optimistic locking
+      if (lastModified) {
+        const clientLastModified = new Date(lastModified);
+        const serverLastModified = new Date(quote.lastModified);
+        
+        // Calculate time difference
+        const timeDifferenceMs = serverLastModified - clientLastModified;
+        
+        // More lenient conflict detection:
+        // 1. Allow updates within 30 seconds (covers auto-save scenarios)
+        // 2. Always allow if same user (userId matches)
+        const GRACE_PERIOD_MS = 30000; // 30 seconds
+        const isSameUser = quote.userId === userId;
+        
+        // Only trigger conflict if:
+        // - Time difference exceeds grace period AND
+        // - It's a different user (multi-user scenario)
+        if (timeDifferenceMs > GRACE_PERIOD_MS && !isSameUser) {
+          // Conflict detected - return conflict resolution data
+          await transaction.rollback();
+          
+          // Get the current server data for conflict resolution
+          const conflictQuote = await Quote.findByPk(quoteId, {
+            include: [
+              { model: Client, as: 'client' },
+              { model: PricingScheme, as: 'pricingScheme' },
+            ],
+          });
+          
+          return res.status(409).json({
+            success: false,
+            conflict: true,
+            message: 'Quote has been modified by another user. Please resolve conflicts.',
+            serverData: {
+              quote: conflictQuote,
+              lastModified: conflictQuote.lastModified,
+              autoSaveVersion: conflictQuote.autoSaveVersion
+            },
+            clientData: {
+              lastModified: clientLastModified,
+              // Include the client's data for comparison
+              areas,
+              productSets,
+              notes,
+              customerName,
+              customerEmail,
+              customerPhone
+            }
+          });
+        }
+        
+        // If same user or within grace period, log but allow the update
+        if (timeDifferenceMs > 0) {
+          console.log(`[Auto-save] Allowing update despite timestamp difference: ${timeDifferenceMs}ms (same user: ${isSameUser})`);
+        }
+      }
+    }
+
     // Find or create client if we have email
     if (customerEmail) {
       try {
-        console.log('🔍 Attempting client findOrCreate with:', {
-          email: customerEmail.toLowerCase(),
-          tenantId,
-          name: customerName,
-          phone: customerPhone,
-          state: state,
-          zip: zipCode
-        });
-        
         [client] = await Client.findOrCreate({
           where: {
             email: customerEmail.toLowerCase(),
@@ -684,33 +773,9 @@ exports.saveDraft = async (req, res) => {
           },
           transaction,
         });
-        console.log('✅ Client findOrCreate successful:', client.id);
-      } catch (clientError) {
-        console.error('❌ CLIENT FIND/CREATE FAILED — ROOT CAUSE:', {
-          name: clientError.name,
-          message: clientError.message,
-          errors: clientError.errors,
-          validationErrors: clientError.errors?.map(e => ({
-            field: e.path,
-            message: e.message,
-            type: e.type,
-            value: e.value
-          })),
-          sql: clientError.sql,
-          parent: clientError.parent?.message,
-          parentCode: clientError.parent?.code,
-          fields: clientError.fields
-        });
-        await transaction.rollback();
-        return res.status(500).json({
-          success: false,
-          message: `Failed to find/create client: ${clientError.message}`,
-        });
-      }
 
-      // Update client if data changed - only update fields with valid values
-      if (client && (customerName || customerPhone || street || city || state || zipCode)) {
-        try {
+        // Update client if data changed - only update fields with valid values
+        if (client && (customerName || customerPhone || street || city || state || zipCode)) {
           const clientUpdateData = {};
           
           // Only include fields that have non-empty values
@@ -721,78 +786,35 @@ exports.saveDraft = async (req, res) => {
           if (state && state.trim()) clientUpdateData.state = state.trim();
           if (zipCode && zipCode.trim()) clientUpdateData.zip = zipCode.trim();
           
-          console.log('🔍 Attempting client update with:', {
-            currentClient: {
-              id: client.id,
-              name: client.name,
-              phone: client.phone,
-              state: client.state,
-              zip: client.zip
-            },
-            updateData: clientUpdateData
-          });
-          
           // Only update if there are fields to update
           if (Object.keys(clientUpdateData).length > 0) {
             await client.update(clientUpdateData, { transaction });
-            console.log('✅ Client update successful');
-          } else {
-            console.log('ℹ️ No client fields to update');
           }
-        } catch (updateError) {
-          console.error('❌ CLIENT UPDATE FAILED — THIS IS PROBABLY THE ROOT CAUSE:', {
-            name: updateError.name,
-            message: updateError.message,
-            validationErrors: updateError.errors?.map(e => ({
-              field: e.path,
-              message: e.message,
-              type: e.type,
-              value: e.value
-            })),
-            sql: updateError.sql,
-            fields: updateError.fields,
-            parentCode: updateError.parent?.code,
-            parentMessage: updateError.parent?.message,
-          });
-          await transaction.rollback();
-          return res.status(500).json({
-            success: false,
-            message: `Failed to update client: ${updateError.message}`,
-          });
         }
+      } catch (clientError) {
+        console.error('Client find/create failed:', clientError);
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          message: `Failed to find/create client: ${clientError.message}`,
+        });
       }
     }
 
-    // Find or create quote
-    if (quoteId) {
-      quote = await Quote.findOne({
-        where: { id: quoteId, tenantId },
-        transaction,
-      });
-
-      if (!quote) {
-        await transaction.rollback();
-        return res.status(404).json({
-          success: false,
-          message: 'Quote not found',
-        });
-      }
-    } else {
+    // Create new quote if not updating existing one
+    if (!quote) {
       isNewQuote = true;
       
-      // Generate quote number with error handling (without transaction to avoid aborts)
-      // Pass clientId if available for client-specific quote numbering
+      // Generate quote number
       let quoteNumber;
       try {
         quoteNumber = await Quote.generateQuoteNumber(tenantId, client?.id || null);
-        console.log('✅ Generated quote number:', quoteNumber);
         
-        // CRITICAL: Check if this quote number already exists
+        // Check if this quote number already exists
         const existingQuote = await Quote.findOne({
           where: { quoteNumber, tenantId }
         });
         if (existingQuote) {
-          console.error('❌ DUPLICATE QUOTE NUMBER DETECTED:', quoteNumber);
           await transaction.rollback();
           return res.status(409).json({
             success: false,
@@ -800,7 +822,7 @@ exports.saveDraft = async (req, res) => {
           });
         }
       } catch (genError) {
-        console.error('❌ Error generating quote number:', genError);
+        console.error('Error generating quote number:', genError);
         await transaction.rollback();
         return res.status(500).json({
           success: false,
@@ -808,32 +830,18 @@ exports.saveDraft = async (req, res) => {
         });
       }
 
-      console.log('Creating quote with data:', {
-        tenantId,
-        userId,
-        clientId: client?.id || null,
-        quoteNumber,
-        pricingSchemeId,
-        productSetsType: Array.isArray(productSets) ? 'array' : typeof productSets
-      });
-
-      // Validate pricingSchemeId if provided (without transaction to avoid aborts)
+      // Validate pricingSchemeId if provided
       let validatedPricingSchemeId = null;
       if (pricingSchemeId) {
         try {
           const scheme = await PricingScheme.findOne({
             where: { id: pricingSchemeId, tenantId }
-            // Removed transaction to prevent silent aborts on FK validation
           });
           if (scheme) {
             validatedPricingSchemeId = pricingSchemeId;
-            console.log('✅ Pricing scheme validated:', pricingSchemeId);
-          } else {
-            console.log('⚠️ Pricing scheme not found, skipping:', pricingSchemeId);
           }
         } catch (schemeError) {
-          console.error('❌ Error validating pricing scheme:', schemeError);
-          console.error('Scheme error stack:', schemeError.stack);
+          console.error('Error validating pricing scheme:', schemeError);
           await transaction.rollback();
           return res.status(500).json({
             success: false,
@@ -842,256 +850,124 @@ exports.saveDraft = async (req, res) => {
         }
       }
       
-      console.log('✅ Pricing scheme validation complete');
-      console.log('🔍 Transaction state after pricing validation:', {
-        finished: transaction.finished
-      });
+      // Parse and validate JSON fields
+      let parsedAreas = areas || [];
+      let parsedProductSets = productSets || [];
       
-      // Test if transaction is healthy with a simple query
-      try {
-        console.log('🧪 Testing transaction health with simple query...');
-        await sequelize.query('SELECT 1 as test', { transaction, type: sequelize.QueryTypes.SELECT });
-        console.log('✅ Transaction health check passed');
-      } catch (healthError) {
-        console.error('❌ TRANSACTION HEALTH CHECK FAILED:', {
-          name: healthError.name,
-          message: healthError.message,
-          code: healthError.parent?.code,
-          sql: healthError.sql
-        });
-        await transaction.rollback();
-        return res.status(500).json({
-          success: false,
-          message: `Transaction is in failed state: ${healthError.message}`,
-        });
+      if (typeof parsedAreas === 'string') {
+        try {
+          parsedAreas = JSON.parse(parsedAreas);
+        } catch (e) {
+          parsedAreas = [];
+        }
       }
       
-      // Final transaction health check right before create
-      try {
-        console.log('🧪 Final health check right before Quote.create()...');
-        await sequelize.query('SELECT 1 as final_test', { transaction, type: sequelize.QueryTypes.SELECT });
-        console.log('✅ Final health check passed');
-      } catch (finalHealthError) {
-        console.error('❌ FINAL HEALTH CHECK FAILED:', {
-          name: finalHealthError.name,
-          message: finalHealthError.message,
-          code: finalHealthError.parent?.code
-        });
-        // CRITICAL: If health check fails, transaction is aborted - must rollback and return
-        await transaction.rollback();
-        return res.status(500).json({
-          success: false,
-          message: `Transaction health check failed: ${finalHealthError.message}`,
-        });
+      if (typeof parsedProductSets === 'string') {
+        try {
+          parsedProductSets = JSON.parse(parsedProductSets);
+        } catch (e) {
+          parsedProductSets = [];
+        }
       }
       
-      try {
-        console.log('📝 Attempting to create quote...');
-        
-       
-        
-        // Parse stringified JSON fields if needed
-        let parsedAreas = areas || [];
-        let parsedProductSets = productSets || [];
-        
-        if (typeof parsedAreas === 'string') {
-          console.log('⚠️ areas is a STRING, parsing...');
-          try {
-            parsedAreas = JSON.parse(parsedAreas);
-            console.log('✅ areas parsed successfully:', parsedAreas);
-          } catch (e) {
-            console.error('❌ Failed to parse areas:', e.message);
-            parsedAreas = [];
-          }
-        }
-        
-        if (typeof parsedProductSets === 'string') {
-          console.log('⚠️ productSets is a STRING, parsing...');
-          try {
-            parsedProductSets = JSON.parse(parsedProductSets);
-            console.log('✅ productSets parsed successfully:', parsedProductSets);
-          } catch (e) {
-            console.error('❌ Failed to parse productSets:', e.message);
-            parsedProductSets = [];
-          }
-        }
-        
-     
-        
-        // CRITICAL: Final validation to ensure JSONB fields are NEVER strings
-        if (typeof parsedAreas === 'string') {
-          console.error('🚨 BUG DETECTED: areas is still a STRING right before save!');
-          throw new Error('JSONB validation failed: areas field is a string instead of array/object');
-        }
-        if (typeof parsedProductSets === 'string') {
-          console.error('🚨 BUG DETECTED: productSets is still a STRING right before save!');
-          throw new Error('JSONB validation failed: productSets field is a string instead of array/object');
-        }
-        
-        // Ensure they are proper arrays/objects, not undefined or null
-        const safeAreas = Array.isArray(parsedAreas) ? parsedAreas : [];
-        const safeProductSets = Array.isArray(parsedProductSets) ? parsedProductSets : [];
-        
+      // Ensure they are proper arrays/objects
+      const safeAreas = Array.isArray(parsedAreas) ? parsedAreas : [];
+      const safeProductSets = Array.isArray(parsedProductSets) ? parsedProductSets : [];
       
-        // Try to build the quote instance first without saving
-        console.log('🏗️ Building quote instance...');
-        const quoteData = {
-          tenantId,
-          userId,
-          clientId: client?.id || null,
-          quoteNumber,
-          customerName: customerName || '',
-          customerEmail: customerEmail || null,
-          customerPhone: customerPhone || null,
-          street: street || null,
-          city: city || null,
-          state: state || null,
-          zipCode: zipCode || null,
-          pricingSchemeId: validatedPricingSchemeId,
-          jobType: jobType || null,
-          jobCategory: 'residential',
-          productStrategy: productStrategy || 'GBB',
-          allowCustomerProductChoice: allowCustomerProductChoice !== undefined ? allowCustomerProductChoice : false,
-          areas: safeAreas,
-          productSets:  safeProductSets,
-          homeSqft: req.body.homeSqft || null,
-          jobScope: req.body.jobScope || null,
-          numberOfStories: req.body.numberOfStories || null,
-          conditionModifier: req.body.conditionModifier || null,
-          bookingRequest: null,
-          // Financial fields
-          subtotal: 0,
-          laborTotal: 0,
-          materialTotal: 0,
-          markup: 0,
-          markupPercent: 0,
-          zipMarkup: 0,
-          zipMarkupPercent: 0,
-          tax: 0,
-          taxPercent: 0,
-          total: 0,
-          totalSqft: null,
-          // Additional fields
-          notes: notes || null,
-          clientNotes: null,
-          breakdown: null,
-          selectedTier: null,
-          depositAmount: null,
-          depositVerified: false,
-          depositVerifiedAt: null,
-          depositVerifiedBy: null,
-          depositPaymentMethod: null,
-          depositTransactionId: null,
-          finishStandardsAcknowledged: false,
-          finishStandardsAcknowledgedAt: null,
-          portalOpen: false,
-          portalOpenedAt: null,
-          portalClosedAt: null,
-          selectionsComplete: false,
-          selectionsCompletedAt: null,
-          tierChangeRequested: null,
-          tierChangeRequestedAt: null,
-          tierChangeApproved: null,
-          tierChangeApprovedAt: null,
-          validUntil: null,
-          sentAt: null,
-          viewedAt: null,
-          acceptedAt: null,
-          approvedAt: null,
-          declinedAt: null,
-          useContractorDiscount: false,
-          status: 'draft',
-        };
-        console.log('✅ Quote instance built:', quoteData);
-        
-        console.log('✅ Quote instance built successfully');
-        console.log('💾 Saving to database...');
-        
-       quote = await Quote.create(quoteData,  { transaction });
-        
-        console.log('✅ Quote created successfully:', quote.id);
-      } catch (createError) {
-        console.error('❌ Error creating quote:', createError);
-      // console.error('Create error details:', {
-        //   name: createError.name,
-        //   message: createError.message,
-        //   errors: createError.errors, // Sequelize validation errors
-        //   fields: createError.fields,
-        //   code: createError.code,
-        //   parent: createError.parent?.code,
-        //   sql: createError.sql
-        // });
-        
-        // await transaction.rollback();
-        
-        // Check if it's a unique constraint violation on quote_number
-        if (createError.name === 'SequelizeUniqueConstraintError' || 
-            (createError.parent && createError.parent.code === '23505')) {
-          return res.status(409).json({
-            success: false,
-            message: `Duplicate quote number detected. This usually means the request was sent multiple times. Please try again.`,
-          });
+      // Parse flatRateItems if it's a string
+      let parsedFlatRateItems = flatRateItems || {};
+      if (typeof parsedFlatRateItems === 'string') {
+        try {
+          parsedFlatRateItems = JSON.parse(parsedFlatRateItems);
+        } catch (e) {
+          parsedFlatRateItems = {};
         }
-        
-        return res.status(500).json({
-          success: false,
-          message: `Failed to create quote: ${createError.message}`,
-        });
       }
-    }
+      const safeFlatRateItems = parsedFlatRateItems || {};
+      
+      // Create quote with auto-save version tracking
+      const currentTime = new Date();
+      const quoteData = {
+        tenantId,
+        userId,
+        clientId: client?.id || null,
+        quoteNumber,
+        customerName: customerName || '',
+        customerEmail: customerEmail || null,
+        customerPhone: customerPhone || null,
+        street: street || null,
+        city: city || null,
+        state: state || null,
+        zipCode: zipCode || null,
+        pricingSchemeId: validatedPricingSchemeId,
+        jobType: jobType || null,
+        jobCategory: 'residential',
+        productStrategy: productStrategy || 'GBB',
+        allowCustomerProductChoice: allowCustomerProductChoice !== undefined ? allowCustomerProductChoice : false,
+        areas: safeAreas,
+        productSets: safeProductSets,
+        flatRateItems: safeFlatRateItems,  // CRITICAL: Save flat rate items
+        homeSqft: req.body.homeSqft || null,
+        jobScope: req.body.jobScope || null,
+        numberOfStories: req.body.numberOfStories || null,
+        conditionModifier: req.body.conditionModifier || null,
+        notes: notes || null,
+        status: 'draft',
+        lastModified: currentTime,
+        autoSaveVersion: 1,
+        // Initialize financial fields
+        subtotal: 0,
+        laborTotal: 0,
+        materialTotal: 0,
+        markup: 0,
+        markupPercent: 0,
+        zipMarkup: 0,
+        zipMarkupPercent: 0,
+        tax: 0,
+        taxPercent: 0,
+        total: 0,
+        totalSqft: null,
+      };
+      
+      quote = await Quote.create(quoteData, { transaction });
+    } else {
+      // Update existing quote with version increment
+      const updateData = {
+        lastModified: new Date(),
+        autoSaveVersion: quote.autoSaveVersion + 1
+      };
+      
+      // Update fields if provided
+      if (customerName !== undefined) updateData.customerName = customerName;
+      if (customerEmail !== undefined) updateData.customerEmail = customerEmail;
+      if (customerPhone !== undefined) updateData.customerPhone = customerPhone;
+      if (street !== undefined) updateData.street = street;
+      if (city !== undefined) updateData.city = city;
+      if (state !== undefined) updateData.state = state;
+      if (zipCode !== undefined) updateData.zipCode = zipCode;
+      if (pricingSchemeId !== undefined) updateData.pricingSchemeId = pricingSchemeId;
+      if (jobType !== undefined) updateData.jobType = jobType;
+      if (areas !== undefined) updateData.areas = areas;
+      if (productSets !== undefined) updateData.productSets = productSets;
+      if (flatRateItems !== undefined) updateData.flatRateItems = flatRateItems;  // CRITICAL: Update flat rate items
+      if (productStrategy !== undefined) updateData.productStrategy = productStrategy;
+      if (allowCustomerProductChoice !== undefined) updateData.allowCustomerProductChoice = allowCustomerProductChoice;
+      if (notes !== undefined) updateData.notes = notes;
+      if (client) updateData.clientId = client.id;
+      
+      // Add turnkey-specific fields
+      if (req.body.homeSqft !== undefined) updateData.homeSqft = req.body.homeSqft;
+      if (req.body.jobScope !== undefined) updateData.jobScope = req.body.jobScope;
+      if (req.body.numberOfStories !== undefined) updateData.numberOfStories = req.body.numberOfStories;
+      if (req.body.conditionModifier !== undefined) updateData.conditionModifier = req.body.conditionModifier;
 
-    // Update quote with new data
-    const updateData = {};
-    if (customerName !== undefined) updateData.customerName = customerName;
-    if (customerEmail !== undefined) updateData.customerEmail = customerEmail;
-    if (customerPhone !== undefined) updateData.customerPhone = customerPhone;
-    if (street !== undefined) updateData.street = street;
-    if (city !== undefined) updateData.city = city;
-    if (state !== undefined) updateData.state = state;
-    if (zipCode !== undefined) updateData.zipCode = zipCode;
-    if (pricingSchemeId !== undefined) updateData.pricingSchemeId = pricingSchemeId;
-    if (jobType !== undefined) updateData.jobType = jobType;
-    if (areas !== undefined) updateData.areas = areas;
-    
-    // Normalize and enrich product sets based on pricing scheme
-    if (productSets !== undefined) {
-      // Get pricing scheme to determine structure
-      let pricingSchemeForNormalization = null;
-      if (pricingSchemeId) {
-        pricingSchemeForNormalization = await PricingScheme.findByPk(pricingSchemeId);
-      } else if (quote?.pricingSchemeId) {
-        pricingSchemeForNormalization = await PricingScheme.findByPk(quote.pricingSchemeId);
-      }
-      
-      // Normalize product sets
-      let normalizedProducts = normalizeProductSets(productSets, pricingSchemeForNormalization, areas);
-      
-      // Enrich with area data if needed
-      const schemeType = pricingSchemeForNormalization?.type || 'standard';
-      normalizedProducts = enrichProductSetsWithAreaData(normalizedProducts, areas, schemeType);
-      
-      updateData.productSets = normalizedProducts;
-    }
-    
-    if (productStrategy !== undefined) updateData.productStrategy = productStrategy;
-    if (allowCustomerProductChoice !== undefined) updateData.allowCustomerProductChoice = allowCustomerProductChoice;
-    if (notes !== undefined) updateData.notes = notes;
-    if (client) updateData.clientId = client.id;
-    
-    // Add turnkey-specific fields
-    if (req.body.homeSqft !== undefined) updateData.homeSqft = req.body.homeSqft;
-    if (req.body.jobScope !== undefined) updateData.jobScope = req.body.jobScope;
-    if (req.body.numberOfStories !== undefined) updateData.numberOfStories = req.body.numberOfStories;
-    if (req.body.conditionModifier !== undefined) updateData.conditionModifier = req.body.conditionModifier;
-
-    if (Object.keys(updateData).length > 0) {
       await quote.update(updateData, { transaction });
     }
 
-    // Reload quote to get updated areas and productSets
+    // Reload quote to get updated data
     await quote.reload({ transaction });
 
-    // Determine pricing scheme type to decide calculation requirements
+    // Calculate pricing if we have sufficient data
     let pricingScheme = null;
     if (quote.pricingSchemeId) {
       pricingScheme = await PricingScheme.findByPk(quote.pricingSchemeId);
@@ -1123,12 +999,24 @@ exports.saveDraft = async (req, res) => {
           break;
           
         case 'production_based':
-        case 'flat_rate_unit':
-          // Production/flat rate: needs areas and product selections
+          // Production-based: needs areas and product selections
           if (quote.areas && quote.areas.length > 0 && quote.productSets && 
               (Array.isArray(quote.productSets) ? quote.productSets.length > 0 : Object.keys(quote.productSets).length > 0)) {
             shouldCalculate = true;
             calculationReason = `${schemeType} with ${quote.areas.length} areas and product selections`;
+          }
+          break;
+          
+        case 'flat_rate_unit':
+          // Flat rate: needs flatRateItems (areas and products are optional)
+          if (quote.flatRateItems && (
+              Object.values(quote.flatRateItems.interior || {}).some(count => count > 0) ||
+              Object.values(quote.flatRateItems.exterior || {}).some(count => count > 0)
+            )) {
+            shouldCalculate = true;
+            const totalItems = Object.values(quote.flatRateItems.interior || {}).reduce((sum, count) => sum + (count || 0), 0) +
+                              Object.values(quote.flatRateItems.exterior || {}).reduce((sum, count) => sum + (count || 0), 0);
+            calculationReason = `${schemeType} with ${totalItems} flat rate items`;
           }
           break;
           
@@ -1140,64 +1028,58 @@ exports.saveDraft = async (req, res) => {
             calculationReason = `${schemeType} with areas and products`;
           }
       }
-    } else if (quote.areas && quote.areas.length > 0 && quote.productSets && 
-               (Array.isArray(quote.productSets) ? quote.productSets.length > 0 : Object.keys(quote.productSets).length > 0)) {
-      // No pricing scheme but has data - try to calculate anyway
-      shouldCalculate = true;
-      calculationReason = 'No scheme but has areas and products';
     }
     
     if (shouldCalculate) {
-      console.log('💰 Running pricing calculation...', {
-        schemeType: pricingScheme?.type,
-        reason: calculationReason,
-        homeSqft: quote.homeSqft,
-        areasLength: quote.areas?.length,
-        productSetsLength: Array.isArray(quote.productSets) ? quote.productSets.length : Object.keys(quote.productSets || {}).length
-      });
-      
-      const pricingCalculation = await calculateQuotePricing(quote, tenantId);
-      
-      // Get contractor settings for validity days and deposit percent
-      const settings = await ContractorSettings.findOne({
-        where: { tenantId }
-      });
-      
-      const quoteValidityDays = settings?.quoteValidityDays || 30;
-      const depositPercent = settings?.depositPercent || 50;
-      
-      // Calculate validUntil date
-      const validUntil = new Date();
-      validUntil.setDate(validUntil.getDate() + quoteValidityDays);
-      
-      // Calculate deposit amount based on total
-      const depositAmount = pricingCalculation.total * (depositPercent / 100);
-      
-      // Update quote with calculated pricing (all pricing engine fields)
-      await quote.update({
-        subtotal: pricingCalculation.subtotal,
-        laborTotal: pricingCalculation.laborTotal,
-        materialTotal: pricingCalculation.materialTotal,
-        laborMarkupPercent: pricingCalculation.laborMarkupPercent || 0,
-        laborMarkupAmount: pricingCalculation.laborMarkupAmount || 0,
-        materialMarkupPercent: pricingCalculation.materialMarkupPercent || 0,
-        materialMarkupAmount: pricingCalculation.materialMarkupAmount || 0,
-        overheadPercent: pricingCalculation.overheadPercent || 0,
-        overheadAmount: pricingCalculation.overhead || 0,
-        profitMarginPercent: pricingCalculation.profitMarginPercent || 0,
-        profitAmount: pricingCalculation.profitAmount || 0,
-        markup: pricingCalculation.markupAmount,
-        markupPercent: pricingCalculation.markupPercent,
-        zipMarkup: pricingCalculation.zipMarkupAmount || 0,
-        zipMarkupPercent: pricingCalculation.zipMarkupPercent || 0,
-        tax: pricingCalculation.tax || pricingCalculation.taxAmount,
-        taxPercent: pricingCalculation.taxPercent || pricingCalculation.taxRate,
-        total: pricingCalculation.total,
-        totalSqft: pricingCalculation.totalSqft,
-        breakdown: pricingCalculation.breakdown,
-        validUntil: validUntil,
-        depositAmount: depositAmount
-      }, { transaction });
+      try {
+        const pricingCalculation = await calculateQuotePricing(quote, tenantId);
+        
+        // Get contractor settings for validity days and deposit percent
+        const settings = await ContractorSettings.findOne({
+          where: { tenantId }
+        });
+        
+        const quoteValidityDays = settings?.quoteValidityDays || 30;
+        const depositPercent = settings?.depositPercent || 50;
+        
+        // Calculate validUntil date
+        const validUntil = new Date();
+        validUntil.setDate(validUntil.getDate() + quoteValidityDays);
+        
+        // Calculate deposit amount based on total
+        const depositAmount = pricingCalculation.total * (depositPercent / 100);
+        
+        // Update quote with calculated pricing
+        await quote.update({
+          subtotal: pricingCalculation.subtotal,
+          laborTotal: pricingCalculation.laborTotal,
+          materialTotal: pricingCalculation.materialTotal,
+          laborMarkupPercent: pricingCalculation.laborMarkupPercent || 0,
+          laborMarkupAmount: pricingCalculation.laborMarkupAmount || 0,
+          materialMarkupPercent: pricingCalculation.materialMarkupPercent || 0,
+          materialMarkupAmount: pricingCalculation.materialMarkupAmount || 0,
+          overheadPercent: pricingCalculation.overheadPercent || 0,
+          overheadAmount: pricingCalculation.overhead || 0,
+          profitMarginPercent: pricingCalculation.profitMarginPercent || 0,
+          profitAmount: pricingCalculation.profitAmount || 0,
+          markup: pricingCalculation.markupAmount,
+          markupPercent: pricingCalculation.markupPercent,
+          zipMarkup: pricingCalculation.zipMarkupAmount || 0,
+          zipMarkupPercent: pricingCalculation.zipMarkupPercent || 0,
+          tax: pricingCalculation.tax || pricingCalculation.taxAmount,
+          taxPercent: pricingCalculation.taxPercent || pricingCalculation.taxRate,
+          total: pricingCalculation.total,
+          totalSqft: pricingCalculation.totalSqft,
+          breakdown: pricingCalculation.breakdown,
+          validUntil: validUntil,
+          depositAmount: depositAmount,
+          lastModified: new Date(), // Update timestamp after calculation
+          autoSaveVersion: quote.autoSaveVersion + 1 // Increment version after calculation
+        }, { transaction });
+      } catch (calcError) {
+        console.error('Pricing calculation error during auto-save:', calcError);
+        // Continue without calculation - don't fail the save
+      }
     }
 
     // Create audit log
@@ -1208,7 +1090,12 @@ exports.saveDraft = async (req, res) => {
       tenantId,
       entityType: 'Quote',
       entityId: quote.id,
-      metadata: { quoteNumber: quote.quoteNumber, status: quote.status },
+      metadata: { 
+        quoteNumber: quote.quoteNumber, 
+        status: quote.status,
+        autoSaveVersion: quote.autoSaveVersion,
+        hasConflictResolution: !!lastModified
+      },
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
       userAgent: req.headers['user-agent'],
       transaction,
@@ -1216,7 +1103,7 @@ exports.saveDraft = async (req, res) => {
 
     await transaction.commit();
 
-    // Reload with associations
+    // Reload with associations for response
     const savedQuote = await Quote.findByPk(quote.id, {
       include: [
         { model: Client, as: 'client' },
@@ -1228,18 +1115,17 @@ exports.saveDraft = async (req, res) => {
       success: true,
       message: isNewQuote ? 'Quote draft created' : 'Quote draft updated',
       quote: savedQuote,
+      autoSave: {
+        version: savedQuote.autoSaveVersion,
+        lastModified: savedQuote.lastModified,
+        timestamp: new Date().toISOString()
+      }
     });
   } catch (error) {
     if (transaction && !transaction.finished) {
       await transaction.rollback();
     }
-    console.error('Save draft error:', error);
-    console.error('Error details:', {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      stack: error.stack
-    });
+    console.error('Enhanced auto-save error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to save quote draft',
@@ -1249,9 +1135,131 @@ exports.saveDraft = async (req, res) => {
 };
 
 /**
- * Get quote by ID
- * GET /api/quote-builder/:id
+ * Resolve conflict by choosing a version (server or client)
+ * POST /api/quote-builder/resolve-conflict
  */
+exports.resolveConflict = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const userId = req.user.id;
+    const tenantId = req.user.tenantId;
+    const { quoteId, resolution, data } = req.body;
+
+    if (!quoteId || !resolution || !data) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Quote ID, resolution type, and data are required'
+      });
+    }
+
+    if (!['server', 'client'].includes(resolution)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Resolution must be either "server" or "client"'
+      });
+    }
+
+    // Find the quote
+    const quote = await Quote.findOne({
+      where: { id: quoteId, tenantId },
+      transaction
+    });
+
+    if (!quote) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found'
+      });
+    }
+
+    if (resolution === 'server') {
+      // Keep server version - just return current quote
+      await transaction.commit();
+      
+      const savedQuote = await Quote.findByPk(quote.id, {
+        include: [
+          { model: Client, as: 'client' },
+          { model: PricingScheme, as: 'pricingScheme' },
+        ],
+      });
+
+      return res.json({
+        success: true,
+        message: 'Conflict resolved - server version kept',
+        quote: savedQuote,
+        resolution: 'server'
+      });
+    } else {
+      // Use client version - update quote with client data
+      const updateData = {
+        lastModified: new Date(),
+        autoSaveVersion: quote.autoSaveVersion + 1
+      };
+
+      // Update with client data
+      if (data.customerName !== undefined) updateData.customerName = data.customerName;
+      if (data.customerEmail !== undefined) updateData.customerEmail = data.customerEmail;
+      if (data.customerPhone !== undefined) updateData.customerPhone = data.customerPhone;
+      if (data.street !== undefined) updateData.street = data.street;
+      if (data.city !== undefined) updateData.city = data.city;
+      if (data.state !== undefined) updateData.state = data.state;
+      if (data.zipCode !== undefined) updateData.zipCode = data.zipCode;
+      if (data.areas !== undefined) updateData.areas = data.areas;
+      if (data.productSets !== undefined) updateData.productSets = data.productSets;
+      if (data.notes !== undefined) updateData.notes = data.notes;
+
+      await quote.update(updateData, { transaction });
+
+      // Create audit log for conflict resolution
+      await createAuditLog({
+        category: 'quote',
+        action: 'Quote conflict resolved - client version chosen',
+        userId,
+        tenantId,
+        entityType: 'Quote',
+        entityId: quote.id,
+        metadata: { 
+          quoteNumber: quote.quoteNumber, 
+          resolution: 'client',
+          autoSaveVersion: updateData.autoSaveVersion
+        },
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        transaction,
+      });
+
+      await transaction.commit();
+
+      const savedQuote = await Quote.findByPk(quote.id, {
+        include: [
+          { model: Client, as: 'client' },
+          { model: PricingScheme, as: 'pricingScheme' },
+        ],
+      });
+
+      return res.json({
+        success: true,
+        message: 'Conflict resolved - client version applied',
+        quote: savedQuote,
+        resolution: 'client'
+      });
+    }
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    console.error('Conflict resolution error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to resolve conflict',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
 exports.getQuoteById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1303,6 +1311,7 @@ exports.calculateQuote = async (req, res) => {
       jobScope, 
       numberOfStories, 
       conditionModifier,
+      flatRateItems,  // CRITICAL: Flat rate items from frontend
       // NEW: Material calculation options
       includeMaterials = true,
       coverage = 350,
@@ -1504,21 +1513,24 @@ exports.calculateQuote = async (req, res) => {
       console.log('╚════════════════════════════════════════════════════════════════╝\n');
       
       // Determine turnkey rate based on job type with GBB tier support
-      let baseRate = parseFloat(pricingRules.turnkeyRate) || 3.50;
+      // Prefer contractor settings saved in ContractorSettings, then scheme rules, then fallback
+      let baseRate = 3.50;
+      if (jobType === 'interior') {
+        baseRate = parseFloat(settings?.turnkeyInteriorRate) || parseFloat(pricingRules.interiorRate) || parseFloat(pricingRules.turnkeyRate) || 3.50;
+        console.log('  • Using interior turnkey rate preference order: ContractorSettings -> Scheme -> Fallback');
+      } else if (jobType === 'exterior') {
+        baseRate = parseFloat(settings?.turnkeyExteriorRate) || parseFloat(pricingRules.exteriorRate) || parseFloat(pricingRules.turnkeyRate) || 3.50;
+        console.log('  • Using exterior turnkey rate preference order: ContractorSettings -> Scheme -> Fallback');
+      } else {
+        baseRate = parseFloat(pricingRules.turnkeyRate) || parseFloat(settings?.turnkeyInteriorRate) || 3.50;
+      }
       console.log('Step 1: DETERMINE BASE RATE');
       console.log('─────────────────────────────────────────────────────────────────');
       console.log('  • Job Type:', jobType);
-      console.log('  • Default Turnkey Rate from scheme:', pricingRules.turnkeyRate || 'Not set');
-      
-      if (jobType === 'interior' && pricingRules.interiorRate) {
-        baseRate = parseFloat(pricingRules.interiorRate);
-        console.log('  ✓ Using INTERIOR rate:', baseRate, '$/sq ft');
-      } else if (jobType === 'exterior' && pricingRules.exteriorRate) {
-        baseRate = parseFloat(pricingRules.exteriorRate);
-        console.log('  ✓ Using EXTERIOR rate:', baseRate, '$/sq ft');
-      } else {
-        console.log('  ℹ️  Using default rate:', baseRate, '$/sq ft');
-      }
+      console.log('  • Contractor Settings Interior Rate:', settings?.turnkeyInteriorRate);
+      console.log('  • Contractor Settings Exterior Rate:', settings?.turnkeyExteriorRate);
+      console.log('  • Scheme Turnkey Rate:', pricingRules.turnkeyRate || 'Not set');
+      console.log('  • Final selected base rate:', baseRate, '$/sq ft');
       console.log('\nStep 2: APPLY GBB TIER ADJUSTMENTS');
       console.log('─────────────────────────────────────────────────────────────────');
 
@@ -1539,14 +1551,16 @@ exports.calculateQuote = async (req, res) => {
       // Apply condition modifier
       console.log('\nStep 3: APPLY CONDITION MODIFIER');
       console.log('─────────────────────────────────────────────────────────────────');
+      // Condition multipliers (Cadence-set defaults)
+      // Better condition = LOWER multiplier (less prep work needed)
       const conditionMultipliers = {
-        excellent: 0.9,
-        good: 0.95,
-        average: 1.0,
-        fair: 1.1,
-        poor: 1.25,
+        excellent: 1.00,  // Best condition - minimal prep
+        good: 1.05,       // Light prep work
+        average: 1.12,    // Standard prep (default)
+        fair: 1.25,       // Significant prep needed
+        poor: 1.45,       // Extensive prep and repairs
       };
-      const conditionMultiplier = conditionMultipliers[conditionModifier] || 1.0;
+      const conditionMultiplier = conditionMultipliers[conditionModifier] || 1.12; // Default to average
       const adjustedRate = turnkeyRate * conditionMultiplier;
       
       console.log('  • Property Condition:', conditionModifier);
@@ -1582,57 +1596,24 @@ exports.calculateQuote = async (req, res) => {
         console.log('  • Material Cost: $0.00');
       }
 
-      // Apply markups and calculate final totals
-      console.log('\nStep 6: APPLY PRICING ENGINE MARKUPS');
+      // CRITICAL FIX: Turnkey pricing is all-inclusive - NO markups, overhead, profit, or tax
+      console.log('\nStep 6: TURNKEY ALL-INCLUSIVE PRICING');
       console.log('─────────────────────────────────────────────────────────────────');
-      const laborMarkupPercent = parseFloat(settings?.laborMarkupPercent) || 35;
-      const materialMarkupPercent = parseFloat(settings?.materialMarkupPercent) || 20;
-      const overheadPercent = parseFloat(settings?.overheadPercent) || 10;
-      const profitMarginPercent = parseFloat(settings?.netProfitPercent) || 5;
-      const taxRate = parseFloat(settings?.taxRatePercentage) || 8.25;
-
-      // Step 1: Apply markups
-      const laborMarkupAmount = baseLaborCost * (laborMarkupPercent / 100);
-      const laborCostWithMarkup = baseLaborCost + laborMarkupAmount;
-      console.log('  LABOR:');
-      console.log('    Base Cost: $' + baseLaborCost.toFixed(2));
-      console.log('    Markup (' + laborMarkupPercent + '%): +$' + laborMarkupAmount.toFixed(2));
-      console.log('    With Markup: $' + laborCostWithMarkup.toFixed(2));
+      console.log('  ⚠️  IMPORTANT: Turnkey rate already includes:');
+      console.log('      • Labor costs');
+      console.log('      • Material costs');
+      console.log('      • Overhead');
+      console.log('      • Profit margin');
+      console.log('      • Sales tax');
+      console.log('  ✓ NO additional markups or tax applied');
       
-      const materialMarkupAmount = finalIncludeMaterials ? (baseMaterialCost * (materialMarkupPercent / 100)) : 0;
-      const materialCostWithMarkup = finalIncludeMaterials ? (baseMaterialCost + materialMarkupAmount) : 0;
-      console.log('  MATERIALS:');
-      console.log('    Base Cost: $' + baseMaterialCost.toFixed(2));
-      console.log('    Markup (' + materialMarkupPercent + '%): +$' + materialMarkupAmount.toFixed(2));
-      console.log('    With Markup: $' + materialCostWithMarkup.toFixed(2));
-
-      // Step 2: Calculate overhead on subtotal
-      console.log('\nStep 7: APPLY OVERHEAD');
-      console.log('─────────────────────────────────────────────────────────────────');
-      const subtotalBeforeOverhead = laborCostWithMarkup + materialCostWithMarkup;
-      const overheadAmount = subtotalBeforeOverhead * (overheadPercent / 100);
-      const subtotalBeforeProfit = subtotalBeforeOverhead + overheadAmount;
-      console.log('  Subtotal before overhead: $' + subtotalBeforeOverhead.toFixed(2));
-      console.log('  Overhead (' + overheadPercent + '%): +$' + overheadAmount.toFixed(2));
-      console.log('  ✓ Subtotal before profit: $' + subtotalBeforeProfit.toFixed(2));
-
-      // Step 3: Calculate profit
-      console.log('\nStep 8: APPLY NET PROFIT MARGIN');
-      console.log('─────────────────────────────────────────────────────────────────');
-      const profitAmount = subtotalBeforeProfit * (profitMarginPercent / 100);
-      const subtotal = subtotalBeforeProfit + profitAmount;
-      console.log('  Subtotal before profit: $' + subtotalBeforeProfit.toFixed(2));
-      console.log('  Profit Margin (' + profitMarginPercent + '%): +$' + profitAmount.toFixed(2));
-      console.log('  ✓ Subtotal (before tax): $' + subtotal.toFixed(2));
-
-      // Step 4: Calculate tax (only on materials with markup)
-      console.log('\nStep 9: CALCULATE TAX (on materials only)');
-      console.log('─────────────────────────────────────────────────────────────────');
-      const taxAmount = materialCostWithMarkup * (taxRate / 100);
-      const total = subtotal + taxAmount;
-      console.log('  Materials with Markup: $' + materialCostWithMarkup.toFixed(2));
-      console.log('  Tax (' + taxRate + '%): +$' + taxAmount.toFixed(2));
-      console.log('  ✓ FINAL TOTAL: $' + total.toFixed(2));
+      const total = baseTotal;
+      
+      console.log('\n  FINAL BREAKDOWN:');
+      console.log('    Labor (60%): $' + baseLaborCost.toFixed(2));
+      console.log('    Materials (40%): $' + baseMaterialCost.toFixed(2));
+      console.log('    ─────────────────────────────');
+      console.log('    TOTAL (All-Inclusive): $' + total.toFixed(2));
       
       console.log('\n' + '═'.repeat(65));
       console.log('✅ TURNKEY PRICING COMPLETE');
@@ -1641,32 +1622,31 @@ exports.calculateQuote = async (req, res) => {
       return res.json({
         success: true,
         calculation: {
-          // Base costs
+          // Base costs (for display purposes only)
           laborTotal: parseFloat(baseLaborCost.toFixed(2)),
           materialTotal: parseFloat(baseMaterialCost.toFixed(2)),
           
-          // Markup details
-          laborMarkupPercent,
-          laborMarkupAmount: parseFloat(laborMarkupAmount.toFixed(2)),
-          laborCostWithMarkup: parseFloat(laborCostWithMarkup.toFixed(2)),
+          // NO markups for turnkey
+          laborMarkupPercent: 0,
+          laborMarkupAmount: 0,
+          laborCostWithMarkup: parseFloat(baseLaborCost.toFixed(2)),
           
-          materialMarkupPercent,
-          materialMarkupAmount: parseFloat(materialMarkupAmount.toFixed(2)),
-          materialCostWithMarkup: parseFloat(materialCostWithMarkup.toFixed(2)),
+          materialMarkupPercent: 0,
+          materialMarkupAmount: 0,
+          materialCostWithMarkup: parseFloat(baseMaterialCost.toFixed(2)),
           
-          // Overhead and profit
-          overheadPercent,
-          overhead: parseFloat(overheadAmount.toFixed(2)),
-          subtotalBeforeProfit: parseFloat(subtotalBeforeProfit.toFixed(2)),
+          // NO overhead or profit for turnkey
+          overheadPercent: 0,
+          overhead: 0,
+          subtotalBeforeProfit: parseFloat(total.toFixed(2)),
           
-          profitMarginPercent,
-          profitAmount: parseFloat(profitAmount.toFixed(2)),
+          profitMarginPercent: 0,
+          profitAmount: 0,
           
-          // Final totals
-          subtotal: parseFloat(subtotal.toFixed(2)),
-          taxPercent: taxRate,
-          tax: parseFloat(taxAmount.toFixed(2)),
-          taxOnMaterialsOnly: true, // Tax applies only to materials with markup
+          // Final totals (no tax added)
+          subtotal: parseFloat(total.toFixed(2)),
+          taxPercent: 0,
+          tax: 0,
           total: parseFloat(total.toFixed(2)),
           
           // Material calculation settings
@@ -1682,6 +1662,7 @@ exports.calculateQuote = async (req, res) => {
           conditionModifier,
           conditionMultiplier,
           jobType,
+          isTurnkey: true, // Flag to indicate turnkey pricing
           
           // Quote validity
           quoteValidityDays: parseInt(settings?.quoteValidityDays) || 30,
@@ -1697,6 +1678,117 @@ exports.calculateQuote = async (req, res) => {
               materialCost: baseMaterialCost,
             }]
           }]
+        },
+      });
+    }
+
+    // CRITICAL FIX: Use flat rate items directly from request body
+    const isFlatRate = pricingScheme && (
+      pricingScheme.type === 'flat_rate_unit' || 
+      pricingScheme.type === 'unit_pricing' || 
+      pricingScheme.type === 'room_flat_rate'
+    );
+    
+    if (isFlatRate && flatRateItems) {
+      console.log('\n🔄 USING FLAT RATE ITEMS FROM REQUEST BODY');
+      console.log('─────────────────────────────────────────────────────────────────');
+      console.log('  Flat rate items received:');
+      console.log('    Interior:', JSON.stringify(flatRateItems.interior || {}));
+      console.log('    Exterior:', JSON.stringify(flatRateItems.exterior || {}));
+      console.log('');
+      
+      // For flat rate pricing, use the unified calculator
+      console.log('\n╔════════════════════════════════════════════════════════════════╗');
+      console.log('║    🧮 FLAT RATE UNIT PRICING - UNIFIED CALCULATOR              ║');
+      console.log('╚════════════════════════════════════════════════════════════════╝\n');
+      
+      // Build pricing rules with flat rate unit prices from contractor settings
+      const pricingRules = pricingScheme?.pricingRules || {};
+      const mergedRules = {
+        ...pricingRules,
+        includeMaterials: finalIncludeMaterials,
+        coverage: finalCoverage,
+        applicationMethod: finalApplicationMethod,
+        coats: finalCoats,
+        costPerGallon: pricingRules.costPerGallon || 40,
+        flatRateUnitPrices: settings?.flatRateUnitPrices || {
+          // Interior items
+          door: 85,
+          doors: 85,
+          smallRoom: 350,
+          mediumRoom: 450,
+          largeRoom: 600,
+          closet: 150,
+          accentWall: 200,
+          cabinet: 125,
+          cabinets: 125,
+          cabinetsFace: 300,
+          cabinetsDoors: 400,
+          // Exterior items
+          exteriorDoor: 95,
+          exteriorDoors: 95,
+          window: 75,
+          windows: 75,
+          garageDoor: 200,
+          garageDoors: 200,
+          garageDoor1Car: 150,
+          garageDoor2Car: 200,
+          garageDoor3Car: 250,
+          shutter: 50,
+          shutters: 50,
+        },
+      };
+      
+      // Call unified calculator
+      const basePricing = calculatePricing({
+        model: 'flat_rate_unit',
+        rules: mergedRules,
+        areas: [],
+        flatRateItems: flatRateItems,
+        productSets: productSets,
+        homeSqft: homeSqft || 0,
+        jobScope: jobType || 'interior',
+        analytics: {
+          tenantId: tenantId,
+          userId: req.user.id,
+          quoteId: null
+        }
+      });
+      
+      console.log('  Base Pricing from Calculator:', basePricing);
+      
+      // Apply markups, overhead, profit, and tax
+      const finalPricing = applyMarkupsAndTax(basePricing, {
+        laborMarkupPercent: parseFloat(settings?.laborMarkupPercent) || 0,
+        materialMarkupPercent: parseFloat(settings?.materialMarkupPercent) || 0,
+        overheadPercent: parseFloat(settings?.overheadPercent) || 0,
+        profitMarginPercent: parseFloat(settings?.netProfitPercent) || 0,
+        taxRatePercentage: parseFloat(settings?.taxRatePercentage) || 0,
+        depositPercent: parseFloat(settings?.depositPercent) || 0,
+      });
+      
+      console.log('  Final Pricing after Markups:', finalPricing);
+      console.log('\n' + '═'.repeat(65));
+      console.log('✅ FLAT RATE PRICING COMPLETE');
+      console.log('═'.repeat(65) + '\n\n');
+      
+      // Return flat rate pricing result
+      return res.json({
+        success: true,
+        calculation: {
+          ...finalPricing,
+          // Material calculation settings
+          includeMaterials: finalIncludeMaterials,
+          coverage: finalCoverage,
+          applicationMethod: finalApplicationMethod,
+          coats: finalCoats,
+          selectedTier: selectedTier,
+          // Pricing model metadata
+          pricingModelType: pricingScheme?.type || 'flat_rate_unit',
+          pricingModelName: pricingScheme?.name || 'Flat Rate Unit Pricing',
+          pricingModelFriendlyName: getPricingModelFriendlyName(pricingScheme?.type) || 'Flat Rate Unit Pricing',
+          // Quote validity
+          quoteValidityDays: parseInt(settings?.quoteValidityDays) || 30,
         },
       });
     }
@@ -1816,8 +1908,8 @@ exports.calculateQuote = async (req, res) => {
               case 'production_based': {
                 // Production-Based Pricing: Use production rates and hourly labor rate from ContractorSettings
                 // Formula: Labor Cost = (Area ÷ Production Rate) × Hourly Labor Rate
-                let hourlyRate = parseFloat(settings?.defaultLaborHourRate) || 50;
-                let crewSize = parseInt(settings?.crewSize) || 2;
+                let hourlyRate = parseFloat(settings?.defaultBillableLaborRate) || 50;
+                let crewSize = parseInt(settings?.crewSize) || 1;
                 
                 console.log('       Hourly Labor Rate from Settings: $' + hourlyRate + '/hr');
                 console.log('       Crew Size: ' + crewSize);
@@ -1826,24 +1918,30 @@ exports.calculateQuote = async (req, res) => {
                   // Direct hours
                   itemBreakdown.laborCost = quantity * hourlyRate * crewSize;
                   console.log('       Labor: ' + quantity + ' hrs × $' + hourlyRate + ' × ' + crewSize + ' = $' + itemBreakdown.laborCost.toFixed(2));
-                } else if (item.measurementUnit === 'sqft' || item.measurementUnit === 'linear_foot') {
-                  // Convert area to hours based on production rate from settings
+                } else if (item.measurementUnit === 'sqft' || item.measurementUnit === 'linear_foot' || item.measurementUnit === 'unit') {
+                  // Convert area/units to hours based on production rate from settings
                   const categoryNameLower = item.categoryName.toLowerCase();
+                  const jobTypeLower = (area.jobType || 'interior').toLowerCase();
                   let productionRate = 0;
                   
                   // Map category to production rate field in settings
-                  if (categoryNameLower.includes('wall') && categoryNameLower.includes('interior')) {
+                  // Check for exterior first (more specific), then interior
+                  if (categoryNameLower.includes('wall') && (categoryNameLower.includes('exterior') || jobTypeLower === 'exterior')) {
+                    productionRate = parseFloat(settings?.productionExteriorWalls) || 250;
+                  } else if (categoryNameLower.includes('wall')) {
+                    // Interior walls (default if no exterior keyword)
                     productionRate = parseFloat(settings?.productionInteriorWalls) || 300;
                   } else if (categoryNameLower.includes('ceiling')) {
                     productionRate = parseFloat(settings?.productionInteriorCeilings) || 250;
-                  } else if (categoryNameLower.includes('trim') && categoryNameLower.includes('interior')) {
-                    productionRate = parseFloat(settings?.productionInteriorTrim) || 150;
-                  } else if (categoryNameLower.includes('wall') && categoryNameLower.includes('exterior')) {
-                    productionRate = parseFloat(settings?.productionExteriorWalls) || 250;
-                  } else if (categoryNameLower.includes('trim') && categoryNameLower.includes('exterior')) {
+                  } else if (categoryNameLower.includes('trim') && (categoryNameLower.includes('exterior') || jobTypeLower === 'exterior')) {
                     productionRate = parseFloat(settings?.productionExteriorTrim) || 120;
+                  } else if (categoryNameLower.includes('trim')) {
+                    // Interior trim (default if no exterior keyword)
+                    productionRate = parseFloat(settings?.productionInteriorTrim) || 150;
                   } else if (categoryNameLower.includes('soffit') || categoryNameLower.includes('fascia')) {
                     productionRate = parseFloat(settings?.productionSoffitFascia) || 100;
+                  } else if (categoryNameLower.includes('gutter')) {
+                    productionRate = parseFloat(settings?.productionGutters) || 150;
                   } else if (categoryNameLower.includes('door')) {
                     productionRate = parseFloat(settings?.productionDoors) || 2;
                   } else if (categoryNameLower.includes('cabinet')) {
@@ -2311,6 +2409,9 @@ exports.sendQuote = async (req, res) => {
     const [quote, portalSettings, contractor, tenant, pDefaults] = await Promise.all([
       Quote.findOne({
         where: { id, tenantId },
+        include: [
+          { model: PricingScheme, as: 'pricingScheme' }, // Include pricing scheme for accurate proposal generation
+        ],
         transaction,
       }),
       
@@ -2368,6 +2469,53 @@ exports.sendQuote = async (req, res) => {
       });
     }
 
+    // ===================================================================
+    // CALCULATE AND SAVE PRICING DATA BEFORE SENDING
+    // ===================================================================
+    console.log('📊 Calculating pricing for quote before sending...');
+    console.log('📋 Quote data for calculation:', {
+      id: quote.id,
+      pricingSchemeId: quote.pricingSchemeId,
+      pricingSchemeType: quote.pricingScheme?.type,
+      hasFlatRateItems: !!quote.flatRateItems,
+      flatRateItems: quote.flatRateItems,
+      hasAreas: !!quote.areas,
+      areasCount: quote.areas?.length || 0
+    });
+    
+    const calculation = await calculateQuotePricing(quote, tenantId);
+    
+    // Save calculation data to quote
+    await quote.update({
+      subtotal: calculation.subtotal || 0,
+      laborTotal: calculation.laborTotal || 0,
+      materialTotal: calculation.materialTotal || 0,
+      laborMarkupPercent: calculation.laborMarkupPercent || 0,
+      laborMarkupAmount: calculation.laborMarkupAmount || 0,
+      materialMarkupPercent: calculation.materialMarkupPercent || 0,
+      materialMarkupAmount: calculation.materialMarkupAmount || 0,
+      overheadPercent: calculation.overheadPercent || 0,
+      overheadAmount: calculation.overhead || 0,
+      profitMarginPercent: calculation.profitMarginPercent || 0,
+      profitAmount: calculation.profitAmount || 0,
+      markup: calculation.markupAmount || 0,
+      markupPercent: calculation.markupPercent || 0,
+      tax: calculation.tax || calculation.taxAmount || 0,
+      taxPercent: calculation.taxPercent || calculation.taxRate || 0,
+      total: calculation.total || 0,
+      totalSqft: calculation.totalSqft || null,
+      breakdown: calculation.breakdown || [],
+      depositAmount: calculation.deposit || 0,
+      sentAt: new Date()
+    }, { transaction });
+    
+    console.log('✅ Quote pricing saved:', {
+      total: calculation.total,
+      laborTotal: calculation.laborTotal,
+      materialTotal: calculation.materialTotal,
+      tax: calculation.tax
+    });
+
     // Update quote status using Phase 1 status flow
     const StatusFlowService = require('../services/statusFlowService');
     await StatusFlowService.transitionQuoteStatus(
@@ -2390,7 +2538,7 @@ exports.sendQuote = async (req, res) => {
       tenantId,
       entityType: 'Quote',
       entityId: quote.id,
-      metadata: { quoteNumber: quote.quoteNumber, customerEmail: quote.customerEmail },
+      metadata: { quoteNumber: quote.quoteNumber, customerEmail: quote.customerEmail, total: calculation.total },
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
       userAgent: req.headers['user-agent'],
       transaction,
@@ -2430,305 +2578,445 @@ exports.sendQuote = async (req, res) => {
       console.error('⚠️ Failed to generate magic link:', magicLinkError);
       // Continue - don't fail quote send if magic link fails
     }
-
-    // OPTIMIZATION: Process PDF generation and email sending in parallel
-    const [calculation, pdfBuffer] = await Promise.all([
-      // Calculate quote totals for email (cached if possible)
-      this.calculateQuoteData(quote),
-      
-      // Generate PDF asynchronously
-      (async () => {
-        try {
-          // Generate PROPOSAL PDF (not invoice)
-          const { renderProposalHtml } = require('../services/proposalTemplate');
-          
-          // Load additional data needed for proposal
-          const [productConfigs, globalProducts, brands] = await Promise.all([
-            require('../models/ProductConfig').findAll({
-              where: { tenantId },
-              include: [{
-                model: require('../models/GlobalProduct'),
-                as: 'globalProduct',
+    
+    // IMPORTANT: Reload quote to get updated calculation data
+    await quote.reload({
+      include: [
+        { model: PricingScheme, as: 'pricingScheme' }
+      ]
+    });
+    
+    console.log('📋 Quote reloaded with updated data:', {
+      total: quote.total,
+      subtotal: quote.subtotal,
+      tax: quote.tax
+    });
+    
+    // Return success immediately - PDF and email will be processed in background
+    res.json({
+      success: true,
+      message: 'Quote is being sent. Email will arrive shortly.',
+      quote: {
+        id: quote.id,
+        quoteNumber: quote.quoteNumber,
+        total: calculation.total,
+        status: quote.status
+      },
+      magicLinkGenerated: !!magicLinkResult,
+      calculation: {
+        total: calculation.total,
+        deposit: calculation.deposit
+      }
+    });
+    
+    // BACKGROUND PROCESSING: Generate PDF and send emails asynchronously
+    // This prevents blocking the HTTP response
+    setImmediate(async () => {
+      try {
+        console.log(`[Background] Starting PDF generation for quote ${quote.id}`);
+        console.log(`[Background] Pricing scheme: ${quote.pricingScheme?.type || 'none'}`);
+        console.log(`[Background] Calculation total: ${calculation.total}`);
+        console.log(`[Background] Quote total from DB: ${quote.total}`);
+        
+        // Reload quote one more time to ensure we have the absolute latest data
+        await quote.reload({
+          include: [
+            { model: PricingScheme, as: 'pricingScheme' }
+          ]
+        });
+        
+        console.log(`[Background] Quote reloaded - Total: ${quote.total}, Subtotal: ${quote.subtotal}`);
+        
+        // Generate PDF asynchronously
+        const pdfBuffer = await (async () => {
+          try {
+            // Generate PROPOSAL PDF (not invoice)
+            const { renderProposalHtml } = require('../services/proposalTemplate');
+            
+            // Load additional data needed for proposal
+            const [productConfigs, globalProducts, brands] = await Promise.all([
+              require('../models/ProductConfig').findAll({
+                where: { tenantId },
+                include: [{
+                  model: require('../models/GlobalProduct'),
+                  as: 'globalProduct',
+                  include: [{
+                    model: require('../models/Brand'),
+                    as: 'brand'
+                  }]
+                }]
+              }),
+              require('../models/GlobalProduct').findAll({
                 include: [{
                   model: require('../models/Brand'),
                   as: 'brand'
                 }]
-              }]
-            }),
-            require('../models/GlobalProduct').findAll({
-              include: [{
-                model: require('../models/Brand'),
-                as: 'brand'
-              }]
-            }),
-            require('../models/Brand').findAll()
-          ]);
+              }),
+              require('../models/Brand').findAll()
+            ]);
 
-          // Create product lookup map
-          const productMap = {};
-          productConfigs.forEach(config => {
-            const brandName = config.globalProduct?.brand?.name || '';
-            const productName = config.globalProduct?.name || 'Unknown Product';
-            const sheen = config.sheen || config.globalProduct?.sheen || '';
-            
-            let fullName = brandName ? `${brandName} - ${productName}` : productName;
-            if (sheen && sheen !== 'Not specified') {
-              fullName += ` (${sheen})`;
+            // Create product lookup map
+            const productMap = {};
+            productConfigs.forEach(config => {
+              let brandName, productName;
+              
+              // Support both global and custom products
+              if (config.isCustom && config.customProduct) {
+                brandName = config.customProduct.brandName || '';
+                productName = config.customProduct.name || 'Custom Product';
+              } else if (config.globalProduct) {
+                brandName = config.globalProduct.brand?.name || '';
+                productName = config.globalProduct.name || 'Unknown Product';
+              } else {
+                brandName = '';
+                productName = 'Unknown Product';
+              }
+              
+              const sheen = config.sheen || config.globalProduct?.sheen || '';
+              
+              let fullName = brandName ? `${brandName} - ${productName}` : productName;
+              if (sheen && sheen !== 'Not specified') {
+                fullName += ` (${sheen})`;
+              }
+
+              productMap[config.id] = fullName;
+              if (config.globalProductId) {
+                productMap[config.globalProductId] = fullName;
+              }
+            });
+
+            // Parse productSets
+            let productSets = quote.productSets;
+            if (typeof productSets === 'string') {
+              try {
+                productSets = JSON.parse(productSets);
+              } catch (e) {
+                console.error('[Background] Failed to parse productSets:', e);
+                productSets = [];
+              }
             }
-
-            productMap[config.id] = fullName;
-            if (config.globalProductId) {
-              productMap[config.globalProductId] = fullName;
-            }
-          });
-
-          // Parse productSets
-          let productSets = quote.productSets;
-          if (typeof productSets === 'string') {
-            try {
-              productSets = JSON.parse(productSets);
-            } catch (e) {
+            if (!Array.isArray(productSets)) {
               productSets = [];
             }
-          }
-          if (!Array.isArray(productSets)) {
-            productSets = [];
-          }
 
-          // Build GBB table rows
-          const rows = [];
-          const surfaceSet = new Set();
-          
-          // Collect surface types from areas
-          (quote.areas || []).forEach(a => {
-            if (Array.isArray(a.laborItems)) {
-              a.laborItems.forEach(li => li?.categoryName && surfaceSet.add(li.categoryName));
+            console.log(`[Background] ProductSets count: ${productSets.length}`);
+            console.log(`[Background] Pricing scheme type: ${quote.pricingScheme?.type}`);
+            if (productSets.length > 0) {
+              console.log(`[Background] ProductSets sample:`, JSON.stringify(productSets.slice(0, 2), null, 2));
             }
-            if (Array.isArray(a.surfaces)) {
-              a.surfaces.forEach(s => s?.type && surfaceSet.add(s.type));
-            }
-          });
 
-          const surfaceTypes = Array.from(surfaceSet);
-
-          // Check if this is area-wise pricing
-          const isAreaWise = quote.pricingScheme && 
-            ['flat_rate_unit', 'production_based', 'rate_based'].includes(quote.pricingScheme.type);
-
-          if (isAreaWise) {
-            // Build area-wise product table
-            (quote.areas || []).forEach(area => {
-              if (!area.laborItems || area.laborItems.length === 0) return;
+            // Build GBB table rows based on pricing scheme
+            const rows = [];
+            const pricingSchemeType = quote.pricingScheme?.type;
+            
+            // Check if this is flat rate pricing (different structure)
+            const isFlatRate = pricingSchemeType === 'flat_rate_unit';
+            
+            if (isFlatRate) {
+              // Flat rate: Show products in Good/Better/Best columns
+              console.log(`[Background] Processing flat rate pricing - showing products`);
               
-              area.laborItems.forEach(item => {
-                if (!item.selected) return;
-                
-                const surfaceType = item.categoryName;
-                const productSet = productSets.find(ps => 
-                  ps.areaId === area.id && ps.surfaceType === surfaceType
-                ) || productSets.find(ps => 
-                  !ps.areaId && ps.surfaceType === surfaceType
-                );
-                
-                if (productSet && productSet.products) {
-                  rows.push({
-                    area: area.name,
-                    label: surfaceType,
-                    good: productMap[productSet.products.good] || undefined,
-                    better: productMap[productSet.products.better] || undefined,
-                    best: productMap[productSet.products.best] || undefined,
-                  });
+              // For flat rate, use productSets to show the actual products selected
+              productSets.forEach(set => {
+                if (!set.products) {
+                  console.log(`[Background] Skipping set - missing products:`, set);
+                  return;
                 }
-              });
-            });
-          } else {
-            // Global product table
-            surfaceTypes.forEach((label) => {
-              const set = productSets.find(ps => ps.surfaceType === label && !ps.areaId) || {};
-              if (set.products) {
+                
+                // Get the category from the set (interior/exterior)
+                const category = set.category || 'Interior';
+                const label = set.label || set.surfaceType || 'Unknown';
+                
                 rows.push({
-                  label,
+                  category: category.charAt(0).toUpperCase() + category.slice(1), // Capitalize
+                  label: label,
                   good: productMap[set.products.good] || undefined,
                   better: productMap[set.products.better] || undefined,
                   best: productMap[set.products.best] || undefined,
                 });
+                
+                console.log(`[Background] Added flat rate row: ${label} (${category})`);
+              });
+              
+              console.log(`[Background] Flat rate rows generated: ${rows.length}`);
+            } else {
+              // Check if this is area-wise pricing
+              const isAreaWise = ['production_based', 'rate_based_sqft', 'rate_based'].includes(pricingSchemeType);
+
+              if (isAreaWise) {
+                console.log(`[Background] Processing area-wise pricing`);
+                // Build area-wise product table
+                (quote.areas || []).forEach(area => {
+                  if (!area.laborItems || area.laborItems.length === 0) return;
+                  
+                  area.laborItems.forEach(item => {
+                    if (!item.selected) return;
+                    
+                    const surfaceType = item.categoryName;
+                    const productSet = productSets.find(ps => 
+                      ps.areaId === area.id && ps.surfaceType === surfaceType
+                    ) || productSets.find(ps => 
+                      !ps.areaId && ps.surfaceType === surfaceType
+                    );
+                    
+                    if (productSet && productSet.products) {
+                      rows.push({
+                        area: area.name,
+                        label: surfaceType,
+                        good: productMap[productSet.products.good] || undefined,
+                        better: productMap[productSet.products.better] || undefined,
+                        best: productMap[productSet.products.best] || undefined,
+                      });
+                    }
+                  });
+                });
+                console.log(`[Background] Area-wise rows generated: ${rows.length}`);
+              } else {
+                // Turnkey: Global product table
+                console.log(`[Background] Processing turnkey pricing`);
+                
+                // For turnkey, productSets use 'label' field instead of 'surfaceType'
+                productSets.forEach(ps => {
+                  const surfaceLabel = ps.surfaceType || ps.label;
+                  
+                  if (!surfaceLabel) {
+                    console.log(`[Background] ProductSet missing both surfaceType and label:`, JSON.stringify(ps, null, 2));
+                    return;
+                  }
+                  
+                  console.log(`[Background] Found turnkey product set: "${surfaceLabel}", has products: ${!!ps.products}`);
+                  
+                  if (ps.products) {
+                    rows.push({
+                      label: surfaceLabel,
+                      good: productMap[ps.products.good] || undefined,
+                      better: productMap[ps.products.better] || undefined,
+                      best: productMap[ps.products.best] || undefined,
+                    });
+                    console.log(`[Background] Added row for "${surfaceLabel}":`, {
+                      good: productMap[ps.products.good],
+                      better: productMap[ps.products.better],
+                      best: productMap[ps.products.best]
+                    });
+                  } else {
+                    console.log(`[Background] No products found for: ${surfaceLabel}`);
+                  }
+                });
+                
+                console.log(`[Background] Turnkey rows generated: ${rows.length}`);
               }
+            }
+
+            console.log(`[Background] Generated ${rows.length} product rows for proposal`);
+
+            // Compute deposit - use calculation.total as primary source (freshly calculated)
+            const depositPct = parseFloat(portalSettings?.depositPercentage || 50);
+            const total = parseFloat(calculation.total || quote.total || 0);
+            const depositAmount = total * (depositPct / 100);
+            
+            console.log(`[Background] Using total for PDF: ${total} (calculation: ${calculation.total}, quote: ${quote.total})`);
+
+            // Build proposal template data
+            const templateData = {
+              company: {
+                name: tenant?.companyName || 'Your Company',
+                email: tenant?.email || '',
+                phone: tenant?.phoneNumber || '',
+                addressLine1: tenant?.businessAddress || '',
+                logoUrl: tenant?.companyLogoUrl || pDefaults?.companyLogo || '',
+              },
+              proposal: {
+                invoiceNumber: quote.quoteNumber,
+                date: new Date().toLocaleDateString("en-US", {
+                  month: 'short', day: 'numeric', year: 'numeric'
+                }),
+                customerName: quote.customerName,
+                projectAddress: [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', '),
+                selectedOption: quote.productStrategy === 'GBB' ? 'Better' : 'Single',
+                totalInvestment: total,
+                depositAmount,
+              },
+              introduction: {
+                welcomeMessage: pDefaults?.defaultWelcomeMessage || undefined,
+                aboutUsSummary: pDefaults?.aboutUsSummary || undefined,
+              },
+              scope: {
+                interiorProcess: pDefaults?.interiorProcess || undefined,
+                drywallRepairProcess: pDefaults?.drywallRepairProcess || undefined,
+                exteriorProcess: pDefaults?.exteriorProcess || undefined,
+                trimProcess: pDefaults?.trimProcess || undefined,
+                cabinetProcess: pDefaults?.cabinetProcess || undefined,
+              },
+              warranty: {
+                standard: pDefaults?.standardWarranty || undefined,
+                premium: pDefaults?.premiumWarranty || undefined,
+                exterior: pDefaults?.exteriorWarranty || undefined,
+              },
+              responsibilities: {
+                client: pDefaults?.clientResponsibilities || undefined,
+                contractor: pDefaults?.contractorResponsibilities || undefined,
+              },
+              acceptance: {
+                acknowledgement: pDefaults?.legalAcknowledgement || undefined,
+                signatureStatement: pDefaults?.signatureStatement || undefined,
+              },
+              payment: {
+                paymentTermsText: pDefaults?.paymentTermsText || undefined,
+                paymentMethods: pDefaults?.paymentMethods || undefined,
+                latePaymentPolicy: pDefaults?.latePaymentPolicy || undefined,
+              },
+              policies: {
+                touchUpPolicy: pDefaults?.touchUpPolicy || undefined,
+                finalWalkthroughPolicy: pDefaults?.finalWalkthroughPolicy || undefined,
+                changeOrderPolicy: pDefaults?.changeOrderPolicy || undefined,
+                colorDisclaimer: pDefaults?.colorDisclaimer || undefined,
+                surfaceConditionDisclaimer: pDefaults?.surfaceConditionDisclaimer || undefined,
+                paintFailureDisclaimer: pDefaults?.paintFailureDisclaimer || undefined,
+                generalProposalDisclaimer: pDefaults?.generalProposalDisclaimer || undefined,
+              },
+              areaBreakdown: (quote.areas || []).map(a => a.name).filter(Boolean),
+              gbb: {
+                rows,
+                investment: {},
+              },
+            };
+
+            const html = renderProposalHtml(templateData, {
+              templateId: portalSettings?.selectedProposalTemplate || 'classic-professional',
+              colorScheme: portalSettings?.proposalTemplateSettings?.colorScheme || 'blue'
             });
+            const pdfBuffer = await htmlToPdfBuffer(html);
+            
+            console.log(`[Background] ✅ Proposal PDF generated successfully`);
+            return pdfBuffer;
+            
+          } catch (proposalError) {
+            console.error('[Background] ⚠️ Proposal template generation failed, attempting legacy:', proposalError);
+            
+            // Fallback to legacy proposal template
+            const legacyBuffer = await this.generateLegacyPDF(quote, tenant, pDefaults, portalSettings);
+            return legacyBuffer;
+          }
+        })();
+        
+        // Save PDF to disk for customer portal access (after generation completes)
+        if (pdfBuffer) {
+          try {
+            const fs = require('fs').promises;
+            const path = require('path');
+            const tempDir = path.join(__dirname, '..', 'temp');
+            
+            // Ensure temp directory exists
+            try {
+              await fs.mkdir(tempDir, { recursive: true });
+            } catch (mkdirError) {
+              // Directory already exists, ignore error
+            }
+            
+            // Generate unique filename
+            const timestamp = Date.now();
+            const pdfFileName = `proposal-${quote.id}-${timestamp}.pdf`;
+            const pdfPath = path.join(tempDir, pdfFileName);
+            
+            // Write PDF to disk
+            await fs.writeFile(pdfPath, pdfBuffer);
+            
+            // Update quote with PDF URL
+            const pdfUrl = `/temp/${pdfFileName}`;
+            await Quote.update(
+              {
+                proposalPdfUrl: pdfUrl,
+                proposalPdfGeneratedAt: new Date(),
+                proposalPdfVersion: (quote.proposalPdfVersion || 0) + 1
+              },
+              { where: { id: quote.id, tenantId } }
+            );
+            
+            console.log(`[Background] ✅ Proposal PDF saved to disk: ${pdfUrl}`);
+          } catch (saveError) {
+            console.error('[Background] ⚠️ Failed to save PDF to disk:', saveError);
+            // Don't fail the request if PDF save fails - email will still work
+          }
+        }
+        
+        // Send email notification with magic link
+        try {
+          const { emailSubject, emailBody } = req.body || {};
+
+          if (!emailSubject || !emailBody) {
+            console.error('[Background] Email subject and body are required');
+            return;
           }
 
-          // Compute deposit
-          const depositPct = parseFloat(portalSettings?.depositPercentage || 0);
-          const total = parseFloat(quote.total || 0);
-          const depositAmount = total * (depositPct / 100);
-
-          // Build proposal template data
-          const templateData = {
-            company: {
-              name: tenant?.companyName || 'Your Company',
-              email: tenant?.email || '',
-              phone: tenant?.phoneNumber || '',
-              addressLine1: tenant?.businessAddress || '',
-              logoUrl: tenant?.companyLogoUrl || pDefaults?.companyLogo || '',
-            },
-            proposal: {
-              invoiceNumber: quote.quoteNumber,
-              date: new Date().toLocaleDateString("en-US", {
-                month: 'short', day: 'numeric', year: 'numeric'
+          // Send emails
+          const emailService = require('../services/emailService');
+          
+          // Send magic link via email instead of traditional quote email
+          if (magicLinkResult) {
+            // Send both magic link and contractor message in parallel
+            await Promise.all([
+              emailService.sendMagicLink({
+                to: quote.customerEmail,
+                customerName: quote.customerName,
+                magicLink: magicLinkResult.link,
+                companyName: tenant?.companyName || 'Your Contractor',
+                companyLogo: tenant?.companyLogoUrl || null,
+                purpose: 'quote_view',
+                quoteInfo: {
+                  quoteNumber: quote.quoteNumber,
+                  total: quote.total,
+                  validUntil: quote.validUntil,
+                },
+                expiryHours: 168, // 7 days
               }),
-              customerName: quote.customerName,
-              projectAddress: [quote.street, quote.city, quote.state, quote.zipCode].filter(Boolean).join(', '),
-              selectedOption: quote.productStrategy === 'GBB' ? 'Better' : 'Single',
-              totalInvestment: total,
-              depositAmount,
-            },
-            introduction: {
-              welcomeMessage: pDefaults?.defaultWelcomeMessage || undefined,
-              aboutUsSummary: pDefaults?.aboutUsSummary || undefined,
-            },
-            scope: {
-              interiorProcess: pDefaults?.interiorProcess || undefined,
-              drywallRepairProcess: pDefaults?.drywallRepairProcess || undefined,
-              exteriorProcess: pDefaults?.exteriorProcess || undefined,
-              trimProcess: pDefaults?.trimProcess || undefined,
-              cabinetProcess: pDefaults?.cabinetProcess || undefined,
-            },
-            warranty: {
-              standard: pDefaults?.standardWarranty || undefined,
-              premium: pDefaults?.premiumWarranty || undefined,
-              exterior: pDefaults?.exteriorWarranty || undefined,
-            },
-            responsibilities: {
-              client: pDefaults?.clientResponsibilities || undefined,
-              contractor: pDefaults?.contractorResponsibilities || undefined,
-            },
-            acceptance: {
-              acknowledgement: pDefaults?.legalAcknowledgement || undefined,
-              signatureStatement: pDefaults?.signatureStatement || undefined,
-            },
-            payment: {
-              paymentTermsText: pDefaults?.paymentTermsText || undefined,
-              paymentMethods: pDefaults?.paymentMethods || undefined,
-              latePaymentPolicy: pDefaults?.latePaymentPolicy || undefined,
-            },
-            policies: {
-              touchUpPolicy: pDefaults?.touchUpPolicy || undefined,
-              finalWalkthroughPolicy: pDefaults?.finalWalkthroughPolicy || undefined,
-              changeOrderPolicy: pDefaults?.changeOrderPolicy || undefined,
-              colorDisclaimer: pDefaults?.colorDisclaimer || undefined,
-              surfaceConditionDisclaimer: pDefaults?.surfaceConditionDisclaimer || undefined,
-              paintFailureDisclaimer: pDefaults?.paintFailureDisclaimer || undefined,
-              generalProposalDisclaimer: pDefaults?.generalProposalDisclaimer || undefined,
-            },
-            areaBreakdown: (quote.areas || []).map(a => a.name).filter(Boolean),
-            gbb: {
-              rows,
-              investment: {},
-            },
-          };
-
-          const html = renderProposalHtml(templateData);
-          const pdfBuffer = await htmlToPdfBuffer(html);
-          
-          console.log(`✅ Proposal PDF generated successfully`);
-          return pdfBuffer;
-          
-        } catch (proposalError) {
-          console.error('⚠️ Proposal template generation failed, attempting legacy:', proposalError);
-          
-          // Fallback to legacy proposal template
-          return await this.generateLegacyPDF(quote, tenant, pDefaults, portalSettings);
+              
+              // Also attach PDF if available
+              pdfBuffer ? emailService.sendContractorMessageWithSignature({
+                to: quote.customerEmail,
+                subject: emailSubject,
+                body: emailBody,
+                contractor: {
+                  name: contractor.fullName,
+                  email: contractor.email,
+                  phone: tenant?.phoneNumber || portalSettings?.phone,
+                  companyName: tenant?.companyName || portalSettings?.businessName || 'Our Painting Team',
+                  logoUrl: tenant?.companyLogoUrl || undefined,
+                  website: tenant?.website || undefined
+                },
+                pdfBuffer,
+                attachmentName: `Proposal-${quote.quoteNumber}.pdf`
+              }) : Promise.resolve()
+            ]);
+            
+            console.log(`[Background] ✅ Emails sent successfully`);
+          } else {
+            // Fallback: Send traditional email if magic link failed
+            await emailService.sendContractorMessageWithSignature({
+              to: quote.customerEmail,
+              subject: emailSubject,
+              body: emailBody,
+              contractor: {
+                name: contractor.fullName,
+                email: contractor.email,
+                phone: tenant?.phoneNumber || portalSettings?.phone,
+                companyName: tenant?.companyName || portalSettings?.businessName || 'Our Painting Team',
+                logoUrl: tenant?.companyLogoUrl || undefined,
+                website: tenant?.website || undefined
+              },
+              pdfBuffer,
+              attachmentName: `Proposal-${quote.quoteNumber}.pdf`
+            });
+            
+            console.log(`[Background] ✅ Email sent successfully`);
+          }
+        } catch (emailError) {
+          console.error('[Background] Error sending quote email:', emailError);
         }
-      })()
-    ]);
-    // Send email notification with magic link
-    try {
-      const { emailSubject, emailBody } = req.body || {};
-
-      if (!emailSubject || !emailBody) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email subject and body are required'
-        });
+      } catch (backgroundError) {
+        console.error('[Background] Error in background processing:', backgroundError);
       }
-
-      // Enforce no pricing and no CTAs in contractor-authored body
-      const containsPricing = /\$\s*\d|\b(price|total|deposit|balance|tax)\b/i.test(emailBody);
-      const containsCTA = /\b(click|open|accept|schedule|download|install|app)\b/i.test(emailBody);
-      if (containsPricing || containsCTA) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email body cannot include pricing or calls-to-action'
-        });
-      }
-
-      // OPTIMIZATION: Send emails asynchronously to avoid blocking response
-      const emailService = require('../services/emailService');
-      
-      // Send magic link via email instead of traditional quote email
-      if (magicLinkResult) {
-        // Send both magic link and contractor message in parallel
-        await Promise.all([
-          emailService.sendMagicLink({
-            to: quote.customerEmail,
-            customerName: quote.customerName,
-            magicLink: magicLinkResult.link,
-            companyName: tenant?.companyName || 'Your Contractor',
-            companyLogo: tenant?.companyLogoUrl || null,
-            purpose: 'quote_view',
-            quoteInfo: {
-              quoteNumber: quote.quoteNumber,
-              total: quote.total,
-              validUntil: quote.validUntil,
-            },
-            expiryHours: 168, // 7 days
-          }),
-          
-          // Also attach PDF if available
-          pdfBuffer ? emailService.sendContractorMessageWithSignature({
-            to: quote.customerEmail,
-            subject: emailSubject,
-            body: emailBody,
-            contractor: {
-              name: contractor.fullName,
-              email: contractor.email,
-              phone: tenant?.phoneNumber || portalSettings?.phone,
-              companyName: tenant?.companyName || portalSettings?.businessName || 'Our Painting Team',
-              logoUrl: tenant?.companyLogoUrl || undefined,
-              website: tenant?.website || undefined
-            },
-            pdfBuffer,
-            attachmentName: `Proposal-${quote.quoteNumber}.pdf` // Updated to reflect proposal
-          }) : Promise.resolve()
-        ]);
-      } else {
-        // Fallback: Send traditional email if magic link failed
-        await emailService.sendContractorMessageWithSignature({
-          to: quote.customerEmail,
-          subject: emailSubject,
-          body: emailBody,
-          contractor: {
-            name: contractor.fullName,
-            email: contractor.email,
-            phone: tenant?.phoneNumber || portalSettings?.phone,
-            companyName: tenant?.companyName || portalSettings?.businessName || 'Our Painting Team',
-            logoUrl: tenant?.companyLogoUrl || undefined,
-            website: tenant?.website || undefined
-          },
-          pdfBuffer,
-          attachmentName: `Proposal-${quote.quoteNumber}.pdf` // Updated to reflect proposal
-        });
-      }
-    } catch (emailError) {
-      console.error('Error sending quote email:', emailError);
-      // Don't fail the request if email fails - quote is already marked as sent
-    }
-
-    res.json({
-      success: true,
-      message: 'Quote sent successfully',
-      quote,
-      magicLinkGenerated: !!magicLinkResult,
     });
+    
   } catch (error) {
     // Only rollback if transaction is still pending
     if (transaction && !transaction.finished) {
@@ -2846,8 +3134,20 @@ exports.getProposalPdf = async (req, res) => {
       // Create lookup map for products by both config ID and global product ID
       productMap = {};
       productConfigs.forEach(config => {
-        const brandName = config.globalProduct?.brand?.name || '';
-        const productName = config.globalProduct?.name || 'Unknown Product';
+        let brandName, productName;
+        
+        // Support both global and custom products
+        if (config.isCustom && config.customProduct) {
+          brandName = config.customProduct.brandName || '';
+          productName = config.customProduct.name || 'Custom Product';
+        } else if (config.globalProduct) {
+          brandName = config.globalProduct.brand?.name || '';
+          productName = config.globalProduct.name || 'Unknown Product';
+        } else {
+          brandName = '';
+          productName = 'Unknown Product';
+        }
+        
         const sheen = config.sheen || config.globalProduct?.sheen || '';
         
         // Create full name with sheen if available
@@ -3018,7 +3318,10 @@ exports.getProposalPdf = async (req, res) => {
       },
     };
 
-    const html = renderProposalHtml(templateData);
+    const html = renderProposalHtml(templateData, {
+      templateId: settings?.selectedProposalTemplate || 'classic-professional',
+      colorScheme: settings?.proposalTemplateSettings?.colorScheme || 'blue'
+    });
     const pdf = await htmlToPdfBuffer(html);
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -3156,8 +3459,20 @@ exports.calculateQuoteData = async (quote) => {
     });
     
     productConfigs.forEach(config => {
-      const brandName = config.globalProduct?.brand?.name || '';
-      const productName = config.globalProduct?.name || 'Unknown Product';
+      let brandName, productName;
+      
+      // Support both global and custom products
+      if (config.isCustom && config.customProduct) {
+        brandName = config.customProduct.brandName || '';
+        productName = config.customProduct.name || 'Custom Product';
+      } else if (config.globalProduct) {
+        brandName = config.globalProduct.brand?.name || '';
+        productName = config.globalProduct.name || 'Unknown Product';
+      } else {
+        brandName = '';
+        productName = 'Unknown Product';
+      }
+      
       const pricePerGallon = parseFloat(config.pricePerGallon || config.globalProduct?.pricePerGallon || 35);
       const coverage = parseInt(config.coverageSqftPerGal || config.globalProduct?.coverageSqftPerGal || 400);
       
@@ -3234,8 +3549,10 @@ exports.calculateQuoteData = async (quote) => {
   // 7. Calculate Subtotal (before tax)
   const subtotal = subtotalBeforeProfit + profitAmount;
   
-  // 8. Calculate Tax (on subtotal including profit)
-  const tax = subtotal * (taxPercent / 100);
+  // 8. Calculate Tax (only on markup amounts, not full subtotal)
+  const materialMarkupAmount = materialTotal - materialCost;
+  const totalMarkupAmount = materialMarkupAmount + overhead + profitAmount;
+  const tax = totalMarkupAmount * (taxPercent / 100);
   
   // 9. Calculate Grand Total
   const total = subtotal + tax;
@@ -3355,8 +3672,16 @@ exports.generateLegacyPDF = async (quote, tenant, pDefaults, settings) => {
         const config = await ProductConfig.findByPk(productId, {
           include: [{ model: GlobalProduct, as: 'globalProduct', include: [{ model: Brand, as: 'brand' }] }]
         });
-        if (config?.globalProduct) {
-          return `${config.globalProduct.brand?.name || ''} ${config.globalProduct.name || ''}`.trim();
+        
+        if (config) {
+          // Support both custom and global products
+          if (config.isCustom && config.customProduct) {
+            const brandName = config.customProduct.brandName || '';
+            const productName = config.customProduct.name || 'Custom Product';
+            return brandName ? `${brandName} ${productName}`.trim() : productName;
+          } else if (config.globalProduct) {
+            return `${config.globalProduct.brand?.name || ''} ${config.globalProduct.name || ''}`.trim();
+          }
         }
       } catch (e) {
         console.error('Error fetching product name:', e);
@@ -3512,7 +3837,10 @@ exports.generateLegacyPDF = async (quote, tenant, pDefaults, settings) => {
     };
 
     const { renderProposalHtml, htmlToPdfBuffer } = require('../services/proposalTemplate');
-    const html = renderProposalHtml(templateData);
+    const html = renderProposalHtml(templateData, {
+      templateId: settings?.selectedProposalTemplate || 'classic-professional',
+      colorScheme: settings?.proposalTemplateSettings?.colorScheme || 'blue'
+    });
     return await htmlToPdfBuffer(html);
     
   } catch (pdfErrorNew) {
@@ -3540,4 +3868,362 @@ exports.generateLegacyPDF = async (quote, tenant, pDefaults, settings) => {
   }
 };
 
+/**
+ * Get products by pricing scheme for a quote
+ * GET /api/quote-builder/:quoteId/products/:pricingScheme
+ * 
+ * This endpoint retrieves the productSets from a quote and returns it in a 
+ * structured format appropriate for the pricing scheme.
+ * 
+ * @param {string} quoteId - The ID of the quote
+ * @param {string} pricingScheme - The pricing scheme type (turnkey, flat_rate_unit, unit_pricing, hourly)
+ * @returns {Object} Structured product data based on the pricing scheme
+ */
+exports.getProductsByPricingScheme = async (req, res) => {
+  try {
+    const { quoteId, pricingScheme } = req.params;
+    const tenantId = req.user.tenantId;
+
+    // Validate pricing scheme parameter
+    const validSchemes = ['turnkey', 'flat_rate_unit', 'unit_pricing', 'hourly', 'sqft_turnkey', 'production_based', 'rate_based', 'rate_based_sqft'];
+    if (!validSchemes.includes(pricingScheme)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid pricing scheme. Must be one of: ${validSchemes.join(', ')}`,
+      });
+    }
+
+    // Fetch the quote with related data
+    const quote = await Quote.findOne({
+      where: { id: quoteId, tenantId },
+      include: [
+        { model: PricingScheme, as: 'pricingScheme' },
+        { model: Client, as: 'client' },
+      ],
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quote not found',
+      });
+    }
+
+    // Get the product sets from the quote
+    const productSets = quote.productSets || [];
+    
+    // Determine the actual scheme type from the quote's pricing scheme
+    const actualSchemeType = quote.pricingScheme?.type || pricingScheme;
+    
+    // Normalize scheme types for comparison
+    const normalizeScheme = (scheme) => {
+      const schemeMap = {
+        'sqft_turnkey': 'turnkey',
+        'production_based': 'unit_pricing',
+        'rate_based': 'unit_pricing',
+        'rate_based_sqft': 'unit_pricing',
+      };
+      return schemeMap[scheme] || scheme;
+    };
+    
+    const normalizedActualScheme = normalizeScheme(actualSchemeType);
+    const normalizedRequestedScheme = normalizeScheme(pricingScheme);
+    
+    // Warn if the requested scheme doesn't match the quote's scheme
+    if (normalizedActualScheme !== normalizedRequestedScheme) {
+      console.warn(`Warning: Requested scheme '${pricingScheme}' doesn't match quote's scheme '${actualSchemeType}'`);
+    }
+
+    // Structure the response based on the pricing scheme
+    let structuredProducts = {};
+    
+    switch (normalizedActualScheme) {
+      case 'turnkey':
+        // Turnkey: Products organized by surface type globally
+        structuredProducts = {
+          scheme: 'turnkey',
+          structure: 'global',
+          products: {},
+        };
+        
+        if (Array.isArray(productSets)) {
+          // New array format
+          productSets.forEach(item => {
+            if (item.surfaceType && !item.areaId) {
+              structuredProducts.products[item.surfaceType] = {
+                surfaceType: item.surfaceType,
+                products: item.products || {},
+                quantity: item.quantity,
+                unit: item.unit,
+              };
+            }
+          });
+        } else if (productSets.global) {
+          // Legacy object format
+          structuredProducts.products = productSets.global;
+        }
+        break;
+
+      case 'flat_rate_unit':
+        // Flat Rate Unit: Products organized by unit type (interior/exterior)
+        structuredProducts = {
+          scheme: 'flat_rate_unit',
+          structure: 'by_unit_type',
+          interior: {},
+          exterior: {},
+        };
+        
+        if (Array.isArray(productSets)) {
+          // New array format - group by category
+          productSets.forEach(item => {
+            if (item.unitType) {
+              const category = item.category || 'interior';
+              if (!structuredProducts[category]) {
+                structuredProducts[category] = {};
+              }
+              structuredProducts[category][item.unitType] = {
+                unitType: item.unitType,
+                products: item.products || [],
+                unitCount: item.unitCount,
+                totalCost: item.totalCost,
+              };
+            }
+          });
+        } else if (productSets.interior || productSets.exterior) {
+          // Legacy object format
+          structuredProducts.interior = productSets.interior || {};
+          structuredProducts.exterior = productSets.exterior || {};
+        }
+        break;
+
+      case 'unit_pricing':
+        // Unit Pricing: Products organized by area and surface type
+        structuredProducts = {
+          scheme: 'unit_pricing',
+          structure: 'by_area_and_surface',
+          areas: {},
+        };
+        
+        if (Array.isArray(productSets)) {
+          // New array format - group by area
+          productSets.forEach(item => {
+            if (item.areaId) {
+              const areaId = item.areaId;
+              if (!structuredProducts.areas[areaId]) {
+                structuredProducts.areas[areaId] = {
+                  areaId: areaId,
+                  areaName: item.areaName,
+                  surfaces: {},
+                };
+              }
+              structuredProducts.areas[areaId].surfaces[item.surfaceType] = {
+                surfaceType: item.surfaceType,
+                products: item.products || {},
+                quantity: item.quantity,
+                unit: item.unit,
+                overridden: item.overridden || false,
+              };
+            }
+          });
+        } else if (productSets.areas) {
+          // Legacy object format
+          structuredProducts.areas = productSets.areas;
+        }
+        break;
+
+      case 'hourly':
+        // Hourly: Products organized as items for time-and-materials
+        structuredProducts = {
+          scheme: 'hourly',
+          structure: 'items',
+          items: [],
+        };
+        
+        if (Array.isArray(productSets)) {
+          // New array format
+          structuredProducts.items = productSets.filter(item => item.id || item.description);
+        } else if (productSets.items && Array.isArray(productSets.items)) {
+          // Legacy object format
+          structuredProducts.items = productSets.items;
+        }
+        break;
+
+      default:
+        // Unknown scheme - return raw data
+        structuredProducts = {
+          scheme: actualSchemeType,
+          structure: 'raw',
+          products: productSets,
+        };
+    }
+
+    // Add metadata
+    const response = {
+      success: true,
+      quoteId: quote.id,
+      quoteNumber: quote.quoteNumber,
+      pricingScheme: actualSchemeType,
+      requestedScheme: pricingScheme,
+      data: structuredProducts,
+      areas: quote.areas || [],
+      metadata: {
+        lastModified: quote.lastModified,
+        autoSaveVersion: quote.autoSaveVersion,
+      },
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error('Get products by pricing scheme error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve products',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Product Configuration Endpoints
+ * These functions delegate to quoteController for actual implementation
+ * to avoid code duplication while maintaining the expected API structure
+ */
+
+const quoteController = require('./quoteController');
+
+/**
+ * GET /api/quote-builder/:quoteId/product-configuration
+ * Get product configuration for a quote with available products
+ */
+exports.getProductConfiguration = quoteController.getProductConfiguration;
+
+/**
+ * PUT /api/quote-builder/:quoteId/product-configuration
+ * Update product configuration for a quote
+ */
+exports.updateProductConfiguration = quoteController.updateProductConfiguration;
+
+/**
+ * POST /api/quote-builder/:quoteId/product-configuration/apply-to-all
+ * Apply a product to all specified categories
+ */
+exports.applyProductToAll = quoteController.applyProductToAll;
+
+/**
+ * POST /api/quote-builder/:quoteId/product-configuration/validate
+ * Validate product configuration for a quote
+ */
+exports.validateProductConfiguration = quoteController.validateProductConfiguration;
+
+/**
+ * POST /api/quote-builder/calculate-tiers
+ * Calculate pricing for all GBB tiers
+ */
+exports.calculateTierPricing = async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const { pricingScheme, pricingSchemeId, areas, homeSqft, jobScope, conditionModifier, flatRateItems, productSets } = req.body;
+    
+    // Validate required parameters - accept either pricingScheme object or pricingSchemeId
+    if (!pricingScheme && !pricingSchemeId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pricing scheme is required'
+      });
+    }
+    
+    // If pricingSchemeId is provided, fetch the pricing scheme
+    let schemeData = pricingScheme;
+    if (!schemeData && pricingSchemeId) {
+      const { PricingScheme } = require('../models');
+      const scheme = await PricingScheme.findOne({
+        where: { 
+          id: pricingSchemeId,
+          tenantId 
+        }
+      });
+      
+      if (!scheme) {
+        return res.status(404).json({
+          success: false,
+          message: 'Pricing scheme not found'
+        });
+      }
+      
+      schemeData = {
+        id: scheme.id,
+        name: scheme.name,
+        type: scheme.type,
+        rules: scheme.rules
+      };
+    }
+    
+    // Fetch GBB configuration from ContractorSettings
+    const { ContractorSettings } = require('../models');
+    const settings = await ContractorSettings.findOne({
+      where: { tenantId }
+    });
+    
+    if (!settings) {
+      return res.status(404).json({
+        success: false,
+        message: 'Contractor settings not found'
+      });
+    }
+    
+    // Prepare pricing parameters
+    const pricingParams = {
+      model: schemeData.type,
+      areas,
+      homeSqft,
+      jobScope,
+      conditionModifier,
+      flatRateItems,
+      productSets,
+      rules: schemeData.rules || {}, // Use rules from pricing scheme
+      analytics: {
+        tenantId,
+        userId: req.user.id
+      }
+    };
+    
+    // Calculate pricing for all tiers
+    const { calculatePricingWithTiers } = require('../utils/pricingCalculator');
+    const tierPricing = calculatePricingWithTiers(pricingParams, settings.gbbTiers);
+    
+    // If GBB is not enabled, return single-tier pricing
+    if (!tierPricing.gbbEnabled) {
+      return res.json({
+        success: true,
+        gbbEnabled: false,
+        data: {
+          good: tierPricing.good,
+          better: tierPricing.good,
+          best: tierPricing.good
+        }
+      });
+    }
+    
+    // Return tier pricing
+    res.json({
+      success: true,
+      gbbEnabled: true,
+      data: {
+        good: tierPricing.good,
+        better: tierPricing.better,
+        best: tierPricing.best
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error calculating tier pricing:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to calculate tier pricing',
+      error: error.message
+    });
+  }
+};
+
 module.exports = exports;
+

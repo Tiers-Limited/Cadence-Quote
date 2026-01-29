@@ -67,7 +67,7 @@ const defaultPricingSchemes = [
       applicationMethod: 'roll',
       coats: 2,
       costPerGallon: 40,
-      hourlyLaborRate: 35.00,
+      billableLaborRate: 35.00,
       crewSize: 2,
       productionRates: {
         interior_walls: 5.00,

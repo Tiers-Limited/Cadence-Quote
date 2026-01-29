@@ -56,40 +56,17 @@ const getAllProductConfigs = async (req, res) => {
         };
         console.log('🔍 Fetching product configs with filters:', { brandId, jobType, search, page, limit, sortBy, sortOrder });
         
-        // Include filter for global product's brand and category
-        const includeWhere = {};
-        if (brandId) {
-          includeWhere.brandId = parseInt(brandId);
-        }
-
-        // Filter by jobType (interior/exterior) - map to product category
-        if (jobType) {
-          console.log('🔍 Filtering products by jobType:', jobType);
-          if (jobType.toLowerCase() === 'interior') {
-            includeWhere.category = 'Interior';
-          } else if (jobType.toLowerCase() === 'exterior') {
-            includeWhere.category = 'Exterior';
-          }
-          console.log('📋 Applied category filter:', includeWhere.category);
-        }
-
-        // Search in product name
-        if (search) {
-          includeWhere.name = {
-            [Op.iLike]: `%${search}%`,
-          };
-        }
-
         // Calculate pagination
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
         const offset = (pageNum - 1) * limitNum;
 
         // Build include configuration with optimized attributes
+        // NOTE: not required because we support contractor-created custom products without a globalProduct
         const globalProductInclude = {
           model: GlobalProduct,
           as: 'globalProduct',
-          required: true,
+          required: false, // Keep this false so custom products without globalProduct are included
           attributes: ['id', 'name', 'category', 'brandId'], // Only select needed fields
           include: [
             {
@@ -100,26 +77,106 @@ const getAllProductConfigs = async (req, res) => {
           ],
         };
 
-        // Apply where clause only if we have filters
-        if (Object.keys(includeWhere).length > 0) {
-          globalProductInclude.where = includeWhere;
-        }
+        // If we have filters, we need to apply them differently to support both custom and global products
+        // We'll fetch all configs first, then filter in memory to support custom products
+        let configs;
+        let count;
 
-        // Execute queries in parallel for performance
-        const [count, configs] = await Promise.all([
-          ProductConfig.count({
+        if (brandId || jobType || search) {
+          // Fetch all configs for this tenant (we'll filter in memory)
+          const allConfigs = await ProductConfig.findAll({
             where,
+            attributes: ['id', 'tenantId', 'userId', 'globalProductId', 'isCustom', 'customProduct', 'sheens', 'isActive', 'createdAt', 'updatedAt'],
             include: [globalProductInclude],
-          }),
-          ProductConfig.findAll({
-            where,
-            attributes: ['id', 'tenantId', 'globalProductId', 'sheens', 'laborRates', 'defaultMarkup', 'taxRate', 'createdAt'], // Only select needed fields
-            include: [globalProductInclude],
-            limit: limitNum,
-            offset,
             order: [[sortBy, sortOrder.toUpperCase()]],
-          }),
-        ]);
+          });
+
+          // Filter configs based on criteria (supports both custom and global products)
+          let filteredConfigs = allConfigs.filter(config => {
+            // For custom products, check customProduct fields
+            if (config.isCustom && config.customProduct) {
+              let matches = true;
+
+              // Brand filter
+              if (brandId && config.customProduct.brandName) {
+                const brandMatch = config.customProduct.brandName.toLowerCase().includes(brandId.toString().toLowerCase());
+                if (!brandMatch) matches = false;
+              } else if (brandId && !config.customProduct.brandName) {
+                matches = false;
+              }
+
+              // Category/jobType filter
+              if (jobType && config.customProduct.category) {
+                const targetCategory = jobType.toLowerCase() === 'interior' ? 'Interior' : 'Exterior';
+                if (config.customProduct.category !== targetCategory) matches = false;
+              } else if (jobType && !config.customProduct.category) {
+                matches = false;
+              }
+
+              // Search filter
+              if (search) {
+                const searchLower = search.toLowerCase();
+                const nameMatch = config.customProduct.name?.toLowerCase().includes(searchLower);
+                const brandMatch = config.customProduct.brandName?.toLowerCase().includes(searchLower);
+                const descMatch = config.customProduct.description?.toLowerCase().includes(searchLower);
+                
+                if (!nameMatch && !brandMatch && !descMatch) matches = false;
+              }
+
+              return matches;
+            }
+
+            // For global products, check globalProduct fields
+            if (!config.isCustom && config.globalProduct) {
+              let matches = true;
+
+              // Brand filter
+              if (brandId && config.globalProduct.brandId !== parseInt(brandId)) {
+                matches = false;
+              }
+
+              // Category/jobType filter
+              if (jobType) {
+                const targetCategory = jobType.toLowerCase() === 'interior' ? 'Interior' : 'Exterior';
+                if (config.globalProduct.category !== targetCategory) matches = false;
+              }
+
+              // Search filter
+              if (search) {
+                const searchLower = search.toLowerCase();
+                const nameMatch = config.globalProduct.name?.toLowerCase().includes(searchLower);
+                const brandMatch = config.globalProduct.brand?.name?.toLowerCase().includes(searchLower);
+                
+                if (!nameMatch && !brandMatch) matches = false;
+              }
+
+              return matches;
+            }
+
+            // If neither custom nor has globalProduct, exclude
+            return false;
+          });
+
+          count = filteredConfigs.length;
+          
+          // Apply pagination
+          configs = filteredConfigs.slice(offset, offset + limitNum);
+        } else {
+          // No filters, use standard query
+          [count, configs] = await Promise.all([
+            ProductConfig.count({
+              where,
+            }),
+            ProductConfig.findAll({
+              where,
+              attributes: ['id', 'tenantId', 'userId', 'globalProductId', 'isCustom', 'customProduct', 'sheens', 'isActive', 'createdAt', 'updatedAt'],
+              include: [globalProductInclude],
+              limit: limitNum,
+              offset,
+              order: [[sortBy, sortOrder.toUpperCase()]],
+            }),
+          ]);
+        }
 
         return {
           success: true,
@@ -162,10 +219,12 @@ const getProductConfigById = async (req, res) => {
         tenantId,
         isActive: true,
       },
+      attributes: ['id', 'tenantId', 'userId', 'globalProductId', 'isCustom', 'customProduct', 'sheens', 'isActive', 'createdAt', 'updatedAt'],
       include: [
         {
           model: GlobalProduct,
           as: 'globalProduct',
+          required: false,
           include: [
             {
               model: Brand,
@@ -203,33 +262,25 @@ const getProductConfigById = async (req, res) => {
  * POST /api/v1/contractor/product-configs
  */
 const createProductConfig = async (req, res) => {
-  let transaction;
-  
   try {
-    transaction = await sequelize.transaction();
-    
     const tenantId = req.user.tenantId;
     const userId = req.user.id;
     const {
       globalProductId,
       sheens,
-      laborRates,
-      defaultMarkup,
-      productMarkups,
-      taxRate,
+      isCustom,
+      customProduct,
     } = req.body;
-
-    // Validation
-    if (!globalProductId) {
-      await transaction.rollback();
+    console.log('🆕 Creating product config with data:', req.body);
+    // Validation: either a globalProductId OR a customProduct payload must be provided
+    if (!globalProductId && !customProduct) {
       return res.status(400).json({
         success: false,
-        message: 'Global product ID is required',
+        message: 'Provide either a globalProductId or a customProduct payload',
       });
     }
 
     if (!sheens || !Array.isArray(sheens) || sheens.length === 0) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'At least one sheen configuration is required',
@@ -240,14 +291,12 @@ const createProductConfig = async (req, res) => {
     for (let i = 0; i < sheens.length; i++) {
       const sheen = sheens[i];
       if (!sheen.sheen || typeof sheen.price !== 'number' || sheen.price < 0) {
-        await transaction.rollback();
         return res.status(400).json({
           success: false,
           message: `Invalid sheen configuration at index ${i}`,
         });
       }
       if (typeof sheen.coverage !== 'number' || sheen.coverage <= 0) {
-        await transaction.rollback();
         return res.status(400).json({
           success: false,
           message: `Coverage must be a positive number for sheen at index ${i}`,
@@ -255,56 +304,67 @@ const createProductConfig = async (req, res) => {
       }
     }
 
-    // Check if global product exists (outside transaction to avoid locks)
-    const globalProduct = await GlobalProduct.findByPk(globalProductId);
-    if (!globalProduct) {
-      await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: 'Global product not found',
+    let configPayload = {
+      tenantId,
+      userId,
+      sheens,
+      isActive: true,
+    };
+
+    if (customProduct) {
+      // Validate basic customProduct shape
+      if (!customProduct.name || typeof customProduct.name !== 'string') {
+        return res.status(400).json({ success: false, message: 'Custom product must include a name' });
+      }
+
+      configPayload.isCustom = true;
+      configPayload.customProduct = customProduct;
+      // Do not include globalProductId when creating a custom product
+
+      // Note: we intentionally do not perform strict JSONB duplicate checks here.
+      // Contractors can create custom products with similar names; duplicates can be managed in the UI if needed.
+    } else {
+      // global product flow
+      const globalProduct = await GlobalProduct.findByPk(globalProductId);
+      if (!globalProduct) {
+        return res.status(404).json({
+          success: false,
+          message: 'Global product not found',
+        });
+      }
+
+      // Check for duplicate configuration (tenant + globalProduct)
+      const existingConfig = await ProductConfig.findOne({
+        where: {
+          tenantId,
+          globalProductId,
+          isActive: true,
+        },
       });
+
+      if (existingConfig) {
+        return res.status(409).json({
+          success: false,
+          message: 'A configuration for this product already exists. Please edit the existing configuration.',
+        });
+      }
+
+      configPayload.globalProductId = globalProductId;
     }
 
-    // Check for duplicate configuration (tenant + globalProduct)
-    const existingConfig = await ProductConfig.findOne({
-      where: {
-        tenantId,
-        globalProductId,
-        isActive: true,
-      },
-    });
+   
+    console.log('📝 Creating product config with payload ', configPayload)
 
-    if (existingConfig) {
-      await transaction.rollback();
-      return res.status(409).json({
-        success: false,
-        message: 'A configuration for this product already exists. Please edit the existing configuration.',
-      });
-    }
-
-    // Create product configuration
-    const config = await ProductConfig.create(
-      {
-        tenantId,
-        userId,
-        globalProductId,
-        sheens,
-        laborRates: laborRates || DEFAULT_LABOR_RATES,
-        defaultMarkup: defaultMarkup !== undefined ? defaultMarkup : 15,
-        productMarkups: productMarkups || {},
-        taxRate: taxRate !== undefined ? taxRate : 0,
-        isActive: true,
-      },
-      { transaction }
-    );
-
-    await transaction.commit();
+    // Create product configuration (no explicit transaction to avoid pool-level aborted-transaction issues)
+    const config = await ProductConfig.create(configPayload);
+    console.log('✅ Created product config:', config);
 
     // Invalidate product configs cache for this tenant
     await cache.invalidateByTags(['product-configs', `tenant:${tenantId}`]);
 
     // Fetch created config with includes (after commit to avoid transaction issues)
     const createdConfig = await ProductConfig.findByPk(config.id, {
+      attributes: ['id', 'tenantId', 'userId', 'globalProductId', 'isCustom', 'customProduct', 'sheens', 'isActive', 'createdAt', 'updatedAt'],
       include: [
         {
           model: GlobalProduct,
@@ -326,15 +386,7 @@ const createProductConfig = async (req, res) => {
       data: createdConfig,
     });
   } catch (error) {
-    // Safely rollback transaction if it exists and hasn't been committed
-    if (transaction) {
-      try {
-        await transaction.rollback();
-      } catch (rollbackError) {
-        console.error('Transaction rollback error:', rollbackError);
-      }
-    }
-    
+    // No explicit transaction to rollback here; just log the error
     console.error('Create product config error:', error);
 
     // Handle validation errors
@@ -372,6 +424,8 @@ const updateProductConfig = async (req, res) => {
       defaultMarkup,
       productMarkups,
       taxRate,
+      isCustom,
+      customProduct,
     } = req.body;
 
     // Find config (outside transaction to avoid locks)
@@ -427,6 +481,10 @@ const updateProductConfig = async (req, res) => {
     if (defaultMarkup !== undefined) updates.defaultMarkup = defaultMarkup;
     if (productMarkups !== undefined) updates.productMarkups = productMarkups;
     if (taxRate !== undefined) updates.taxRate = taxRate;
+    // Allow updating custom product data for contractor-created products
+    if (customProduct !== undefined && config.isCustom) {
+      updates.customProduct = customProduct;
+    }
 
     await config.update(updates, { transaction });
 
@@ -437,6 +495,7 @@ const updateProductConfig = async (req, res) => {
 
     // Fetch updated config with includes (after commit)
     const updatedConfig = await ProductConfig.findByPk(config.id, {
+      attributes: ['id', 'tenantId', 'userId', 'globalProductId', 'isCustom', 'customProduct', 'sheens', 'isActive', 'createdAt', 'updatedAt'],
       include: [
         {
           model: GlobalProduct,
@@ -551,7 +610,7 @@ const getDefaults = async (req, res) => {
           where: { tenantId },
           attributes: [
             'productConfigLaborRates', 'productConfigDefaultMarkup', 'productConfigDefaultTaxRate',
-            'defaultLaborHourRate', 'laborMarkupPercent', 'materialMarkupPercent', 'overheadPercent', 'netProfitPercent',
+            'defaultBillableLaborRate', 'laborMarkupPercent', 'materialMarkupPercent', 'overheadPercent', 'netProfitPercent',
             'depositPercentage', 'quoteValidityDays', 'turnkeyInteriorRate', 'turnkeyExteriorRate',
             'prepRepairHourlyRate', 'finishCabinetHourlyRate', 'productionInteriorWalls', 'productionInteriorCeilings',
             'productionInteriorTrim', 'productionExteriorWalls', 'productionExteriorTrim', 'productionSoffitFascia',
@@ -573,7 +632,7 @@ const getDefaults = async (req, res) => {
             defaultTaxRate: Number(settings.productConfigDefaultTaxRate) || 0,
             defaultCoverage: 350,
             // Global Pricing & Metrics
-            defaultLaborHourRate: Number(settings.defaultLaborHourRate) || 0,
+            defaultBillableLaborRate: Number(settings.defaultBillableLaborRate) || 0,
             laborMarkupPercent: Number(settings.laborMarkupPercent) || 0,
             materialMarkupPercent: Number(settings.materialMarkupPercent) || 0,
             overheadPercent: Number(settings.overheadPercent) || 0,
@@ -626,7 +685,7 @@ const getDefaults = async (req, res) => {
             applicationMethod: settings.applicationMethod || 'roll',
             coats: Number(settings.coats) || 2,
             // Crew Size
-            crewSize: Number(settings.crewSize) || 2,
+            crewSize: Number(settings.crewSize) || 1,
           },
         };
       },
@@ -653,7 +712,7 @@ const updateDefaults = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
     const { 
-      laborRates, defaultMarkup, defaultTaxRate, defaultLaborHourRate, 
+      laborRates, defaultMarkup, defaultTaxRate, defaultBillableLaborRate, 
       laborMarkupPercent, materialMarkupPercent, overheadPercent, netProfitPercent,
       depositPercentage, quoteValidityDays,
       turnkeyInteriorRate, turnkeyExteriorRate,
@@ -685,8 +744,8 @@ const updateDefaults = async (req, res) => {
     if (defaultTaxRate !== undefined) {
       updates.productConfigDefaultTaxRate = defaultTaxRate;
     }
-    if (defaultLaborHourRate !== undefined) {
-      updates.defaultLaborHourRate = defaultLaborHourRate;
+    if (defaultBillableLaborRate !== undefined) {
+      updates.defaultBillableLaborRate = defaultBillableLaborRate;
     }
     if (laborMarkupPercent !== undefined) {
       updates.laborMarkupPercent = laborMarkupPercent;
@@ -785,7 +844,7 @@ const updateDefaults = async (req, res) => {
         laborRates: settings.productConfigLaborRates,
         defaultMarkup: Number(settings.productConfigDefaultMarkup),
         defaultTaxRate: Number(settings.productConfigDefaultTaxRate),
-        defaultLaborHourRate: Number(settings.defaultLaborHourRate) || 0,
+        defaultBillableLaborRate: Number(settings.defaultBillableLaborRate) || 0,
         laborMarkupPercent: Number(settings.laborMarkupPercent) || 0,
         materialMarkupPercent: Number(settings.materialMarkupPercent) || 0,
         overheadPercent: Number(settings.overheadPercent) || 0,
@@ -829,7 +888,7 @@ const updateDefaults = async (req, res) => {
         coverage: Number(settings.coverage) || 350,
         applicationMethod: settings.applicationMethod || 'roll',
         coats: Number(settings.coats) || 2,
-        crewSize: Number(settings.crewSize) || 2,
+        crewSize: Number(settings.crewSize) || 1,
       },
     });
   } catch (error) {

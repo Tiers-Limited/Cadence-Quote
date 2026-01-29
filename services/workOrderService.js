@@ -138,7 +138,11 @@ class WorkOrderService {
                 </tr>
               </thead>
               <tbody>
-                ${areas.map(area => this.renderWorkItem(area)).join('')}
+                ${areas.length > 0 ? areas.map(area => this.renderWorkItem(area)).join('') : `
+                  <tr>
+                    <td colspan="6" style="padding: 20px; text-align: center; color: #666;">No work items specified</td>
+                  </tr>
+                `}
               </tbody>
             </table>
           </div>
@@ -156,14 +160,18 @@ class WorkOrderService {
                 </tr>
               </thead>
               <tbody>
-                ${materialTotals.map(m => `
+                ${materialTotals.length > 0 ? materialTotals.map(m => `
                   <tr>
                     <td>${m.product}</td>
                     <td>${m.sheen}</td>
                     <td>${m.colorLabel}</td>
                     <td class="text-center">${m.gallons} gal</td>
                   </tr>
-                `).join('')}
+                `).join('') : `
+                  <tr>
+                    <td colspan="4" style="padding: 20px; text-align: center; color: #666;">No materials specified</td>
+                  </tr>
+                `}
               </tbody>
             </table>
           </div>
@@ -281,7 +289,7 @@ class WorkOrderService {
                 </tr>
               </thead>
               <tbody>
-                ${paintItems.map(item => `
+                ${paintItems.length > 0 ? paintItems.map(item => `
                   <tr>
                     <td class="qty-cell">${item.quantity}</td>
                     <td class="center-cell">${item.product}</td>
@@ -290,7 +298,11 @@ class WorkOrderService {
                     <td class="color-cell">${item.colorNumber || ''}</td>
                     <td class="center-cell">${item.colorName}</td>
                   </tr>
-                `).join('')}
+                `).join('') : `
+                  <tr>
+                    <td colspan="6" class="center-cell" style="padding: 20px; color: #666;">No items</td>
+                  </tr>
+                `}
               </tbody>
             </table>
           </div>
@@ -459,7 +471,115 @@ class WorkOrderService {
 
   extractAreasWithSelections(quote, jobType) {
     const areas = [];
-    if (quote.areas && Array.isArray(quote.areas)) {
+    
+    // Parse productSets if it's a string
+    let productSets = quote.productSets;
+    if (typeof productSets === 'string') {
+      try {
+        productSets = JSON.parse(productSets);
+      } catch (e) {
+        console.error('Failed to parse productSets:', e);
+        productSets = [];
+      }
+    }
+    if (!Array.isArray(productSets)) {
+      productSets = [];
+    }
+    
+    const pricingSchemeType = quote.pricingScheme?.type || quote.pricingSchemeType;
+    const isFlatRate = pricingSchemeType === 'flat_rate_unit';
+    const isAreaWise = ['production_based', 'rate_based_sqft', 'rate_based'].includes(pricingSchemeType);
+    
+    if (isFlatRate) {
+      // Flat rate: Extract products from productSets
+      productSets.forEach(set => {
+        if (!set.products) return;
+        
+        const category = set.category || 'Interior';
+        const label = set.label || set.surfaceType || 'Unknown';
+        
+        // For flat rate, we show the selected tier (good/better/best)
+        const selectedTier = set.selectedTier || 'better'; // Default to better
+        const selectedProduct = set.products[selectedTier];
+        
+        if (selectedProduct) {
+          areas.push({
+            name: label,
+            surface: label,
+            product: selectedProduct.productName || selectedProduct.name || 'Not selected',
+            sheen: selectedProduct.sheen || 'Not selected',
+            colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
+            colorNumber: selectedProduct.colorNumber || '',
+            swatch: selectedProduct.colorHex || null,
+            gallons: this.resolveGallons({}, selectedProduct),
+            type: category.charAt(0).toUpperCase() + category.slice(1),
+          });
+        }
+      });
+    } else if (isAreaWise) {
+      // Area-wise pricing: Extract from areas and match with productSets
+      if (quote.areas && Array.isArray(quote.areas)) {
+        quote.areas.forEach(area => {
+          if (!area.laborItems || area.laborItems.length === 0) return;
+          
+          area.laborItems.forEach(item => {
+            if (!item.selected) return;
+            
+            const surfaceType = item.categoryName;
+            const productSet = productSets.find(ps => 
+              ps.areaId === area.id && ps.surfaceType === surfaceType
+            ) || productSets.find(ps => 
+              !ps.areaId && ps.surfaceType === surfaceType
+            );
+            
+            if (productSet && productSet.products) {
+              const selectedTier = productSet.selectedTier || 'better';
+              const selectedProduct = productSet.products[selectedTier];
+              
+              if (selectedProduct) {
+                areas.push({
+                  name: area.name || 'Unnamed Area',
+                  surface: surfaceType,
+                  product: selectedProduct.productName || selectedProduct.name || 'Not selected',
+                  sheen: selectedProduct.sheen || 'Not selected',
+                  colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
+                  colorNumber: selectedProduct.colorNumber || '',
+                  swatch: selectedProduct.colorHex || null,
+                  gallons: this.resolveGallons(area, selectedProduct),
+                  type: this.getAreaType(jobType || quote.jobType || quote.jobScope),
+                });
+              }
+            }
+          });
+        });
+      }
+    } else {
+      // Turnkey: Global products from productSets
+      productSets.forEach(ps => {
+        const surfaceLabel = ps.surfaceType || ps.label;
+        if (!surfaceLabel || !ps.products) return;
+        
+        const selectedTier = ps.selectedTier || 'better';
+        const selectedProduct = ps.products[selectedTier];
+        
+        if (selectedProduct) {
+          areas.push({
+            name: surfaceLabel,
+            surface: surfaceLabel,
+            product: selectedProduct.productName || selectedProduct.name || 'Not selected',
+            sheen: selectedProduct.sheen || 'Not selected',
+            colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
+            colorNumber: selectedProduct.colorNumber || '',
+            swatch: selectedProduct.colorHex || null,
+            gallons: this.resolveGallons({}, selectedProduct),
+            type: this.getAreaType(jobType || quote.jobType || quote.jobScope),
+          });
+        }
+      });
+    }
+    
+    // Fallback: Check for legacy customerSelections structure
+    if (areas.length === 0 && quote.areas && Array.isArray(quote.areas)) {
       quote.areas.forEach(area => {
         if (area.customerSelections) {
           const sel = area.customerSelections;
@@ -478,6 +598,7 @@ class WorkOrderService {
         }
       });
     }
+    
     return areas;
   }
 
@@ -528,8 +649,17 @@ class WorkOrderService {
   }
 
   aggregateMaterialsDetailed(quote, job) {
+    const paintItems = this.aggregatePaintItems(quote, job?.jobType || quote?.jobType);
+    
     return {
-      paint: this.aggregatePaintItems(quote, job?.jobType || quote?.jobType),
+      paint: paintItems.length > 0 ? paintItems : [{
+        product: 'No products selected',
+        type: 'N/A',
+        sheen: 'N/A',
+        colorName: 'N/A',
+        colorNumber: '',
+        quantity: 0
+      }],
       supplies: [
         'Painter\'s tape',
         'Drop cloths',

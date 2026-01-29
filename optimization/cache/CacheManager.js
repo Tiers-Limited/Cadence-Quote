@@ -111,7 +111,7 @@ class CacheManager extends EventEmitter {
   async initializeRedis() {
     // Skip Redis if no host is configured
     if (!this.config.redis.host || this.config.redis.host === 'localhost') {
-      console.log('⚠️  Redis host not configured or set to localhost, skipping Redis initialization');
+    //   console.log('⚠️  Redis host not configured or set to localhost, skipping Redis initialization');
       console.log('📦 Cache Manager will use memory-only caching');
       return;
     }

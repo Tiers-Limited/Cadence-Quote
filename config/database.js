@@ -81,7 +81,7 @@ const sequelize = new Sequelize(
       max: 3,
       backoff: 'exponential',
       report: (message, obj) => {
-        console.warn('Database retry:', message, obj);
+        // console.warn('Database retry:', message, obj);
       }
     },
     

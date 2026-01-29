@@ -252,8 +252,8 @@ exports.getProductsForAreas = async (req, res) => {
             }
           ],
           attributes: [
-            'id', 'globalProductId', 'sheens', 'laborRates',
-            'defaultMarkup', 'productMarkups', 'taxRate'
+            'id', 'globalProductId', 'sheens', 
+              
           ]
         });
 
@@ -329,8 +329,8 @@ exports.getProductsForAreas = async (req, res) => {
             }
           ],
           attributes: [
-            'id', 'globalProductId', 'sheens', 'laborRates',
-            'defaultMarkup', 'productMarkups', 'taxRate'
+            'id', 'globalProductId', 'sheens', 
+              
           ]
         });
 
@@ -379,7 +379,36 @@ exports.getProductsForAreas = async (req, res) => {
 
 // Helper function to format product for mobile response
 function formatProductForMobile(config) {
-  const product = config.globalProduct;
+  // Support both custom and global products
+  let product, productName, brandName, category, tier, notes, sheenOptions;
+  
+  if (config.isCustom && config.customProduct) {
+    // Custom product
+    productName = config.customProduct.name || 'Custom Product';
+    brandName = config.customProduct.brandName || 'Custom';
+    category = config.customProduct.category || 'Unknown';
+    tier = config.customProduct.tier || 'custom';
+    notes = config.customProduct.description || '';
+    sheenOptions = config.customProduct.sheens?.map(s => s.sheen) || [];
+  } else if (config.globalProduct) {
+    // Global product
+    product = config.globalProduct;
+    productName = product.name;
+    brandName = product.brand?.name || 'Unknown';
+    category = product.category;
+    tier = product.tier;
+    notes = product.notes;
+    sheenOptions = product.sheenOptions || [];
+  } else {
+    // Fallback
+    productName = 'Unknown Product';
+    brandName = 'Unknown';
+    category = 'Unknown';
+    tier = 'unknown';
+    notes = '';
+    sheenOptions = [];
+  }
+
   const sheens = config.sheens || [];
   
   // Calculate price range
@@ -396,15 +425,16 @@ function formatProductForMobile(config) {
 
   return {
     id: config.id,
-    globalProductId: product.id,
-    name: product.name,
-    brand: product.brand?.name || 'Unknown',
-    brandDescription: product.brand?.description || '',
-    category: product.category,
-    tier: product.tier,
+    globalProductId: config.globalProductId || null,
+    isCustom: config.isCustom || false,
+    name: productName,
+    brand: brandName,
+    brandDescription: product?.brand?.description || '',
+    category: category,
+    tier: tier,
     coverage: sheens[0]?.coverage || 350,
-    notes: product.notes,
-    sheenOptions: product.sheenOptions || [],
+    notes: notes,
+    sheenOptions: sheenOptions,
     availableSheens: sheens.map(s => ({
       name: s.sheen || s.name, // sheens array has 'sheen' property, not 'name'
       price: Number.parseFloat(s.price || 0),
@@ -531,9 +561,14 @@ exports.calculatePricing = async (req, res) => {
       // Get selected sheen price and coverage
       const sheen = productConfig.sheens?.find(s => s.sheen === sheenName);
       if (!sheen) {
+        // Get product name for error message
+        const productName = productConfig.isCustom && productConfig.customProduct 
+          ? productConfig.customProduct.name 
+          : productConfig.globalProduct?.name || 'Unknown Product';
+        
         return res.status(400).json({
           success: false,
-          message: `Sheen ${sheenName} not found for product ${productConfig.globalProduct.name}`
+          message: `Sheen ${sheenName} not found for product ${productName}`
         });
       }
 
@@ -648,8 +683,12 @@ exports.calculatePricing = async (req, res) => {
 
       areaBreakdown.push({
         area: name,
-        product: productConfig.globalProduct.name,
-        brand: productConfig.globalProduct.brand?.name || 'Unknown',
+        product: productConfig.isCustom && productConfig.customProduct 
+          ? productConfig.customProduct.name 
+          : productConfig.globalProduct?.name || 'Unknown Product',
+        brand: productConfig.isCustom && productConfig.customProduct 
+          ? (productConfig.customProduct.brandName || 'Custom')
+          : (productConfig.globalProduct?.brand?.name || 'Unknown'),
         sheen: sheenName,
         color: colorName || 'Not selected',
         colorCode: colorCode || '',
@@ -674,10 +713,10 @@ exports.calculatePricing = async (req, res) => {
     const contractorDiscountFee = totalMaterialCost * 0.15; // 15% fee to use discount
     const totalIfDiscountOnly = totalMaterialCost + contractorDiscountFee;
     
-    // Full job option - Apply markup and tax
+    // Full job option - Apply markup and tax (tax only on markup)
     const markup = totalMaterialCost * (defaultMarkup / 100);
     const subtotal = totalMaterialCost + markup;
-    const tax = subtotal * (taxRate / 100);
+    const tax = markup * (taxRate / 100); // Tax only on markup
     const totalWithTax = subtotal + tax + totalLaborCost;
     
     // Calculate deposit
@@ -920,7 +959,9 @@ exports.assignProducts = async (req, res) => {
           ...area,
           productId,
           sheenName,
-          productName: productConfig.globalProduct.name
+          productName: productConfig.isCustom && productConfig.customProduct 
+            ? productConfig.customProduct.name 
+            : productConfig.globalProduct?.name || 'Unknown Product'
         });
       }
     } else {
@@ -933,7 +974,9 @@ exports.assignProducts = async (req, res) => {
 
           updatedAreas.push({
             ...area,
-            productName: productConfig?.globalProduct?.name || 'Unknown Product'
+            productName: productConfig?.isCustom && productConfig?.customProduct 
+              ? productConfig.customProduct.name 
+              : productConfig?.globalProduct?.name || 'Unknown Product'
           });
         } else {
           updatedAreas.push(area);
@@ -1269,13 +1312,13 @@ async function calculatePricingHelper(areas, tenantId) {
     const gallonsNeeded = (areaSqft / coverage) * (area.numberOfCoats || 2);
     totalMaterialCost += gallonsNeeded * pricePerGallon;
     
-    const laborRate = productConfig.laborRates?.walls || 1.5;
+    const laborRate = productConfig?.laborRates?.walls || 1.5;
     totalLaborCost += areaSqft * laborRate * (area.numberOfCoats || 2);
   }
 
   const markup = totalMaterialCost * (defaultMarkup / 100);
   const subtotal = totalMaterialCost + markup;
-  const tax = subtotal * (taxRate / 100);
+  const tax = markup * (taxRate / 100); // Tax only on markup
   const total = subtotal + tax + totalLaborCost;
 
   return {

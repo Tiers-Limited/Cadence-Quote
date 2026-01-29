@@ -50,7 +50,7 @@ exports.getDashboardStats = async (req, res) => {
     const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
     // Execute queries in parallel for better performance
-    const [currentMonthQuotes, paidQuotes, lastMonthQuotes] = await Promise.all([
+    const [currentMonthQuotes, paidQuotes, allTimePaidQuotes, lastMonthQuotes] = await Promise.all([
       // Current month quotes
       Quote.findAll({
         where: {
@@ -77,7 +77,7 @@ exports.getDashboardStats = async (req, res) => {
         raw: true // Use raw queries for better performance
       }),
       
-      // Paid quotes for revenue calculation
+      // Current month paid quotes for revenue calculation
       Quote.findAll({
         where: {
           tenantId,
@@ -90,6 +90,19 @@ exports.getDashboardStats = async (req, res) => {
           }
         },
         attributes: ['id', 'total', 'depositAmount', 'depositTransactionId'],
+        raw: true
+      }),
+      
+      // All-time paid quotes for total revenue
+      Quote.findAll({
+        where: {
+          tenantId,
+          isActive: true,
+          depositVerified: true,
+          depositTransactionId: { [Op.ne]: null },
+          depositPaymentMethod: 'stripe'
+        },
+        attributes: ['id', 'depositAmount'],
         raw: true
       }),
       
@@ -112,7 +125,12 @@ exports.getDashboardStats = async (req, res) => {
     ]);
 
     // Calculate revenue from paid quotes
-    const totalRevenue = paidQuotes.reduce((sum, quote) => 
+    const currentMonthRevenue = paidQuotes.reduce((sum, quote) => 
+      sum + Number.parseFloat(quote.depositAmount || 0), 0
+    );
+    
+    // Calculate all-time total revenue from Stripe
+    const totalRevenue = allTimePaidQuotes.reduce((sum, quote) => 
       sum + Number.parseFloat(quote.depositAmount || 0), 0
     );
 
@@ -125,14 +143,15 @@ exports.getDashboardStats = async (req, res) => {
     const lastMonthStats = calculateMonthStats(lastMonthQuotes);
 
     // Calculate changes (percentage or absolute)
-    const revenueChange = calculatePercentageChange(totalRevenue, lastMonthRevenue);
+    const revenueChange = calculatePercentageChange(currentMonthRevenue, lastMonthRevenue);
     const quotesChange = currentStats.activeQuotes - lastMonthStats.activeQuotes;
     const jobsChange = currentStats.completedJobs - lastMonthStats.completedJobs;
     const avgChange = calculatePercentageChange(currentStats.avgJobValue, lastMonthStats.avgJobValue);
 
     const dashboardData = {
       stats: {
-        totalRevenue: totalRevenue, // Real revenue from Stripe
+        totalRevenue: totalRevenue, // All-time revenue from verified Stripe payments
+        currentMonthRevenue: currentMonthRevenue, // Current month revenue
         activeQuotes: currentStats.activeQuotes,
         completedJobs: currentStats.completedJobs,
         avgJobValue: currentStats.avgJobValue,

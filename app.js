@@ -46,6 +46,9 @@ const proposalAcceptanceRouter = require('./routes/proposalAcceptance');
 const adminStatusRouter = require('./routes/adminStatus'); // Admin Status Management (Phase 1) // Proposal Acceptance (Customer)
 const customerSelectionsRouter = require('./routes/customerSelections'); // Customer Selections
 const jobSchedulingRouter = require('./routes/jobScheduling'); // Job Scheduling & Management
+const jobAnalyticsRouter = require('./routes/jobAnalytics'); // Job Analytics & Profit Margin Tracking
+const gbbSettingsRouter = require('./routes/gbbSettings'); // GBB Pricing Tiers Settings
+const settingsRouter = require('./routes/settings'); // Contractor Settings & Templates
 // Import middleware
 const { resolveTenant } = require('./middleware/tenantResolver');
 // Load all models and associations
@@ -116,6 +119,9 @@ app.use(logger('dev'));
 // Note: express.json/urlencoded already configured above with increased limits.
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve temporary PDF files (job documents, proposals, etc.)
+app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
 // Health check endpoint (before tenant resolution)
 app.get('/health', (req, res) => {
@@ -261,6 +267,9 @@ app.use('/api/v1/client-auth', clientAuthRouter); // Client Authentication
 app.use('/api/v1/jobs', jobsRouter); // Jobs Management (CRUD)
 app.use('/api/jobs', jobSchedulingRouter); // Job Scheduling & Status Updates
 app.use('/api/v1/magic-links', magicLinkManagementRouter); // Magic Link Management (Contractor)
+app.use('/api/v1/job-analytics', jobAnalyticsRouter); // Job Analytics & Profit Margin Tracking
+app.use('/api/v1/settings/gbb', gbbSettingsRouter); // GBB Pricing Tiers Settings
+app.use('/api/v1/settings', settingsRouter); // Contractor Settings & Templates
 app.use('/api/v1/admin/status', adminStatusRouter); // Admin Status Management (Phase 1)
 app.use('/api/v1', apiRouter);
 
@@ -286,14 +295,11 @@ app.use(function(err, req, res, next) {
   try {
     // Skip automatic sync to avoid foreign key constraint issues
     // Use manual database setup instead
-    if (process.env.SKIP_DB_SYNC !== 'true') {
-      console.log('⚠️  Skipping automatic database sync to avoid foreign key issues');
-      console.log('💡 Database tables should already exist. If not, run manual setup.');
-    }
+     const syncOptions = process.env.NODE_ENV === 'development' 
+      ? { alter: true } // Don't alter - schema is now stable
+      : { force: false };
     
-    // Test database connection with a simple query
-    await sequelize.query('SELECT 1 as test');
-    console.log('✓ Database connection verified');
+    await sequelize.sync(syncOptions);
     
     // Check for existing users (this runs at startup, not after registration)
     const userCount = await User.count();
@@ -351,9 +357,7 @@ app.use(function(err, req, res, next) {
     
   } catch (error) {
     console.error('✗ Database sync failed:', error.message);
-    console.error('💡 Try running the migration manually:');
-    console.error('   psql -U postgres -d postgres -f migrations/003-create-milestone2-tables.sql');
-    console.error('Server is running, but database operations will fail until connection is established.');
+   
   }
 })();
 

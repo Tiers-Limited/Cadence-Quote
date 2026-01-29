@@ -171,6 +171,41 @@ const Quote = sequelize.define('Quote', {
     field: 'allow_customer_product_choice',
     
   },
+
+  // New fields for enhanced quote builder functionality
+  paintersOnSite: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: 2,
+    field: 'painters_on_site',
+    validate: {
+      min: 1,
+      max: 10
+    }
+  },
+
+  laborOnly: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true,
+    defaultValue: false,
+    field: 'labor_only'
+  },
+
+  propertyCondition: {
+    type: DataTypes.ENUM('excellent', 'good', 'average', 'fair', 'poor'),
+    allowNull: true,
+    defaultValue: 'average',
+    field: 'property_condition'
+  },
+
+  // Flat rate items for unit-based pricing (JSONB structure)
+  // Format: { interior: { doors: 2, smallRooms: 3, ... }, exterior: { windows: 5, ... } }
+  flatRateItems: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: {},
+    field: 'flat_rate_items'
+  },
   
   // Areas and Surfaces (stored as JSON)
   // Format: [{ id, name, laborItems: [{ categoryName, selected, quantity, ... }] }]
@@ -320,16 +355,21 @@ const Quote = sequelize.define('Quote', {
   // Detailed Breakdown (stored as JSON from calculation API)
   breakdown: {
     type: DataTypes.JSONB,
-    allowNull: true,
-    
+    allowNull: true
   },
   
-  // Customer Portal Fields
-  selectedTier: {
-    type: DataTypes.STRING(20),
+  // GBB (Good-Better-Best) Tier Pricing
+  gbbSelectedTier: {
+    type: DataTypes.ENUM('good', 'better', 'best'),
     allowNull: true,
-    field: 'selected_tier',
-    
+    field: 'gbb_selected_tier'
+  },
+  
+  gbbTierPricing: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    field: 'gbb_tier_pricing',
+    defaultValue: {}
   },
   
   depositAmount: {
@@ -501,6 +541,105 @@ const Quote = sequelize.define('Quote', {
     field: 'declined_at'
   },
   
+  // Enhanced auto-save fields for optimistic locking
+  lastModified: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: DataTypes.NOW,
+    field: 'last_modified'
+  },
+  
+  autoSaveVersion: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1,
+    field: 'auto_save_version'
+  },
+
+  // Job Analytics Fields
+  jobCompletedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'job_completed_at',
+    comment: 'When job was marked as complete'
+  },
+
+  finalInvoiceAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    field: 'final_invoice_amount',
+    validate: {
+      min: 0
+    },
+    comment: 'Final invoiced amount (may differ from quote total)'
+  },
+
+  actualMaterialCost: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    field: 'actual_material_cost',
+    validate: {
+      min: 0
+    },
+    comment: 'Tracked material expenses during job execution'
+  },
+
+  actualLaborCost: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    field: 'actual_labor_cost',
+    validate: {
+      min: 0
+    },
+    comment: 'Tracked labor expenses during job execution'
+  },
+
+  analyticsCalculated: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'analytics_calculated',
+    comment: 'Whether job analytics have been calculated'
+  },
+
+  // Proposal PDF Fields
+  proposalPdfUrl: {
+    type: DataTypes.STRING(500),
+    allowNull: true,
+    field: 'proposal_pdf_url',
+    comment: 'URL/path to the generated proposal PDF'
+  },
+
+  proposalPdfGeneratedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'proposal_pdf_generated_at',
+    comment: 'When the proposal PDF was last generated'
+  },
+
+  proposalPdfVersion: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    field: 'proposal_pdf_version',
+    comment: 'Version number of the proposal PDF (increments on regeneration)'
+  },
+  
+  // Invoice PDF Fields (generated after deposit payment)
+  invoicePdfUrl: {
+    type: DataTypes.STRING(500),
+    allowNull: true,
+    field: 'invoice_pdf_url',
+    comment: 'URL/path to the generated invoice PDF (created after deposit payment)'
+  },
+
+  invoicePdfGeneratedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'invoice_pdf_generated_at',
+    comment: 'When the invoice PDF was generated'
+  },
+  
   // Metadata
   isActive: {
     type: DataTypes.BOOLEAN,
@@ -537,6 +676,16 @@ const Quote = sequelize.define('Quote', {
     { fields: ['customer_email'] },
     { fields: ['customer_phone'] },
     { fields: ['zip_code'] },
+    { fields: ['last_modified'] },
+    { fields: ['auto_save_version'] },
+    { fields: ['painters_on_site'] },
+    { fields: ['labor_only'] },
+    { fields: ['property_condition'] },
+    { fields: ['job_completed_at'] },
+    { fields: ['analytics_calculated'] },
+    { fields: ['final_invoice_amount'] },
+    { fields: ['gbb_selected_tier'] },
+    { using: 'GIN', fields: ['gbb_tier_pricing'] }
   ]
 });
 
@@ -546,6 +695,9 @@ Quote.associate = (models) => {
   Quote.belongsTo(models.User, { foreignKey: 'userId', as: 'user' });
   Quote.belongsTo(models.Client, { foreignKey: 'clientId', as: 'client' });
   Quote.belongsTo(models.PricingScheme, { foreignKey: 'pricingSchemeId', as: 'pricingScheme' });
+  
+  // Job Analytics association
+  Quote.hasOne(models.JobAnalytics, { foreignKey: 'quoteId', as: 'jobAnalytics' });
 };
 
 // Class methods
@@ -677,10 +829,639 @@ Quote.prototype.calculateTotals = function() {
     this.subtotal = labor + material;
     this.markup = this.subtotal * (parseFloat(this.markupPercent) / 100);
     this.zipMarkup = (this.subtotal + this.markup) * (parseFloat(this.zipMarkupPercent) / 100);
-    const subtotalWithMarkups = this.subtotal + this.markup + this.zipMarkup;
-    this.tax = subtotalWithMarkups * (parseFloat(this.taxPercent) / 100);
-    this.total = subtotalWithMarkups + this.tax;
+    
+    // Tax should only be applied to markup, not total amount
+    const totalMarkup = this.markup + this.zipMarkup;
+    this.tax = totalMarkup * (parseFloat(this.taxPercent) / 100);
+    
+    this.total = this.subtotal + totalMarkup + this.tax;
   }
+};
+
+// Job completion methods
+Quote.prototype.markJobComplete = async function(finalInvoiceAmount = null, actualMaterialCost = null, actualLaborCost = null) {
+  this.jobCompletedAt = new Date();
+  this.finalInvoiceAmount = finalInvoiceAmount || this.total;
+  
+  if (actualMaterialCost !== null) {
+    this.actualMaterialCost = actualMaterialCost;
+  }
+  
+  if (actualLaborCost !== null) {
+    this.actualLaborCost = actualLaborCost;
+  }
+  
+  await this.save();
+  return this;
+};
+
+Quote.prototype.isJobComplete = function() {
+  return this.jobCompletedAt !== null;
+};
+
+Quote.prototype.canCalculateAnalytics = function() {
+  return this.isJobComplete() && this.finalInvoiceAmount > 0;
+};
+
+Quote.prototype.markAnalyticsCalculated = async function() {
+  this.analyticsCalculated = true;
+  await this.save();
+  return this;
+};
+
+// Product configuration helper methods
+Quote.prototype.getProductsByScheme = function() {
+  if (!this.productSets || typeof this.productSets !== 'object') {
+    return null;
+  }
+  return this.productSets;
+};
+
+Quote.prototype.setProductsByScheme = function(productSets, scheme) {
+  // Validate that productSets has the correct structure for the scheme
+  if (!productSets || typeof productSets !== 'object') {
+    throw new Error('Invalid productSets: must be an object');
+  }
+  
+  // Add scheme identifier if not present
+  if (!productSets.scheme) {
+    productSets.scheme = scheme;
+  }
+  
+  this.productSets = productSets;
+  return this;
+};
+
+Quote.prototype.validateProductConfiguration = function(pricingScheme) {
+  const productSets = this.productSets;
+  
+  if (!productSets || typeof productSets !== 'object') {
+    return {
+      valid: false,
+      errors: [{ code: 'MISSING_PRODUCTS', message: 'No product configuration found' }]
+    };
+  }
+  
+  const errors = [];
+  const warnings = [];
+  
+  // Validate based on pricing scheme
+  switch (pricingScheme) {
+    case 'turnkey':
+      this._validateTurnkeyStructure(productSets, errors, warnings);
+      break;
+      
+    case 'flat_rate_unit':
+      this._validateFlatRateUnitStructure(productSets, errors, warnings);
+      break;
+      
+    case 'unit_pricing':
+    case 'production_based':
+    case 'rate_based':
+      this._validateUnitPricingStructure(productSets, errors, warnings);
+      break;
+      
+    case 'hourly':
+      this._validateHourlyStructure(productSets, errors, warnings);
+      break;
+      
+    default:
+      warnings.push({
+        code: 'UNKNOWN_SCHEME',
+        message: `Unknown pricing scheme: ${pricingScheme}`
+      });
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings
+  };
+};
+
+// Private validation methods for each pricing scheme
+Quote.prototype._validateTurnkeyStructure = function(productSets, errors, warnings) {
+  // Validate turnkey structure: should have global surface types
+  if (!productSets.global || typeof productSets.global !== 'object') {
+    errors.push({
+      code: 'INVALID_STRUCTURE',
+      message: 'Turnkey pricing requires global surface type configuration',
+      severity: 'error'
+    });
+    return;
+  }
+  
+  // Expected surface types for turnkey pricing
+  const expectedSurfaces = ['walls', 'ceilings', 'trim', 'doors'];
+  const missingSurfaces = [];
+  
+  expectedSurfaces.forEach(surface => {
+    if (!productSets.global[surface]) {
+      missingSurfaces.push(surface);
+    } else {
+      // Validate product structure
+      const product = productSets.global[surface];
+      if (!product.productId || !product.productName) {
+        errors.push({
+          code: 'INVALID_PRODUCT',
+          category: surface,
+          message: `Invalid product configuration for ${surface}`,
+          severity: 'error'
+        });
+      }
+      
+      // Validate quantity is positive
+      if (product.quantity !== undefined && product.quantity <= 0) {
+        errors.push({
+          code: 'INVALID_QUANTITY',
+          category: surface,
+          message: `Quantity must be greater than 0 for ${surface}`,
+          severity: 'error'
+        });
+      }
+    }
+  });
+  
+  if (missingSurfaces.length > 0) {
+    warnings.push({
+      code: 'MISSING_SURFACE_TYPES',
+      message: `Some surface types are missing products: ${missingSurfaces.join(', ')}`,
+      severity: 'warning'
+    });
+  }
+};
+
+Quote.prototype._validateFlatRateUnitStructure = function(productSets, errors, warnings) {
+  // Validate flat rate structure: should have interior and/or exterior categories
+  if (!productSets.interior && !productSets.exterior) {
+    errors.push({
+      code: 'INVALID_STRUCTURE',
+      message: 'Flat Rate Unit pricing requires interior or exterior category configuration',
+      severity: 'error'
+    });
+    return;
+  }
+  
+  // Validate interior categories
+  if (productSets.interior) {
+    const expectedInteriorCategories = [
+      'door', 'smallRoom', 'mediumRoom', 'largeRoom', 
+      'closet', 'accentWall', 'cabinetsFace', 'cabinetsDoors'
+    ];
+    
+    const missingInterior = [];
+    const hasCabinetsFace = !!productSets.interior.cabinetsFace;
+    const hasCabinetsDoors = !!productSets.interior.cabinetsDoors;
+    
+    expectedInteriorCategories.forEach(category => {
+      const categoryData = productSets.interior[category];
+      
+      if (!categoryData) {
+        missingInterior.push(category);
+      } else {
+        // Validate category structure
+        if (!categoryData.products || !Array.isArray(categoryData.products)) {
+          errors.push({
+            code: 'INVALID_CATEGORY_STRUCTURE',
+            category: `interior.${category}`,
+            message: `Category ${category} must have a products array`,
+            severity: 'error'
+          });
+        } else {
+          // Validate each product in the category
+          categoryData.products.forEach((product, index) => {
+            if (!product.productId || !product.productName) {
+              errors.push({
+                code: 'INVALID_PRODUCT',
+                category: `interior.${category}`,
+                message: `Invalid product at index ${index} in ${category}`,
+                severity: 'error'
+              });
+            }
+          });
+        }
+        
+        // Validate unit count is positive
+        if (categoryData.unitCount !== undefined && categoryData.unitCount < 0) {
+          errors.push({
+            code: 'INVALID_UNIT_COUNT',
+            category: `interior.${category}`,
+            message: `Unit count must be non-negative for ${category}`,
+            severity: 'error'
+          });
+        }
+      }
+    });
+    
+    // Validate cabinet subcategory completeness
+    if (hasCabinetsFace && !hasCabinetsDoors) {
+      errors.push({
+        code: 'MISSING_CABINET_SUBCATEGORY',
+        category: 'interior.cabinets',
+        subcategory: 'doors',
+        message: 'Cabinet doors product required when cabinet face is selected',
+        severity: 'error'
+      });
+    }
+    
+    if (hasCabinetsDoors && !hasCabinetsFace) {
+      errors.push({
+        code: 'MISSING_CABINET_SUBCATEGORY',
+        category: 'interior.cabinets',
+        subcategory: 'face',
+        message: 'Cabinet face product required when cabinet doors is selected',
+        severity: 'error'
+      });
+    }
+    
+    if (missingInterior.length > 0) {
+      warnings.push({
+        code: 'MISSING_INTERIOR_CATEGORIES',
+        message: `Some interior categories are missing: ${missingInterior.join(', ')}`,
+        severity: 'warning'
+      });
+    }
+  }
+  
+  // Validate exterior categories
+  if (productSets.exterior) {
+    const expectedExteriorCategories = [
+      'doors', 'windows', 'garageDoor1Car', 'garageDoor2Car', 
+      'garageDoor3Car', 'shutters'
+    ];
+    
+    const missingExterior = [];
+    
+    expectedExteriorCategories.forEach(category => {
+      const categoryData = productSets.exterior[category];
+      
+      if (!categoryData) {
+        missingExterior.push(category);
+      } else {
+        // Validate category structure
+        if (!categoryData.products || !Array.isArray(categoryData.products)) {
+          errors.push({
+            code: 'INVALID_CATEGORY_STRUCTURE',
+            category: `exterior.${category}`,
+            message: `Category ${category} must have a products array`,
+            severity: 'error'
+          });
+        } else {
+          // Validate each product in the category
+          categoryData.products.forEach((product, index) => {
+            if (!product.productId || !product.productName) {
+              errors.push({
+                code: 'INVALID_PRODUCT',
+                category: `exterior.${category}`,
+                message: `Invalid product at index ${index} in ${category}`,
+                severity: 'error'
+              });
+            }
+          });
+        }
+        
+        // Validate unit count is positive
+        if (categoryData.unitCount !== undefined && categoryData.unitCount < 0) {
+          errors.push({
+            code: 'INVALID_UNIT_COUNT',
+            category: `exterior.${category}`,
+            message: `Unit count must be non-negative for ${category}`,
+            severity: 'error'
+          });
+        }
+        
+        // Validate garage door multipliers
+        if (category.startsWith('garageDoor')) {
+          const expectedMultipliers = {
+            'garageDoor1Car': 0.5,
+            'garageDoor2Car': 1.0,
+            'garageDoor3Car': 1.5
+          };
+          
+          const expectedMultiplier = expectedMultipliers[category];
+          
+          if (categoryData.multiplier !== undefined && categoryData.multiplier !== expectedMultiplier) {
+            errors.push({
+              code: 'INVALID_GARAGE_DOOR_MULTIPLIER',
+              category: `exterior.${category}`,
+              message: `Invalid multiplier for ${category}. Expected ${expectedMultiplier}, got ${categoryData.multiplier}`,
+              severity: 'error'
+            });
+          }
+        }
+      }
+    });
+    
+    if (missingExterior.length > 0) {
+      warnings.push({
+        code: 'MISSING_EXTERIOR_CATEGORIES',
+        message: `Some exterior categories are missing: ${missingExterior.join(', ')}`,
+        severity: 'warning'
+      });
+    }
+  }
+};
+
+Quote.prototype._validateUnitPricingStructure = function(productSets, errors, warnings) {
+  // Validate unit pricing structure: should have areas
+  if (!productSets.areas || typeof productSets.areas !== 'object') {
+    errors.push({
+      code: 'INVALID_STRUCTURE',
+      message: 'Unit Pricing requires area-based configuration',
+      severity: 'error'
+    });
+    return;
+  }
+  
+  const areaIds = Object.keys(productSets.areas);
+  
+  if (areaIds.length === 0) {
+    warnings.push({
+      code: 'NO_AREAS',
+      message: 'No areas configured for unit pricing',
+      severity: 'warning'
+    });
+    return;
+  }
+  
+  // Validate each area
+  areaIds.forEach(areaId => {
+    const area = productSets.areas[areaId];
+    
+    if (!area || typeof area !== 'object') {
+      errors.push({
+        code: 'INVALID_AREA',
+        category: areaId,
+        message: `Invalid area configuration for ${areaId}`,
+        severity: 'error'
+      });
+      return;
+    }
+    
+    if (!area.areaName) {
+      errors.push({
+        code: 'MISSING_AREA_NAME',
+        category: areaId,
+        message: `Area ${areaId} is missing a name`,
+        severity: 'error'
+      });
+    }
+    
+    if (!area.surfaces || typeof area.surfaces !== 'object') {
+      errors.push({
+        code: 'MISSING_SURFACES',
+        category: areaId,
+        message: `Area ${areaId} is missing surfaces configuration`,
+        severity: 'error'
+      });
+      return;
+    }
+    
+    // Validate surfaces in the area
+    const surfaceTypes = Object.keys(area.surfaces);
+    
+    surfaceTypes.forEach(surfaceType => {
+      const surface = area.surfaces[surfaceType];
+      
+      if (!surface || typeof surface !== 'object') {
+        errors.push({
+          code: 'INVALID_SURFACE',
+          category: `${areaId}.${surfaceType}`,
+          message: `Invalid surface configuration for ${surfaceType} in ${areaId}`,
+          severity: 'error'
+        });
+        return;
+      }
+      
+      // Validate tier-based products (good, better, best)
+      const tiers = ['good', 'better', 'best'];
+      const hasTiers = tiers.some(tier => surface[tier]);
+      
+      if (hasTiers) {
+        tiers.forEach(tier => {
+          if (surface[tier]) {
+            const product = surface[tier];
+            
+            if (!product.productId || !product.productName) {
+              errors.push({
+                code: 'INVALID_PRODUCT',
+                category: `${areaId}.${surfaceType}.${tier}`,
+                message: `Invalid product for ${tier} tier in ${surfaceType} of ${areaId}`,
+                severity: 'error'
+              });
+            }
+            
+            // Validate quantity is positive
+            if (product.quantity !== undefined && product.quantity <= 0) {
+              errors.push({
+                code: 'INVALID_QUANTITY',
+                category: `${areaId}.${surfaceType}.${tier}`,
+                message: `Quantity must be greater than 0 for ${tier} tier`,
+                severity: 'error'
+              });
+            }
+          }
+        });
+      } else {
+        warnings.push({
+          code: 'NO_TIER_PRODUCTS',
+          category: `${areaId}.${surfaceType}`,
+          message: `No tier products configured for ${surfaceType} in ${areaId}`,
+          severity: 'warning'
+        });
+      }
+    });
+  });
+};
+
+Quote.prototype._validateHourlyStructure = function(productSets, errors, warnings) {
+  // Validate hourly structure: should have items array
+  if (!productSets.items || !Array.isArray(productSets.items)) {
+    errors.push({
+      code: 'INVALID_STRUCTURE',
+      message: 'Hourly pricing requires items array configuration',
+      severity: 'error'
+    });
+    return;
+  }
+  
+  if (productSets.items.length === 0) {
+    warnings.push({
+      code: 'NO_ITEMS',
+      message: 'No items configured for hourly pricing',
+      severity: 'warning'
+    });
+    return;
+  }
+  
+  // Validate each item
+  productSets.items.forEach((item, index) => {
+    if (!item || typeof item !== 'object') {
+      errors.push({
+        code: 'INVALID_ITEM',
+        category: `item-${index}`,
+        message: `Invalid item at index ${index}`,
+        severity: 'error'
+      });
+      return;
+    }
+    
+    if (!item.id) {
+      errors.push({
+        code: 'MISSING_ITEM_ID',
+        category: `item-${index}`,
+        message: `Item at index ${index} is missing an id`,
+        severity: 'error'
+      });
+    }
+    
+    if (!item.description) {
+      warnings.push({
+        code: 'MISSING_DESCRIPTION',
+        category: `item-${index}`,
+        message: `Item at index ${index} is missing a description`,
+        severity: 'warning'
+      });
+    }
+    
+    if (!item.products || !Array.isArray(item.products)) {
+      errors.push({
+        code: 'MISSING_PRODUCTS',
+        category: `item-${index}`,
+        message: `Item at index ${index} is missing products array`,
+        severity: 'error'
+      });
+      return;
+    }
+    
+    // Validate products in the item
+    item.products.forEach((product, productIndex) => {
+      if (!product.productId || !product.productName) {
+        errors.push({
+          code: 'INVALID_PRODUCT',
+          category: `item-${index}.product-${productIndex}`,
+          message: `Invalid product at index ${productIndex} in item ${index}`,
+          severity: 'error'
+        });
+      }
+      
+      // Validate quantity is positive
+      if (product.quantity !== undefined && product.quantity <= 0) {
+        errors.push({
+          code: 'INVALID_QUANTITY',
+          category: `item-${index}.product-${productIndex}`,
+          message: `Quantity must be greater than 0 for product at index ${productIndex}`,
+          severity: 'error'
+        });
+      }
+    });
+    
+    // Validate estimated hours is positive
+    if (item.estimatedHours !== undefined && item.estimatedHours <= 0) {
+      errors.push({
+        code: 'INVALID_HOURS',
+        category: `item-${index}`,
+        message: `Estimated hours must be greater than 0 for item at index ${index}`,
+        severity: 'error'
+      });
+    }
+  });
+};
+
+Quote.prototype.getProductsForArea = function(areaId) {
+  if (!this.productSets || !this.productSets.areas) {
+    return null;
+  }
+  return this.productSets.areas[areaId] || null;
+};
+
+Quote.prototype.getProductsForSurfaceType = function(surfaceType) {
+  // For turnkey pricing - get products from global configuration
+  if (this.productSets && this.productSets.global) {
+    return this.productSets.global[surfaceType] || null;
+  }
+  return null;
+};
+
+Quote.prototype.getProductsForUnitType = function(unitType, category = 'interior') {
+  // For flat rate unit pricing - get products from category configuration
+  if (this.productSets && this.productSets[category]) {
+    return this.productSets[category][unitType] || null;
+  }
+  return null;
+};
+
+Quote.prototype.aggregateProducts = function() {
+  // Aggregate all products across the quote for product order forms
+  const productMap = new Map();
+  
+  if (!this.productSets) {
+    return [];
+  }
+  
+  const addProduct = (product) => {
+    if (!product || !product.productId) return;
+    
+    const key = product.productId;
+    if (productMap.has(key)) {
+      const existing = productMap.get(key);
+      existing.quantity = (parseFloat(existing.quantity) || 0) + (parseFloat(product.quantity) || 0);
+    } else {
+      productMap.set(key, {
+        productId: product.productId,
+        productName: product.productName,
+        quantity: parseFloat(product.quantity) || 0,
+        unit: product.unit || 'gallons',
+        cost: parseFloat(product.cost) || 0
+      });
+    }
+  };
+  
+  // Aggregate based on scheme
+  if (this.productSets.scheme === 'turnkey' && this.productSets.global) {
+    // Aggregate from global surface types
+    Object.values(this.productSets.global).forEach(surface => {
+      if (surface && typeof surface === 'object') {
+        addProduct(surface);
+      }
+    });
+  } else if (this.productSets.scheme === 'flat_rate_unit') {
+    // Aggregate from interior and exterior categories
+    ['interior', 'exterior'].forEach(category => {
+      if (this.productSets[category]) {
+        Object.values(this.productSets[category]).forEach(unitType => {
+          if (unitType && unitType.products && Array.isArray(unitType.products)) {
+            unitType.products.forEach(addProduct);
+          }
+        });
+      }
+    });
+  } else if (this.productSets.areas) {
+    // Aggregate from areas (unit pricing)
+    Object.values(this.productSets.areas).forEach(area => {
+      if (area && area.surfaces) {
+        Object.values(area.surfaces).forEach(surface => {
+          if (surface && typeof surface === 'object') {
+            // Handle tier-based products (good, better, best)
+            ['good', 'better', 'best', 'single'].forEach(tier => {
+              if (surface[tier]) {
+                addProduct(surface[tier]);
+              }
+            });
+          }
+        });
+      }
+    });
+  } else if (this.productSets.items && Array.isArray(this.productSets.items)) {
+    // Aggregate from hourly items
+    this.productSets.items.forEach(item => {
+      if (item && item.products && Array.isArray(item.products)) {
+        item.products.forEach(addProduct);
+      }
+    });
+  }
+  
+  return Array.from(productMap.values());
 };
 
 module.exports = Quote;
