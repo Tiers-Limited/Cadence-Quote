@@ -886,7 +886,7 @@ exports.getCustomerSelections = async (req, res) => {
       include: [{
         model: Quote,
         as: 'quote',
-        attributes: ['id', 'quoteNumber', 'productSets', 'productStrategy', 'gbbSelectedTier', 'pricingSchemeId'],
+        attributes: ['id', 'quoteNumber', 'productSets', 'productStrategy', 'pricingSchemeId'],
         include: [{
           model: require('../models/PricingScheme'),
           as: 'pricingScheme',
@@ -938,9 +938,13 @@ exports.getCustomerSelections = async (req, res) => {
       productSets = [];
     }
 
-    // Get selected tier for GBB
-    const selectedTier = job.quote.gbbSelectedTier || 'good';
+    // IMPORTANT: Use selectedTier from Job model (saved during deposit payment)
+    // This is the tier the customer selected and paid for
+    const selectedTier = job.selectedTier || 'better';
     const productStrategy = job.quote.productStrategy;
+
+    console.info(`[getCustomerSelections] Job ${jobId}: selectedTier=${selectedTier}, productStrategy=${productStrategy}`);
+    console.info(`[getCustomerSelections] ProductSets count: ${productSets.length}`);
 
     // Build a map of areaId/surfaceType to product info
     const productMap = new Map();
@@ -953,14 +957,30 @@ exports.getCustomerSelections = async (req, res) => {
 
       let productId = null;
       if (productStrategy === 'GBB') {
+        // Use the tier from Job model (customer's selected tier)
         productId = products[selectedTier];
       } else {
         productId = products.single || products.good || products.better || products.best;
       }
 
       if (productId) {
-        const key = `${areaId}_${surfaceType}`;
-        productMap.set(key, productId);
+        // Create multiple keys for better matching
+        // Key 1: areaId_surfaceType (for numeric areaIds)
+        if (areaId) {
+          const key1 = `${areaId}_${surfaceType}`;
+          productMap.set(key1, productId);
+          console.info(`[getCustomerSelections] Mapped key1: ${key1} -> productId: ${productId}`);
+        }
+        
+        // Key 2: just surfaceType (for flat rate items without numeric areaId)
+        productMap.set(surfaceType, productId);
+        console.info(`[getCustomerSelections] Mapped key2: ${surfaceType} -> productId: ${productId}`);
+        
+        // Key 3: normalized surfaceType (lowercase, no spaces)
+        const normalizedSurface = String(surfaceType).toLowerCase().replace(/\s+/g, '');
+        productMap.set(normalizedSurface, productId);
+        console.info(`[getCustomerSelections] Mapped key3: ${normalizedSurface} -> productId: ${productId}`);
+        
         productIds.add(productId);
       }
     }
@@ -1000,9 +1020,29 @@ exports.getCustomerSelections = async (req, res) => {
 
     // Format selections for display with product information
     const formattedSelections = selections.map(selection => {
-      // Try to find product info from productSets
-      const key = `${selection.areaId}_${selection.surfaceType}`;
-      const productId = productMap.get(key);
+      // Try to find product info from productSets using multiple key strategies
+      let productId = null;
+      
+      // Strategy 1: Try areaId_surfaceType (for numeric areaIds)
+      if (selection.areaId) {
+        const key1 = `${selection.areaId}_${selection.surfaceType}`;
+        productId = productMap.get(key1);
+        console.info(`[getCustomerSelections] Lookup key1: ${key1} -> ${productId ? 'FOUND' : 'NOT FOUND'}`);
+      }
+      
+      // Strategy 2: Try just surfaceType (for flat rate items)
+      if (!productId && selection.surfaceType) {
+        productId = productMap.get(selection.surfaceType);
+        console.info(`[getCustomerSelections] Lookup key2: ${selection.surfaceType} -> ${productId ? 'FOUND' : 'NOT FOUND'}`);
+      }
+      
+      // Strategy 3: Try normalized surfaceType (lowercase, no spaces)
+      if (!productId && selection.surfaceType) {
+        const normalizedSurface = String(selection.surfaceType).toLowerCase().replace(/\s+/g, '');
+        productId = productMap.get(normalizedSurface);
+        console.info(`[getCustomerSelections] Lookup key3: ${normalizedSurface} -> ${productId ? 'FOUND' : 'NOT FOUND'}`);
+      }
+      
       const productDetails = productId ? productDetailsMap.get(productId) : null;
 
       return {
@@ -1021,7 +1061,8 @@ exports.getCustomerSelections = async (req, res) => {
 
     res.json({
       success: true,
-      data: formattedSelections
+      data: formattedSelections,
+      selectedTier: job.selectedTier // Include selected tier in response
     });
 
   } catch (error) {

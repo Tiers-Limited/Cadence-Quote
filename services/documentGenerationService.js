@@ -517,19 +517,20 @@ class DocumentGenerationService {
     try {
       // Use existing workOrderService
       const workOrderService = require('./workOrderService');
-      const { ContractorSettings } = require('../models');
+      const { Tenant, User } = require('../models');
       
-      // Get contractor info
-      const contractorSettings = await ContractorSettings.findOne({
-        where: { tenantId: jobData.tenantId }
-      });
+      // Get tenant info (company name and logo)
+      const tenant = await Tenant.findByPk(jobData.tenantId);
+      
+      // Get contractor user info (email, phone, address)
+      const contractorUser = await User.findByPk(jobData.userId);
 
       const contractorInfo = {
-        logo: contractorSettings?.logoUrl,
-        companyName: contractorSettings?.companyName,
-        phone: contractorSettings?.phone,
-        email: contractorSettings?.email,
-        address: contractorSettings?.addressLine1
+        logo: tenant?.companyLogoUrl,
+        companyName: tenant?.companyName || 'Professional Painting Co.',
+        phone: contractorUser?.phoneNumber || '',
+        email: contractorUser?.email || '',
+        address: contractorUser?.address || ''
       };
 
       // Generate PDF using existing service
@@ -562,81 +563,43 @@ class DocumentGenerationService {
     console.log('[DocumentGeneration] Generating paint product order...');
     
     try {
-      // Use existing documentService for store order (paint product order)
-      const documentService = require('./documentService');
+      // Use existing workOrderService for paint product order
+      const workOrderService = require('./workOrderService');
+      const { Tenant, User } = require('../models');
       
-      // Prepare proposal data structure for documentService
-      const proposalData = {
-        quoteNumber: quoteData.quoteNumber || `Q-${quoteData.id}`,
-        customerName: quoteData.customerName,
-        selectedTier: quoteData.gbbSelectedTier || 'N/A',
-        areas: [] // Will be populated from quote data
+      // Get tenant info (company name and logo)
+      const tenant = await Tenant.findByPk(jobData.tenantId);
+      
+      // Get contractor user info (email, phone, address)
+      const contractorUser = await User.findByPk(jobData.userId);
+
+      const contractorInfo = {
+        logo: tenant?.companyLogoUrl,
+        companyName: tenant?.companyName || 'Professional Painting Co.',
+        phone: contractorUser?.phoneNumber || '',
+        email: contractorUser?.email || '',
+        address: contractorUser?.address || ''
       };
-      
-      // Convert quote data to areas format expected by documentService
-      if (quoteData.productSets && typeof quoteData.productSets === 'object') {
-        // Handle different product set structures
-        if (quoteData.productSets.areas) {
-          // Area-based structure
-          Object.entries(quoteData.productSets.areas).forEach(([areaId, area]) => {
-            if (area && area.areaName) {
-              proposalData.areas.push({
-                name: area.areaName,
-                sqft: area.totalSqft || 0,
-                customerSelections: area.selectedProducts || {}
-              });
-            }
-          });
-        }
-      }
-      
+
       // Generate PDF using existing service
-      const filePath = await documentService.generateStoreOrder(proposalData);
-      
-      // Convert file path to URL
-      const filename = path.basename(filePath);
-      return `/temp/${filename}`;
-    } catch (error) {
-      console.error('[DocumentGeneration] Paint order generation error:', error);
-      
-      // Fallback to simple HTML if service fails
-      const filename = `paint-order-${jobData.id}-${Date.now()}.pdf`;
+      const pdfBuffer = await workOrderService.generateProductOrderForm({
+        job: jobData,
+        quote: quoteData,
+        contractorInfo
+      });
+
+      // Save to temp directory
+      const filename = `store-order-${quoteData.quoteNumber || jobData.id}-${Date.now()}.pdf`;
       const tempDir = path.join(__dirname, '../temp');
-      const filepath = path.join(tempDir, filename);
-
-      const html = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8" />
-            <title>Paint Product Order</title>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 40px; }
-              h1 { color: #333; }
-              .info { margin: 20px 0; }
-              .products { margin-top: 30px; }
-            </style>
-          </head>
-          <body>
-            <h1>Paint Product Order</h1>
-            <div class="info">
-              <p><strong>Job ID:</strong> ${jobData.id}</p>
-              <p><strong>Customer:</strong> ${quoteData.customerName}</p>
-              <p><strong>Address:</strong> ${quoteData.street || ''} ${quoteData.city || ''}, ${quoteData.state || ''} ${quoteData.zipCode || ''}</p>
-            </div>
-            <div class="products">
-              <h2>Products</h2>
-              <p>Product list will be generated from quote data...</p>
-            </div>
-          </body>
-        </html>
-      `;
-
-      const pdfBuffer = await htmlToPdfBuffer(html);
+      
       await fs.mkdir(tempDir, { recursive: true });
+      const filepath = path.join(tempDir, filename);
       await fs.writeFile(filepath, pdfBuffer);
 
       return `/temp/${filename}`;
+    } catch (error) {
+      console.error('[DocumentGeneration] Paint order generation error:', error);
+      throw error;
     }
   }
 
@@ -650,19 +613,20 @@ class DocumentGenerationService {
     try {
       // Use existing workOrderService
       const workOrderService = require('./workOrderService');
-      const { ContractorSettings } = require('../models');
+      const { Tenant, User } = require('../models');
       
-      // Get contractor info
-      const contractorSettings = await ContractorSettings.findOne({
-        where: { tenantId: jobData.tenantId }
-      });
+      // Get tenant info (company name and logo)
+      const tenant = await Tenant.findByPk(jobData.tenantId);
+      
+      // Get contractor user info (email, phone, address)
+      const contractorUser = await User.findByPk(jobData.userId);
 
       const contractorInfo = {
-        logo: contractorSettings?.logoUrl,
-        companyName: contractorSettings?.companyName,
-        phone: contractorSettings?.phone,
-        email: contractorSettings?.email,
-        address: contractorSettings?.addressLine1
+        logo: tenant?.companyLogoUrl,
+        companyName: tenant?.companyName || 'Professional Painting Co.',
+        phone: contractorUser?.phoneNumber || '',
+        email: contractorUser?.email || '',
+        address: contractorUser?.address || ''
       };
 
       // Generate PDF using existing service

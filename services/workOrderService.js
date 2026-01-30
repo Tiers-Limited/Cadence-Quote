@@ -10,7 +10,7 @@ class WorkOrderService {
    * No pricing or sales language - pure execution document
    */
   async generateWorkOrder({ job, quote, contractorInfo }) {
-    const html = this.generateWorkOrderHTML({ job, quote, contractorInfo });
+    const html = await this.generateWorkOrderHTML({ job, quote, contractorInfo });
     return await htmlToPdfBuffer(html);
   }
 
@@ -19,7 +19,7 @@ class WorkOrderService {
    * Counter-order logic for paint stores
    */
   async generateProductOrderForm({ job, quote, contractorInfo }) {
-    const html = this.generateProductOrderHTML({ job, quote, contractorInfo });
+    const html = await this.generateProductOrderHTML({ job, quote, contractorInfo });
     return await htmlToPdfBuffer(html);
   }
 
@@ -27,17 +27,17 @@ class WorkOrderService {
    * Generate Material List (organized by product, color, sheen)
    */
   async generateMaterialList({ job, quote, contractorInfo }) {
-    const html = this.generateMaterialListHTML({ job, quote, contractorInfo });
+    const html = await this.generateMaterialListHTML({ job, quote, contractorInfo });
     return await htmlToPdfBuffer(html);
   }
 
   /**
    * Work Order HTML Generation
    */
-  generateWorkOrderHTML({ job, quote, contractorInfo = {} }) {
+  async generateWorkOrderHTML({ job, quote, contractorInfo = {} }) {
     const company = this.getCompanyProfile(contractorInfo);
     const jobCore = this.getJobCore(job, quote);
-    const areas = this.extractAreasWithSelections(quote, jobCore.jobType);
+    const areas = await this.extractAreasWithSelections(quote, job);
     const materialTotals = this.aggregateMaterials(areas);
     const specialInstructions = this.compileSpecialInstructions(quote, job);
     const scopes = this.deriveScopes(job, quote);
@@ -228,9 +228,10 @@ class WorkOrderService {
   /**
    * Paint Product Order Form HTML Generation (Store-Facing)
    */
-  generateProductOrderHTML({ job, quote, contractorInfo = {} }) {
+  async generateProductOrderHTML({ job, quote, contractorInfo = {} }) {
+    const company = this.getCompanyProfile(contractorInfo);
     const jobCore = this.getJobCore(job, quote);
-    const paintItems = this.aggregatePaintItems(quote, jobCore.jobType);
+    const paintItems = await this.aggregatePaintItems(quote, job);
 
     return `
       <!DOCTYPE html>
@@ -247,9 +248,9 @@ class WorkOrderService {
             <div class="order-header">
               <h1>PAINT PRODUCT ORDER FORM</h1>
               <div class="company-info">
-                <strong>${jobCore.companyName || contractorInfo.companyName || 'Professional Painting Co.'}</strong><br/>
-                ${contractorInfo.address || contractorInfo.businessAddress || ''}<br/>
-                Phone: ${contractorInfo.phone || contractorInfo.phoneNumber || ''} • Email: ${contractorInfo.email || ''}
+                <strong>${company.name}</strong><br/>
+                ${company.address ? `${company.address}<br/>` : ''}
+                ${[company.phone, company.email].filter(Boolean).join(' • ')}
               </div>
             </div>
 
@@ -337,8 +338,8 @@ class WorkOrderService {
   /**
    * Material List HTML Generation
    */
-  generateMaterialListHTML({ job = {}, quote, contractorInfo = {} }) {
-    const materials = this.aggregateMaterialsDetailed(quote, job);
+  async generateMaterialListHTML({ job = {}, quote, contractorInfo = {} }) {
+    const materials = await this.aggregateMaterialsDetailed(quote, job);
 
     return `
       <!DOCTYPE html>
@@ -469,8 +470,25 @@ class WorkOrderService {
     return { primary, secondary };
   }
 
-  extractAreasWithSelections(quote, jobType) {
+  async extractAreasWithSelections(quote, job) {
     const areas = [];
+    
+    // Get customer selections from database
+    const CustomerSelection = require('../models/CustomerSelection');
+    const ProductConfig = require('../models/ProductConfig');
+    const GlobalProduct = require('../models/GlobalProduct');
+    const Brand = require('../models/Brand');
+    
+    let customerSelections = [];
+    if (job && job.quoteId) {
+      customerSelections = await CustomerSelection.findAll({
+        where: {
+          quoteId: job.quoteId,
+          tenantId: job.tenantId
+        },
+        order: [['areaId', 'ASC']]
+      });
+    }
     
     // Parse productSets if it's a string
     let productSets = quote.productSets;
@@ -486,118 +504,206 @@ class WorkOrderService {
       productSets = [];
     }
     
-    const pricingSchemeType = quote.pricingScheme?.type || quote.pricingSchemeType;
-    const isFlatRate = pricingSchemeType === 'flat_rate_unit';
-    const isAreaWise = ['production_based', 'rate_based_sqft', 'rate_based'].includes(pricingSchemeType);
+    // IMPORTANT: Use selectedTier from Job model (saved during deposit payment)
+    const selectedTier = job?.selectedTier || 'better';
+    const productStrategy = quote.productStrategy;
     
-    if (isFlatRate) {
-      // Flat rate: Extract products from productSets
-      productSets.forEach(set => {
-        if (!set.products) return;
-        
-        const category = set.category || 'Interior';
-        const label = set.label || set.surfaceType || 'Unknown';
-        
-        // For flat rate, we show the selected tier (good/better/best)
-        const selectedTier = set.selectedTier || 'better'; // Default to better
-        const selectedProduct = set.products[selectedTier];
-        
-        if (selectedProduct) {
-          areas.push({
-            name: label,
-            surface: label,
-            product: selectedProduct.productName || selectedProduct.name || 'Not selected',
-            sheen: selectedProduct.sheen || 'Not selected',
-            colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
-            colorNumber: selectedProduct.colorNumber || '',
-            swatch: selectedProduct.colorHex || null,
-            gallons: this.resolveGallons({}, selectedProduct),
-            type: category.charAt(0).toUpperCase() + category.slice(1),
+    console.info(`[WorkOrderService] Job ${job?.id}: selectedTier=${selectedTier}, productStrategy=${productStrategy}`);
+    
+    // Build a map of areaId/surfaceType to product info
+    const productMap = new Map();
+    const productIds = new Set();
+
+    for (const productSet of productSets) {
+      const areaId = productSet.areaId || productSet.id;
+      const surfaceType = productSet.surfaceType || productSet.type || 'general';
+      const products = productSet.products || {};
+
+      let productId = null;
+      if (productStrategy === 'GBB') {
+        // Use the tier from Job model (customer's selected tier)
+        productId = products[selectedTier];
+      } else {
+        productId = products.single || products.good || products.better || products.best;
+      }
+
+      if (productId) {
+        // Create multiple keys for better matching
+        if (areaId) {
+          const key1 = `${areaId}_${surfaceType}`;
+          productMap.set(key1, productId);
+        }
+        productMap.set(surfaceType, productId);
+        const normalizedSurface = String(surfaceType).toLowerCase().replace(/\s+/g, '');
+        productMap.set(normalizedSurface, productId);
+        productIds.add(productId);
+      }
+    }
+
+    // Fetch all product configs in one query
+    const productConfigs = await ProductConfig.findAll({
+      where: { id: Array.from(productIds) },
+      include: [
+        {
+          model: GlobalProduct,
+          as: 'globalProduct',
+          include: [{
+            model: Brand,
+            as: 'brand',
+            attributes: ['id', 'name']
+          }]
+        }
+      ]
+    });
+
+    // Create a map of productId to product details
+    const productDetailsMap = new Map();
+    productConfigs.forEach(config => {
+      const productName = config.isCustom && config.customProduct 
+        ? config.customProduct.name 
+        : config.globalProduct?.name || 'Unknown Product';
+      
+      const brandName = config.isCustom && config.customProduct
+        ? config.customProduct.brandName
+        : config.globalProduct?.brand?.name || '';
+
+      productDetailsMap.set(config.id, {
+        productName,
+        brandName
+      });
+    });
+    
+    // Process customer selections
+    customerSelections.forEach(selection => {
+      // Try to find product info from productSets using multiple key strategies
+      let productId = null;
+      
+      // Strategy 1: Try areaId_surfaceType
+      if (selection.areaId) {
+        const key1 = `${selection.areaId}_${selection.surfaceType}`;
+        productId = productMap.get(key1);
+      }
+      
+      // Strategy 2: Try just surfaceType
+      if (!productId && selection.surfaceType) {
+        productId = productMap.get(selection.surfaceType);
+      }
+      
+      // Strategy 3: Try normalized surfaceType
+      if (!productId && selection.surfaceType) {
+        const normalizedSurface = String(selection.surfaceType).toLowerCase().replace(/\s+/g, '');
+        productId = productMap.get(normalizedSurface);
+      }
+      
+      const productDetails = productId ? productDetailsMap.get(productId) : null;
+      
+      areas.push({
+        name: selection.areaName,
+        surface: selection.surfaceType || 'Surface',
+        product: productDetails?.productName || selection.productName || 'Not selected',
+        brandName: productDetails?.brandName || '',
+        sheen: selection.sheen || 'Not selected',
+        colorName: selection.colorName || 'Not selected',
+        colorNumber: selection.colorNumber || '',
+        swatch: selection.colorHex || null,
+        gallons: selection.quantityGallons || 0,
+        type: this.getAreaType(job?.jobType || quote.jobType || quote.jobScope),
+      });
+    });
+    
+    // Fallback: If no customer selections, try to extract from productSets
+    if (areas.length === 0) {
+      const pricingSchemeType = quote.pricingScheme?.type || quote.pricingSchemeType;
+      const isFlatRate = pricingSchemeType === 'flat_rate_unit';
+      const isAreaWise = ['production_based', 'rate_based_sqft', 'rate_based'].includes(pricingSchemeType);
+      
+      if (isFlatRate) {
+        // Flat rate: Extract products from productSets
+        productSets.forEach(set => {
+          if (!set.products) return;
+          
+          const category = set.category || 'Interior';
+          const label = set.label || set.surfaceType || 'Unknown';
+          
+          // Use selectedTier from Job model
+          const selectedProduct = set.products[selectedTier];
+          
+          if (selectedProduct) {
+            areas.push({
+              name: label,
+              surface: label,
+              product: selectedProduct.productName || selectedProduct.name || 'Not selected',
+              sheen: selectedProduct.sheen || 'Not selected',
+              colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
+              colorNumber: selectedProduct.colorNumber || '',
+              swatch: selectedProduct.colorHex || null,
+              gallons: this.resolveGallons({}, selectedProduct),
+              type: category.charAt(0).toUpperCase() + category.slice(1),
+            });
+          }
+        });
+      } else if (isAreaWise) {
+        // Area-wise pricing: Extract from areas and match with productSets
+        if (quote.areas && Array.isArray(quote.areas)) {
+          quote.areas.forEach(area => {
+            if (!area.laborItems || area.laborItems.length === 0) return;
+            
+            area.laborItems.forEach(item => {
+              if (!item.selected) return;
+              
+              const surfaceType = item.categoryName;
+              const productSet = productSets.find(ps => 
+                ps.areaId === area.id && ps.surfaceType === surfaceType
+              ) || productSets.find(ps => 
+                !ps.areaId && ps.surfaceType === surfaceType
+              );
+              
+              if (productSet && productSet.products) {
+                const selectedProduct = productSet.products[selectedTier];
+                
+                if (selectedProduct) {
+                  areas.push({
+                    name: area.name || 'Unnamed Area',
+                    surface: surfaceType,
+                    product: selectedProduct.productName || selectedProduct.name || 'Not selected',
+                    sheen: selectedProduct.sheen || 'Not selected',
+                    colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
+                    colorNumber: selectedProduct.colorNumber || '',
+                    swatch: selectedProduct.colorHex || null,
+                    gallons: this.resolveGallons(area, selectedProduct),
+                    type: this.getAreaType(job?.jobType || quote.jobType || quote.jobScope),
+                  });
+                }
+              }
+            });
           });
         }
-      });
-    } else if (isAreaWise) {
-      // Area-wise pricing: Extract from areas and match with productSets
-      if (quote.areas && Array.isArray(quote.areas)) {
-        quote.areas.forEach(area => {
-          if (!area.laborItems || area.laborItems.length === 0) return;
+      } else {
+        // Turnkey: Global products from productSets
+        productSets.forEach(ps => {
+          const surfaceLabel = ps.surfaceType || ps.label;
+          if (!surfaceLabel || !ps.products) return;
           
-          area.laborItems.forEach(item => {
-            if (!item.selected) return;
-            
-            const surfaceType = item.categoryName;
-            const productSet = productSets.find(ps => 
-              ps.areaId === area.id && ps.surfaceType === surfaceType
-            ) || productSets.find(ps => 
-              !ps.areaId && ps.surfaceType === surfaceType
-            );
-            
-            if (productSet && productSet.products) {
-              const selectedTier = productSet.selectedTier || 'better';
-              const selectedProduct = productSet.products[selectedTier];
-              
-              if (selectedProduct) {
-                areas.push({
-                  name: area.name || 'Unnamed Area',
-                  surface: surfaceType,
-                  product: selectedProduct.productName || selectedProduct.name || 'Not selected',
-                  sheen: selectedProduct.sheen || 'Not selected',
-                  colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
-                  colorNumber: selectedProduct.colorNumber || '',
-                  swatch: selectedProduct.colorHex || null,
-                  gallons: this.resolveGallons(area, selectedProduct),
-                  type: this.getAreaType(jobType || quote.jobType || quote.jobScope),
-                });
-              }
-            }
-          });
+          const selectedProduct = ps.products[selectedTier];
+          
+          if (selectedProduct) {
+            areas.push({
+              name: surfaceLabel,
+              surface: surfaceLabel,
+              product: selectedProduct.productName || selectedProduct.name || 'Not selected',
+              sheen: selectedProduct.sheen || 'Not selected',
+              colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
+              colorNumber: selectedProduct.colorNumber || '',
+              swatch: selectedProduct.colorHex || null,
+              gallons: this.resolveGallons({}, selectedProduct),
+              type: this.getAreaType(job?.jobType || quote.jobType || quote.jobScope),
+            });
+          }
         });
       }
-    } else {
-      // Turnkey: Global products from productSets
-      productSets.forEach(ps => {
-        const surfaceLabel = ps.surfaceType || ps.label;
-        if (!surfaceLabel || !ps.products) return;
-        
-        const selectedTier = ps.selectedTier || 'better';
-        const selectedProduct = ps.products[selectedTier];
-        
-        if (selectedProduct) {
-          areas.push({
-            name: surfaceLabel,
-            surface: surfaceLabel,
-            product: selectedProduct.productName || selectedProduct.name || 'Not selected',
-            sheen: selectedProduct.sheen || 'Not selected',
-            colorName: selectedProduct.color || selectedProduct.colorName || 'Not selected',
-            colorNumber: selectedProduct.colorNumber || '',
-            swatch: selectedProduct.colorHex || null,
-            gallons: this.resolveGallons({}, selectedProduct),
-            type: this.getAreaType(jobType || quote.jobType || quote.jobScope),
-          });
-        }
-      });
     }
     
-    // Fallback: Check for legacy customerSelections structure
-    if (areas.length === 0 && quote.areas && Array.isArray(quote.areas)) {
-      quote.areas.forEach(area => {
-        if (area.customerSelections) {
-          const sel = area.customerSelections;
-          const gallons = this.resolveGallons(area, sel);
-          areas.push({
-            name: area.name || 'Unnamed Area',
-            surface: area.surface || 'Walls',
-            product: sel.product || 'Not selected',
-            sheen: sel.sheen || 'Not selected',
-            colorName: sel.color || 'Not selected',
-            colorNumber: sel.colorNumber || '',
-            swatch: sel.swatch || sel.colorHex || null,
-            gallons,
-            type: this.getAreaType(jobType || quote.jobType || quote.jobScope),
-          });
-        }
-      });
-    }
+    return areas;
     
     return areas;
   }
@@ -623,8 +729,8 @@ class WorkOrderService {
     return Array.from(totalsMap.values());
   }
 
-  aggregatePaintItems(quote, jobType) {
-    const areas = this.extractAreasWithSelections(quote, jobType);
+  async aggregatePaintItems(quote, job) {
+    const areas = await this.extractAreasWithSelections(quote, job);
     const itemsMap = new Map();
 
     areas.forEach(area => {
@@ -648,8 +754,8 @@ class WorkOrderService {
     }));
   }
 
-  aggregateMaterialsDetailed(quote, job) {
-    const paintItems = this.aggregatePaintItems(quote, job?.jobType || quote?.jobType);
+  async aggregateMaterialsDetailed(quote, job) {
+    const paintItems = await this.aggregatePaintItems(quote, job);
     
     return {
       paint: paintItems.length > 0 ? paintItems : [{

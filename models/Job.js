@@ -195,6 +195,7 @@ const Job = sequelize.define('Job', {
   selectedTier: {
     type: DataTypes.ENUM('good', 'better', 'best'),
     allowNull: true,
+    defaultValue: 'better',
     field: 'selected_tier',
     
   },

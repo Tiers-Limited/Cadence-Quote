@@ -362,6 +362,7 @@ const Quote = sequelize.define('Quote', {
   gbbSelectedTier: {
     type: DataTypes.ENUM('good', 'better', 'best'),
     allowNull: true,
+    defaultValue: 'better',
     field: 'gbb_selected_tier'
   },
   

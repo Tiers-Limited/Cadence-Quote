@@ -139,7 +139,7 @@ exports.getSelectionOptions = async (req, res) => {
     }
     
     // Get selected tier for GBB
-    const selectedTier = quote.gbbSelectedTier || 'good';
+    const selectedTier = quote.gbbSelectedTier || 'better';
     
     // Build selection options by extracting product IDs and batch-loading product configs
     const options = [];
@@ -184,8 +184,8 @@ exports.getSelectionOptions = async (req, res) => {
 
       let productId = null;
       if (quote.productStrategy === 'GBB') {
-        // Use selectedTier, but default to 'good' if not set
-        const tier = selectedTier || 'good';
+        // Use selectedTier, but default to 'better' if not set
+        const tier = selectedTier || 'better';
         productId = products[tier];
       } else {
         productId = products.single || products.good || products.better || products.best;
