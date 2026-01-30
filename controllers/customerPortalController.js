@@ -704,7 +704,15 @@ exports.getBranding = async (req, res) => {
  */
 exports.getCustomerProposals = async (req, res) => {
   try {
-    const customerId = req.user?.id || 212; // Use authenticated user or test ID
+    const customerId = req.customer?.id; // Use authenticated customer from customerSessionAuth middleware
+    
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found in session'
+      });
+    }
+    
     const { page = 1, limit = 10, search = '', status = '' } = req.query;
 
     // Create cache key based on filters
@@ -3646,6 +3654,13 @@ exports.getCustomerJobs = async (req, res) => {
     const customerId = req.customer?.id;
     const tenantId = req.customerTenantId;
     
+    if (!customerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found in session'
+      });
+    }
+    
     // Try to get from cache first
     const cacheKey = CACHE_KEYS.CUSTOMER_JOBS(customerId);
     if (optimizationSystem.initialized) {
@@ -3875,9 +3890,16 @@ exports.getCustomerJobCalendar = async (req, res) => {
  */
 exports.getQuotes = async (req, res) => {
   try {
-    const clientId = req.customer.id;
+    const clientId = req.customer?.id;
     const tenantId = req.customerTenantId;
     const isVerified = req.isVerifiedCustomer;
+    
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found in session'
+      });
+    }
     
     // Build query based on verification status
     const whereClause = {
@@ -3982,9 +4004,16 @@ exports.getQuotes = async (req, res) => {
 exports.getQuoteDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const clientId = req.customer.id;
+    const clientId = req.customer?.id;
     const tenantId = req.customerTenantId;
     const isVerified = req.isVerifiedCustomer;
+    
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found in session'
+      });
+    }
     
     // Build query - restrict to specific quote if not verified
     const whereClause = {
@@ -4047,9 +4076,16 @@ exports.approveQuote = async (req, res) => {
   try {
     const { id } = req.params;
     const { signature, comments } = req.body;
-    const clientId = req.customer.id;
+    const clientId = req.customer?.id;
     const tenantId = req.customerTenantId;
     const isVerified = req.isVerifiedCustomer;
+    
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found in session'
+      });
+    }
     
     // Build query
     const whereClause = {
@@ -4181,9 +4217,16 @@ exports.rejectQuote = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason, comments } = req.body;
-    const clientId = req.customer.id;
+    const clientId = req.customer?.id;
     const tenantId = req.customerTenantId;
     const isVerified = req.isVerifiedCustomer;
+    
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer ID not found in session'
+      });
+    }
     
     // Build query
     const whereClause = {
