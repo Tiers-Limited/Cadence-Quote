@@ -156,16 +156,6 @@ const TenantManagementPage = () => {
         'year': 'numeric'
       }) : '-',
     }] : []),
-    ...(!isMobile ? [{
-      title: 'Created',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (date) => new Date(date).toLocaleDateString('en-US',{
-        'day': '2-digit',
-        'month': 'short',
-        'year': 'numeric'
-      }),
-    }] : []),
     {
       title: 'Actions',
       key: 'actions',

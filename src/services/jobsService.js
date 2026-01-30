@@ -283,6 +283,19 @@ export const jobsService = {
       console.error('Generate job documents error:', error);
       throw error;
     }
+  },
+
+  /**
+   * Get customer selections for a job
+   */
+  async getCustomerSelections(jobId) {
+    try {
+      const response = await apiService.get(`/jobs/${jobId}/customer-selections`);
+      return response;
+    } catch (error) {
+      console.error('Get customer selections error:', error);
+      throw error;
+    }
   }
 };
 

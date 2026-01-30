@@ -48,6 +48,7 @@ const MagicLinkAccess = () => {
         branding, 
         client,
         quote,
+        magicLink,
         allowMultiJobAccess,
         message 
       } = response.data;
@@ -61,8 +62,9 @@ const MagicLinkAccess = () => {
         localStorage.setItem('portalQuote', JSON.stringify(quote));
       }
 
-      // Calculate remaining days
-      const expiresAt = new Date(session.expiresAt);
+      // Calculate remaining days based on magic link expiry (not session)
+      const expiresAt = new Date(magicLink.expiresAt);
+      const createdAt = new Date(magicLink.createdAt);
       const now = new Date();
       const remainingDays = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24));
 

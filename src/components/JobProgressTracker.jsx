@@ -9,8 +9,16 @@ const { Option } = Select;
 
 function JobProgressTracker({ jobId, job, onProgressUpdate }) {
   const [updating, setUpdating] = useState({});
+  
+  // Check if job is scheduled
+  const isScheduled = !!job.scheduledStartDate;
 
   const handleStatusChange = async (itemKey, areaId, newStatus) => {
+    if (!isScheduled) {
+      message.warning('Job must be scheduled before updating progress');
+      return;
+    }
+    
     try {
       setUpdating(prev => ({ ...prev, [itemKey || areaId]: true }));
       
@@ -243,9 +251,10 @@ function JobProgressTracker({ jobId, job, onProgressUpdate }) {
                       value={item.status}
                       onChange={(value) => handleStatusChange(item.areaId ? null : item.key, item.areaId, value)}
                       loading={updating[updateKey]}
-                      disabled={updating[updateKey]}
+                      disabled={!isScheduled || updating[updateKey]}
                       style={{ width: 150 }}
                       size="small"
+                      placeholder={!isScheduled ? "Schedule job first" : "Select status"}
                     >
                       <Option value="not_started">Not Started</Option>
                       <Option value="prepped">Prepped</Option>

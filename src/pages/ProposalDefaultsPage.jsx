@@ -12,13 +12,13 @@ function ProposalDefaultsPage() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('introduction');
   const [form] = Form.useForm();
-  const [gbbDefaults, setGbbDefaults] = useState([]);
-  const [globalProducts, setGlobalProducts] = useState([]);
+//   const [gbbDefaults, setGbbDefaults] = useState([]);
+//   const [globalProducts, setGlobalProducts] = useState([]);
 
   useEffect(() => {
     fetchProposalDefaults();
-    fetchGBBDefaults();
-    fetchGlobalProducts();
+    // fetchGBBDefaults();
+    // fetchGlobalProducts();
   }, []);
 
   const fetchProposalDefaults = async () => {
@@ -35,27 +35,27 @@ function ProposalDefaultsPage() {
     }
   };
 
-  const fetchGBBDefaults = async () => {
-    try {
-      const response = await apiService.get('/gbb-defaults');
-      if (response.success) {
-        setGbbDefaults(response.data);
-      }
-    } catch (error) {
-      console.error('Failed to load GBB defaults:', error);
-    }
-  };
+//   const fetchGBBDefaults = async () => {
+//     try {
+//       const response = await apiService.get('/gbb-defaults');
+//       if (response.success) {
+//         setGbbDefaults(response.data);
+//       }
+//     } catch (error) {
+//       console.error('Failed to load GBB defaults:', error);
+//     }
+//   };
 
-  const fetchGlobalProducts = async () => {
-    try {
-      const response = await apiService.get('/global-products?limit=1000');
-      if (response.success) {
-        setGlobalProducts(response.data || []);
-      }
-    } catch (error) {
-      console.error('Failed to load products:', error);
-    }
-  };
+//   const fetchGlobalProducts = async () => {
+//     try {
+//       const response = await apiService.get('/global-products?limit=1000');
+//       if (response.success) {
+//         setGlobalProducts(response.data || []);
+//       }
+//     } catch (error) {
+//       console.error('Failed to load products:', error);
+//     }
+//   };
 
   const handleSave = async (values) => {
     try {
@@ -71,38 +71,38 @@ function ProposalDefaultsPage() {
     }
   };
 
-  const handleSaveGBBDefaults = async () => {
-    try {
-      setSaving(true);
-      const response = await apiService.put('/gbb-defaults', { defaults: gbbDefaults });
-      if (response.success) {
-        message.success('GBB defaults saved successfully');
-      }
-    } catch (error) {
-      message.error('Failed to save GBB defaults: ' + error.message);
-    } finally {
-      setSaving(false);
-    }
-  };
+//   const handleSaveGBBDefaults = async () => {
+//     try {
+//       setSaving(true);
+//       const response = await apiService.put('/gbb-defaults', { defaults: gbbDefaults });
+//       if (response.success) {
+//         message.success('GBB defaults saved successfully');
+//       }
+//     } catch (error) {
+//       message.error('Failed to save GBB defaults: ' + error.message);
+//     } finally {
+//       setSaving(false);
+//     }
+//   };
 
-  const handleGBBChange = (surfaceType, tier, field, value) => {
-    setGbbDefaults(prev =>
-      prev.map(item =>
-        item.surfaceType === surfaceType
-          ? { ...item, [`${tier}${field.charAt(0).toUpperCase() + field.slice(1)}`]: value }
-          : item
-      )
-    );
-  };
+//   const handleGBBChange = (surfaceType, tier, field, value) => {
+//     setGbbDefaults(prev =>
+//       prev.map(item =>
+//         item.surfaceType === surfaceType
+//           ? { ...item, [`${tier}${field.charAt(0).toUpperCase() + field.slice(1)}`]: value }
+//           : item
+//       )
+//     );
+//   };
 
-  const surfaceTypeLabels = {
-    interior_walls: 'Interior Walls',
-    interior_trim_doors: 'Interior Trim & Doors',
-    interior_ceilings: 'Interior Ceilings',
-    cabinets: 'Cabinets',
-    exterior_siding: 'Exterior Siding',
-    exterior_trim: 'Exterior Trim'
-  };
+//   const surfaceTypeLabels = {
+//     interior_walls: 'Interior Walls',
+//     interior_trim_doors: 'Interior Trim & Doors',
+//     interior_ceilings: 'Interior Ceilings',
+//     cabinets: 'Cabinets',
+//     exterior_siding: 'Exterior Siding',
+//     exterior_trim: 'Exterior Trim'
+//   };
 
   if (loading) {
     return (
@@ -278,7 +278,7 @@ function ProposalDefaultsPage() {
               </Button>
             </Card>
 
-            <Card title="Good-Better-Best Product Defaults" className="mt-4">
+            {/* <Card title="Good-Better-Best Product Defaults" className="mt-4">
               <p className="text-gray-600 mb-6">
                 Set default products and pricing for each surface type. These will auto-populate during quoting.
               </p>
@@ -286,7 +286,7 @@ function ProposalDefaultsPage() {
               {gbbDefaults.map((item) => (
                 <Card key={item.surfaceType} className="mb-4" size="small" title={surfaceTypeLabels[item.surfaceType]}>
                   <div className="grid grid-cols-3 gap-4">
-                    {/* Good Tier */}
+                  
                     <div>
                       <h4 className="font-semibold text-gray-700 mb-2">Good</h4>
                       <Select
@@ -314,7 +314,7 @@ function ProposalDefaultsPage() {
                       />
                     </div>
 
-                    {/* Better Tier */}
+               
                     <div>
                       <h4 className="font-semibold text-gray-700 mb-2">Better</h4>
                       <Select
@@ -342,7 +342,7 @@ function ProposalDefaultsPage() {
                       />
                     </div>
 
-                    {/* Best Tier */}
+                  
                     <div>
                       <h4 className="font-semibold text-gray-700 mb-2">Best</h4>
                       <Select
@@ -376,7 +376,7 @@ function ProposalDefaultsPage() {
               <Button type="primary" onClick={handleSaveGBBDefaults} loading={saving} icon={<FiSave />} className="mt-4">
                 Save GBB Defaults
               </Button>
-            </Card>
+            </Card> */}
           </TabPane>
 
           {/* 7. Acceptance & Signature Agreement (Combined) */}

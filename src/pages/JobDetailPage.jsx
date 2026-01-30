@@ -47,11 +47,14 @@ function JobDetailPage () {
   const [documents, setDocuments] = useState([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingDoc, setDownloadingDoc] = useState(null)
+  const [customerSelections, setCustomerSelections] = useState(null)
+  const [selectionsLoading, setSelectionsLoading] = useState(false)
 
   useEffect(() => {
     if (jobId) {
       fetchJobDetails()
       fetchJobDocuments()
+      fetchCustomerSelections()
     }
   }, [jobId])
 
@@ -61,6 +64,10 @@ function JobDetailPage () {
       const response = await jobsService.getJobById(jobId)
       if (response.success) {
         setJob(response.data)
+        // Refresh customer selections if they exist
+        if (response.data.customerSelectionsComplete) {
+          fetchCustomerSelections()
+        }
       }
     } catch (error) {
       message.error('Failed to load job details: ' + error.message)
@@ -125,6 +132,21 @@ function JobDetailPage () {
     }
   }
 
+  const fetchCustomerSelections = async () => {
+    try {
+      setSelectionsLoading(true)
+      const response = await jobsService.getCustomerSelections(jobId)
+      if (response.success) {
+        setCustomerSelections(response.data)
+      }
+    } catch (error) {
+      console.error('Failed to load customer selections:', error)
+      setCustomerSelections(null)
+    } finally {
+      setSelectionsLoading(false)
+    }
+  }
+
   const handleGenerateDocuments = async () => {
     try {
       setDocumentsLoading(true)
@@ -138,6 +160,27 @@ function JobDetailPage () {
     } finally {
       setDocumentsLoading(false)
     }
+  }
+
+  const handleRegenerateDocuments = async () => {
+    Modal.confirm({
+      title: 'Regenerate Documents',
+      content: 'This will regenerate all job documents with the latest data. Continue?',
+      onOk: async () => {
+        try {
+          setDocumentsLoading(true)
+          const response = await jobsService.generateJobDocuments(jobId)
+          if (response.success) {
+            message.success('Job documents regenerated successfully')
+            fetchJobDocuments()
+          }
+        } catch (error) {
+          message.error('Failed to regenerate documents: ' + error.message)
+        } finally {
+          setDocumentsLoading(false)
+        }
+      }
+    })
   }
 
   const handleScheduleJob = () => {
@@ -165,7 +208,14 @@ function JobDetailPage () {
       if (response.success) {
         message.success('Job scheduled successfully')
         setSchedulingModalVisible(false)
-        fetchJobDetails()
+        // Update local state immediately for UI responsiveness
+        setJob(prevJob => ({
+          ...prevJob,
+          ...scheduleData,
+          status: prevJob.status === 'selections_complete' ? 'scheduled' : prevJob.status
+        }))
+        // Then fetch fresh data from server
+        await fetchJobDetails()
       }
     } catch (error) {
       message.error('Failed to schedule job: ' + error.message)
@@ -349,14 +399,27 @@ function JobDetailPage () {
             </Descriptions>
           </Card>
 
-          {/* Job Progress Tracker - Show for all pricing schemes */}
-          <Card title='Job Progress by Area' className='mb-4'>
-            <JobProgressTracker
-              jobId={jobId}
-              job={job}
-              onProgressUpdate={fetchJobDetails}
-            />
-          </Card>
+          {/* Job Progress Tracker - Only show if job is scheduled */}
+          {job.scheduledStartDate && (
+            <Card title='Job Progress by Area' className='mb-4'>
+              <JobProgressTracker
+                jobId={jobId}
+                job={job}
+                onProgressUpdate={fetchJobDetails}
+              />
+            </Card>
+          )}
+          
+          {!job.scheduledStartDate && (
+            <Card title='Job Progress by Area' className='mb-4'>
+              <Alert
+                message="Job Not Scheduled"
+                description="Schedule the job to start tracking progress by area."
+                type="info"
+                showIcon
+              />
+            </Card>
+          )}
         </Col>
 
         {/* Right Column */}
@@ -389,73 +452,103 @@ function JobDetailPage () {
               >
                 Schedule Job
               </Button>
-              <Button
-                block
-                type='primary'
-                onClick={async () => {
-                  Modal.confirm({
-                    title: 'Approve selections',
-                    content: 'Approve customer selections and lock the portal? This will notify the customer.',
-                    onOk: async () => {
-                      try {
-                        const response = await jobsService.approveSelections(jobId)
-                        if (response.success) {
-                          message.success('Selections approved')
-                          fetchJobDetails()
+              {job.customerSelectionsComplete && (
+                <Button
+                  block
+                  type='primary'
+                  onClick={async () => {
+                    Modal.confirm({
+                      title: 'Approve selections',
+                      content: 'Approve customer selections and lock the portal? This will notify the customer.',
+                      onOk: async () => {
+                        try {
+                          const response = await jobsService.approveSelections(jobId)
+                          if (response.success) {
+                            message.success('Selections approved')
+                            fetchJobDetails()
+                          }
+                        } catch (err) {
+                          message.error('Failed to approve selections: ' + err.message)
                         }
-                      } catch (err) {
-                        message.error('Failed to approve selections: ' + err.message)
                       }
-                    }
-                  })
-                }}
-              >
-                Approve Selections
-              </Button>
-              <Button
-                block
-                onClick={async () => {
-                  try {
-                    const currentlyVisible = !!job?.quote?.portalOpen
-                    const response = await jobsService.setJobVisibility(jobId, !currentlyVisible)
-                    if (response.success) {
-                      message.success(!currentlyVisible ? 'Portal opened for customer' : 'Portal hidden from customer')
-                      fetchJobDetails()
-                    }
-                  } catch (err) {
-                    message.error('Failed to update portal visibility: ' + err.message)
-                  }
-                }}
-              >
-                {job?.quote?.portalOpen ? 'Hide Portal from Customer' : 'Open Portal for Customer'}
-              </Button>
+                    })
+                  }}
+                >
+                  Approve Selections
+                </Button>
+              )}
             </Space>
           </Card>
 
           {/* Customer Selections */}
           <Card title='Customer Selections' className='mb-4'>
-            <Space direction='vertical' style={{ width: '100%' }}>
-              <div className='flex justify-between items-center'>
-                <Text>Selections Complete:</Text>
-                {job.customerSelectionsComplete ? (
-                  <Tag color='success' icon={<CheckCircleOutlined />}>
-                    Complete
-                  </Tag>
-                ) : (
-                  <Tag color='warning'>Pending</Tag>
-                )}
+            {selectionsLoading ? (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <Spin tip="Loading selections..." />
               </div>
-              {job.customerSelectionsSubmittedAt && (
-                <Text type='secondary' style={{ fontSize: 12 }}>
-                  Submitted:{' '}
-                  {new Date(
-                    job.customerSelectionsSubmittedAt
-                  ).toLocaleDateString("en-US",{
-        month: 'short', day: 'numeric', year: 'numeric'
-      })}
-                </Text>
-              )}
-            </Space>
+            ) : (
+              <Space direction='vertical' style={{ width: '100%' }} size="middle">
+                <div className='flex justify-between items-center'>
+                  <Text>Selections Status:</Text>
+                  {job.customerSelectionsComplete ? (
+                    <Tag color='success' icon={<CheckCircleOutlined />}>
+                      Complete
+                    </Tag>
+                  ) : (
+                    <Tag color='warning'>Pending</Tag>
+                  )}
+                </div>
+                {job.customerSelectionsSubmittedAt && (
+                  <Text type='secondary' style={{ fontSize: 12 }}>
+                    Submitted:{' '}
+                    {new Date(
+                      job.customerSelectionsSubmittedAt
+                    ).toLocaleDateString("en-US",{
+          month: 'short', day: 'numeric', year: 'numeric'
+        })}
+                  </Text>
+                )}
+                
+                {/* Show customer selections if available */}
+                {job.customerSelectionsComplete && customerSelections && customerSelections.length > 0 && (
+                  <div style={{ marginTop: 12, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
+                    <Text strong style={{ display: 'block', marginBottom: 8 }}>Selected Products:</Text>
+                    <Space direction='vertical' style={{ width: '100%' }} size="small">
+                      {customerSelections.map((selection, index) => (
+                        <div key={index} style={{ padding: '8px', background: '#fafafa', borderRadius: 4 }}>
+                          <Text strong style={{ fontSize: 13 }}>{selection.areaName}</Text>
+                          <div style={{ marginTop: 4 }}>
+                            <Text type='secondary' style={{ fontSize: 12 }}>
+                              {selection.productName || 'Product not specified'}
+                            </Text>
+                          </div>
+                          {selection.colorName && (
+                            <div>
+                              <Text style={{ fontSize: 12 }}>Color: {selection.colorName}</Text>
+                            </div>
+                          )}
+                          {selection.sheen && (
+                            <div>
+                              <Text style={{ fontSize: 12 }}>Sheen: {selection.sheen}</Text>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </Space>
+                  </div>
+                )}
+                
+                {!job.customerSelectionsComplete && (
+                  <Alert
+                    message="Waiting for Customer"
+                    description="Customer has not yet completed their product selections."
+                    type="info"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                  />
+                )}
+              </Space>
+            )}
           </Card>
 
           {/* Job Documents */}
@@ -468,15 +561,27 @@ function JobDetailPage () {
             } 
             className='mb-4'
             extra={
-              documents.length === 0 && job?.depositPaid && (
-                <Button 
-                  type="primary" 
-                  size="small"
-                  onClick={handleGenerateDocuments}
-                  loading={documentsLoading}
-                >
-                  Generate Documents
-                </Button>
+              job?.depositPaid && (
+                <Space>
+                  {documents.length === 0 ? (
+                    <Button 
+                      type="primary" 
+                      size="small"
+                      onClick={handleGenerateDocuments}
+                      loading={documentsLoading}
+                    >
+                      Generate Documents
+                    </Button>
+                  ) : (
+                    <Button 
+                      size="small"
+                      onClick={handleRegenerateDocuments}
+                      loading={documentsLoading}
+                    >
+                      Regenerate
+                    </Button>
+                  )}
+                </Space>
               )
             }
           >

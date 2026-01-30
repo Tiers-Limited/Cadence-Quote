@@ -12,6 +12,7 @@ const { Text } = Typography;
  */
 function BrandedPortalHeader() {
   const [branding, setBranding] = useState(null);
+  const [client, setClient] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -19,6 +20,12 @@ function BrandedPortalHeader() {
     const brandingData = localStorage.getItem('tenantBranding');
     if (brandingData) {
       setBranding(JSON.parse(brandingData));
+    }
+    
+    // Load client info from localStorage
+    const clientData = localStorage.getItem('portalClient');
+    if (clientData) {
+      setClient(JSON.parse(clientData));
     }
   }, []);
   // Compute safe color values so hooks remain stable
@@ -59,7 +66,7 @@ function BrandedPortalHeader() {
         flexWrap: 'wrap',
         gap: '16px'
       }}>
-        {/* Left: Logo and Company Name */}
+        {/* Left: Logo, Company Name, and Contractor Contact */}
         <Space size="large" align="center">
           {branding.logo && (
             <Avatar 
@@ -80,41 +87,60 @@ function BrandedPortalHeader() {
             >
               {branding.companyName}
             </Typography.Title>
-            <Text type="secondary" style={{ fontSize: '12px' }}>
-              Customer Portal
-            </Text>
+           
+            <Space direction="vertical" size={2}>
+              {branding.phone && (
+                <Space size="small">
+                  <FiPhone style={{ color: primaryColor, fontSize: '12px' }} />
+                  <Text style={{ fontSize: '12px' }}>{branding.phone}</Text>
+                </Space>
+              )}
+              {branding.email && (
+                <Space size="small">
+                  <FiMail style={{ color: primaryColor, fontSize: '12px' }} />
+                  <Text style={{ fontSize: '12px' }}>{branding.email}</Text>
+                </Space>
+              )}
+            </Space>
           </div>
         </Space>
 
-        {/* Right: Contact Info */}
+        {/* Right: Customer Info and Actions */}
         <Space size="large" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
           <Button onClick={() => navigate('/portal/dashboard')} type="default" style={{ marginRight: 8 }}>
             Back to Portal
           </Button>
-          {branding.phone && (
-            <Space size="small">
-              <FiPhone style={{ color: primaryColor }} />
-              <Text strong>{branding.phone}</Text>
-            </Space>
-          )}
-          {branding.email && (
-            <Space size="small">
-              <FiMail style={{ color: primaryColor }} />
-              <Text strong>{branding.email}</Text>
-            </Space>
+          {client && (
+            <div style={{ textAlign: 'right' }}>
+              <Text strong style={{ display: 'block', fontSize: '14px' }}>
+                {client.name}
+              </Text>
+              <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
+                {client.email && (
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {client.email}
+                  </Text>
+                )}
+                {client.phone && (
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {client.phone}
+                  </Text>
+                )}
+              </Space>
+            </div>
           )}
           {branding.website && (
-            <Space size="small">
-              <FiGlobe style={{ color: primaryColor }} />
-              <a 
-                href={branding.website} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{ color: primaryColor, fontWeight: 500 }}
-              >
-                Visit Website
-              </a>
-            </Space>
+            <a 
+              href={branding.website} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{ color: primaryColor, fontWeight: 500, fontSize: '12px' }}
+            >
+              <Space size="small">
+                <FiGlobe />
+                <span>Visit Website</span>
+              </Space>
+            </a>
           )}
         </Space>
       </div>
