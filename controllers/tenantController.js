@@ -55,7 +55,7 @@ exports.getAllTenants = async (req, res) => {
           attributes: [
             'id', 'companyName', 'email', 'phoneNumber', 'tradeType', 
             'subscriptionPlan', 'status', 'isActive', 'seatLimit', 
-            'paymentStatus', 'createdAt'
+            'paymentStatus', 
           ],
           include: [
             { 

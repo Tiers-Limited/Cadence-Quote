@@ -96,4 +96,10 @@ router.post('/:jobId/documents/generate', jobController.generateJobDocuments);
  */
 router.get('/:jobId/documents/:documentType', jobController.downloadJobDocument);
 
+/**
+ * GET /api/jobs/:jobId/customer-selections
+ * Get customer selections for a job
+ */
+router.get('/:jobId/customer-selections', jobController.getCustomerSelections);
+
 module.exports = router;

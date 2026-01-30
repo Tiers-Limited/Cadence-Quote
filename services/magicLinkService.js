@@ -293,9 +293,8 @@ class MagicLinkService {
       tenantId: magicLink.tenantId,
     });
     
-    // Session expires in 90 days by default
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 90);
+    // Session expires at the same time as the magic link (from contractor settings)
+    const expiresAt = new Date(magicLink.expiresAt);
     
     const quoteIds = magicLink.quoteId ? [magicLink.quoteId] : [];
     

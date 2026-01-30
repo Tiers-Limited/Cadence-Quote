@@ -294,6 +294,10 @@ exports.accessPortal = async (req, res) => {
         expiresAt: result.session.expiresAt,
         isVerified: result.session.isVerified,
       },
+      magicLink: {
+        expiresAt: result.magicLink.expiresAt,
+        createdAt: result.magicLink.createdAt,
+      },
       client: {
         id: result.client.id,
         name: result.client.name,

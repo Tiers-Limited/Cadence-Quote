@@ -12,6 +12,10 @@ const fs = require('fs');
 
 // Import optimization utilities
 const { optimizationSystem } = require('../optimization');
+const ProductConfig = require('../models/ProductConfig');
+const GlobalProduct = require('../models/GlobalProduct');
+const Brand = require('../models/Brand');
+
 
 // Cache keys for job data
 const CACHE_KEYS = {
@@ -167,7 +171,7 @@ exports.getJobById = async (req, res) => {
         {
           model: Quote,
           as: 'quote',
-          attributes: ['id', 'quoteNumber', 'areas', 'breakdown', 'flatRateItems', 'productSets', 'pricingSchemeId'],
+          attributes: ['id', 'quoteNumber', 'areas', 'breakdown', 'flatRateItems','gbbSelectedTier', 'productSets', 'pricingSchemeId'],
           include: [{
             model: require('../models/PricingScheme'),
             as: 'pricingScheme',
@@ -860,6 +864,171 @@ exports.getJobStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch job statistics',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/jobs/:jobId/customer-selections
+ * Get customer selections for a job
+ */
+exports.getCustomerSelections = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const tenantId = req.user.tenantId;
+
+    const job = await Job.findOne({
+      where: {
+        id: jobId,
+        tenantId
+      },
+      include: [{
+        model: Quote,
+        as: 'quote',
+        attributes: ['id', 'quoteNumber', 'productSets', 'productStrategy', 'gbbSelectedTier', 'pricingSchemeId'],
+        include: [{
+          model: require('../models/PricingScheme'),
+          as: 'pricingScheme',
+          attributes: ['id', 'name', 'type']
+        }]
+      }]
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    // Check if customer has completed selections
+    if (!job.customerSelectionsComplete) {
+      return res.json({
+        success: true,
+        data: [],
+        message: 'Customer has not completed selections yet'
+      });
+    }
+
+    // Get customer selections from CustomerSelection model
+    const CustomerSelection = require('../models/CustomerSelection');
+    const ProductConfig = require('../models/ProductConfig');
+    const GlobalProduct = require('../models/GlobalProduct');
+    const Brand = require('../models/Brand');
+    
+    const selections = await CustomerSelection.findAll({
+      where: {
+        quoteId: job.quoteId,
+        tenantId
+      },
+      order: [['areaId', 'ASC']]
+    });
+
+    // Parse productSets to get product information
+    let productSets = job.quote.productSets;
+    if (typeof productSets === 'string') {
+      try {
+        productSets = JSON.parse(productSets);
+      } catch (e) {
+        productSets = [];
+      }
+    }
+    if (!Array.isArray(productSets)) {
+      productSets = [];
+    }
+
+    // Get selected tier for GBB
+    const selectedTier = job.quote.gbbSelectedTier || 'good';
+    const productStrategy = job.quote.productStrategy;
+
+    // Build a map of areaId/surfaceType to product info
+    const productMap = new Map();
+    const productIds = new Set();
+
+    for (const productSet of productSets) {
+      const areaId = productSet.areaId || productSet.id;
+      const surfaceType = productSet.surfaceType || productSet.type || 'general';
+      const products = productSet.products || {};
+
+      let productId = null;
+      if (productStrategy === 'GBB') {
+        productId = products[selectedTier];
+      } else {
+        productId = products.single || products.good || products.better || products.best;
+      }
+
+      if (productId) {
+        const key = `${areaId}_${surfaceType}`;
+        productMap.set(key, productId);
+        productIds.add(productId);
+      }
+    }
+
+    // Fetch all product configs in one query
+    const productConfigs = await ProductConfig.findAll({
+      where: { id: Array.from(productIds) },
+      include: [
+        {
+          model: GlobalProduct,
+          as: 'globalProduct',
+          include: [{
+            model: Brand,
+            as: 'brand',
+            attributes: ['id', 'name']
+          }]
+        }
+      ]
+    });
+
+    // Create a map of productId to product details
+    const productDetailsMap = new Map();
+    productConfigs.forEach(config => {
+      const productName = config.isCustom && config.customProduct 
+        ? config.customProduct.name 
+        : config.globalProduct?.name || 'Unknown Product';
+      
+      const brandName = config.isCustom && config.customProduct
+        ? config.customProduct.brandName
+        : config.globalProduct?.brand?.name || '';
+
+      productDetailsMap.set(config.id, {
+        productName,
+        brandName
+      });
+    });
+
+    // Format selections for display with product information
+    const formattedSelections = selections.map(selection => {
+      // Try to find product info from productSets
+      const key = `${selection.areaId}_${selection.surfaceType}`;
+      const productId = productMap.get(key);
+      const productDetails = productId ? productDetailsMap.get(productId) : null;
+
+      return {
+        areaId: selection.areaId,
+        areaName: selection.areaName,
+        surfaceType: selection.surfaceType,
+        productName: productDetails?.productName || selection.productName || 'Not specified',
+        brandName: productDetails?.brandName || '',
+        colorName: selection.colorName,
+        colorCode: selection.colorNumber,
+        colorHex: selection.colorHex,
+        sheen: selection.sheen,
+        notes: selection.customerNotes
+      };
+    });
+
+    res.json({
+      success: true,
+      data: formattedSelections
+    });
+
+  } catch (error) {
+    console.error('[JobController] Error getting customer selections:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve customer selections',
       error: error.message
     });
   }
