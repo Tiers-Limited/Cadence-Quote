@@ -54,7 +54,7 @@ const MagicLinkDashboard = () => {
   const fetchMagicLinks = async () => {
     try {
       setLoading(true);
-      const response = await apiService.get('/magic-links', {
+      const response = await apiService.get('/cadence-pulse', {
         params: {
           page: pagination.current,
           limit: pagination.pageSize,
@@ -81,7 +81,7 @@ const MagicLinkDashboard = () => {
 
   const handleExtend = async (id, days = 7) => {
     try {
-      await apiService.put(`/magic-links/${id}/extend`, { days });
+      await apiService.put(`/cadence-pulse/${id}/extend`, { days });
       message.success(`Extended by ${days} days`);
       fetchMagicLinks();
     } catch (err) {
@@ -92,7 +92,7 @@ const MagicLinkDashboard = () => {
 
   const handleRegenerate = async (id) => {
     try {
-      const response = await apiService.post(`/magic-links/${id}/regenerate`);
+      const response = await apiService.post(`/cadence-pulse/${id}/regenerate`);
       message.success('New magic link generated and sent to customer');
       fetchMagicLinks();
     } catch (err) {
@@ -103,7 +103,7 @@ const MagicLinkDashboard = () => {
 
   const handleDeactivate = async (id) => {
     try {
-      await apiService.delete(`/magic-links/${id}`);
+      await apiService.delete(`/cadence-pulse/${id}`);
       message.success('Magic link deactivated');
       fetchMagicLinks();
     } catch (err) {
@@ -118,7 +118,7 @@ const MagicLinkDashboard = () => {
       content: 'This will extend all links expiring within 3 days by 7 additional days.',
       onOk: async () => {
         try {
-          const response = await apiService.post('/magic-links/bulk-extend', { days: 7 });
+          const response = await apiService.post('/cadence-pulse/bulk-extend', { days: 7 });
           message.success(`Extended ${response.data.count} links`);
           fetchMagicLinks();
         } catch (err) {

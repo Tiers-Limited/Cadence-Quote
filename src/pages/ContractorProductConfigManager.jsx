@@ -536,7 +536,7 @@ const ContractorProductConfigManager = () => {
     setDeletingId(id);
     try {
       await apiService.deleteProductConfig(id);
-      message.success('Configuration deleted successfully');
+      message.success('Product deleted successfully');
       fetchConfigs();
     } catch (error) {
       handleApiError(error, 'Failed to delete configuration');
@@ -586,10 +586,10 @@ const ContractorProductConfigManager = () => {
       
       if (editingConfig) {
         await apiService.updateProductConfig(editingConfig.id, payload);
-        message.success('Configuration updated successfully');
+        message.success('Product updated successfully');
       } else {
         await apiService.createProductConfig(payload);
-        message.success('Configuration created successfully');
+        message.success('Product created successfully');
       }
       
       setModalVisible(false);
@@ -887,7 +887,7 @@ const ContractorProductConfigManager = () => {
             {isMobile ? 'Edit' : ''}
           </Button>
           <Popconfirm
-            title="Are you sure you want to delete this configuration?"
+            title="Are you sure you want to delete this product?"
             onConfirm={() => handleDelete(record.id)}
             okText="Yes"
             cancelText="No"
@@ -1430,7 +1430,7 @@ const ContractorProductConfigManager = () => {
               loading={loading}
               disabled={loading}
             >
-              Add Configuration
+              Add Product
             </Button>
           </div>
 
@@ -1511,7 +1511,7 @@ const ContractorProductConfigManager = () => {
       </Tabs>
 
       <Modal
-        title={editingConfig ? 'Edit Product Configuration' : 'Add Product Configuration'}
+        title={editingConfig ? 'Edit Product' : 'Add Product'}
         open={modalVisible}
         onCancel={() => {
           setModalVisible(false);

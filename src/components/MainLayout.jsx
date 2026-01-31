@@ -234,6 +234,13 @@ function MainLayout ({ children }) {
       ]
     },
     {
+      key: 'cadence-pulse',
+      path: '/cadence-pulse',
+      icon: <FiLink size={20} />,
+      label: 'Cadence Pulse',
+      onClick: () => handleMenuClick('/cadence-pulse')
+    },
+    {
       key: 'settings-submenu',
       icon: <FiSettings size={20} />,
       label: 'Settings',
@@ -245,13 +252,6 @@ function MainLayout ({ children }) {
           label: 'Proposal Defaults',
           onClick: () => handleMenuClick('/proposal-defaults')
         },
-        {
-  key: 'magic-links',
-  icon: <FiLink  />,
-  label: 'Cadence Pulse',
-  path: '/magic-links',
-  onClick: () => handleMenuClick('/magic-links')
-},
         {
           key: 'settings',
           path: '/settings',

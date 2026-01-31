@@ -167,7 +167,7 @@ const AppRoutes = () => {
         <Route path='/service-types' element={<ServiceTypesPage />} />
         {/* Labor rates consolidated under Pricing Engine, route preserved if needed */}
         <Route path='/labor-rates' element={<LaborRatesPage />} />
-        <Route path='/magic-links' element={<MagicLinkDashboard />} />
+        <Route path='/cadence-pulse' element={<MagicLinkDashboard />} />
       </Route>
 
       {/* Settings Route - Accessible to both contractor_admin and business_admin */}
