@@ -266,7 +266,7 @@ app.use('/api/v1/contractor-portal', contractorPortalRouter); // Contractor Port
 app.use('/api/v1/client-auth', clientAuthRouter); // Client Authentication
 app.use('/api/v1/jobs', jobsRouter); // Jobs Management (CRUD)
 app.use('/api/jobs', jobSchedulingRouter); // Job Scheduling & Status Updates
-app.use('/api/v1/magic-links', magicLinkManagementRouter); // Magic Link Management (Contractor)
+app.use('/api/v1/cadence-pulse', magicLinkManagementRouter); // Magic Link Management (Contractor)
 app.use('/api/v1/job-analytics', jobAnalyticsRouter); // Job Analytics & Profit Margin Tracking
 app.use('/api/v1/settings/gbb', gbbSettingsRouter); // GBB Pricing Tiers Settings
 app.use('/api/v1/settings', settingsRouter); // Contractor Settings & Templates

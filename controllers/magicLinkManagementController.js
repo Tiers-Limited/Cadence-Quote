@@ -12,7 +12,7 @@ const ContractorSettings = require('../models/ContractorSettings');
 
 /**
  * Get all magic links for contractor's customers
- * GET /api/v1/magic-links
+ * GET /api/v1/cadence-pulse
  */
 exports.getMagicLinks = async (req, res) => {
   try {
@@ -149,7 +149,7 @@ exports.getMagicLinkStats = async (tenantId) => {
 
 /**
  * Get single magic link details
- * GET /api/v1/magic-links/:id
+ * GET /api/v1/cadence-pulse/:id
  */
 exports.getMagicLinkDetail = async (req, res) => {
   try {
@@ -212,7 +212,7 @@ exports.getMagicLinkDetail = async (req, res) => {
 
 /**
  * Extend magic link expiry
- * PUT /api/v1/magic-links/:id/extend
+ * PUT /api/v1/cadence-pulse/:id/extend
  */
 exports.extendMagicLink = async (req, res) => {
   try {
@@ -292,7 +292,7 @@ exports.extendMagicLink = async (req, res) => {
 
 /**
  * Regenerate magic link (create new token, invalidate old)
- * POST /api/v1/magic-links/:id/regenerate
+ * POST /api/v1/cadence-pulse/:id/regenerate
  */
 exports.regenerateMagicLink = async (req, res) => {
   try {
@@ -389,7 +389,7 @@ exports.regenerateMagicLink = async (req, res) => {
 
 /**
  * Deactivate magic link manually
- * DELETE /api/v1/magic-links/:id
+ * DELETE /api/v1/cadence-pulse/:id
  */
 exports.deactivateMagicLink = async (req, res) => {
   try {
@@ -442,7 +442,7 @@ exports.deactivateMagicLink = async (req, res) => {
 
 /**
  * Bulk extend expiring links
- * POST /api/v1/magic-links/bulk-extend
+ * POST /api/v1/cadence-pulse/bulk-extend
  */
 exports.bulkExtendLinks = async (req, res) => {
   try {

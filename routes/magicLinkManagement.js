@@ -11,14 +11,14 @@ router.use(auth);
 router.use(authorize(['contractor_admin', 'contractor_user']));
 
 /**
- * GET /api/v1/magic-links
+ * GET /api/v1/cadence-pulse
  * Get all magic links with filtering and pagination
  * Query params: status, search, page, limit
  */
 router.get('/', magicLinkManagementController.getMagicLinks);
 
 /**
- * GET /api/v1/magic-links/stats
+ * GET /api/v1/cadence-pulse/stats
  * Get magic link statistics
  */
 router.get('/stats', async (req, res) => {
@@ -31,32 +31,32 @@ router.get('/stats', async (req, res) => {
 });
 
 /**
- * GET /api/v1/magic-links/:id
+ * GET /api/v1/cadence-pulse/:id
  * Get single magic link details with session history
  */
 router.get('/:id', magicLinkManagementController.getMagicLinkDetail);
 
 /**
- * PUT /api/v1/magic-links/:id/extend
+ * PUT /api/v1/cadence-pulse/:id/extend
  * Extend magic link expiry
  * Body: { days: 7 }
  */
 router.put('/:id/extend', magicLinkManagementController.extendMagicLink);
 
 /**
- * POST /api/v1/magic-links/:id/regenerate
+ * POST /api/v1/cadence-pulse/:id/regenerate
  * Regenerate magic link (invalidate old, create new)
  */
 router.post('/:id/regenerate', magicLinkManagementController.regenerateMagicLink);
 
 /**
- * DELETE /api/v1/magic-links/:id
+ * DELETE /api/v1/cadence-pulse/:id
  * Deactivate magic link manually
  */
 router.delete('/:id', magicLinkManagementController.deactivateMagicLink);
 
 /**
- * POST /api/v1/magic-links/bulk-extend
+ * POST /api/v1/cadence-pulse/bulk-extend
  * Bulk extend all expiring links
  * Body: { days: 7 }
  */
