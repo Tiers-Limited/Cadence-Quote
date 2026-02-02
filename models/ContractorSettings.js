@@ -408,8 +408,8 @@ const ContractorSettings = sequelize.define('ContractorSettings', {
       fields: ['tenant_id']
     },
     {
-      using: 'GIN',
-      fields: ['gbb_tiers']
+      fields: ['gbb_tiers'],
+      using: 'gin'
     }
   ]
 });

@@ -693,7 +693,7 @@ const Quote = sequelize.define('Quote', {
     { fields: ['analytics_calculated'] },
     { fields: ['final_invoice_amount'] },
     { fields: ['gbb_selected_tier'] },
-    { using: 'GIN', fields: ['gbb_tier_pricing'] }
+    { fields: ['gbb_tier_pricing'], using: 'gin' }
     // Composite indexes removed - will be added via migration to avoid lock timeout
   ]
 });
