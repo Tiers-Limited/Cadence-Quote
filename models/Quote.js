@@ -388,6 +388,13 @@ const Quote = sequelize.define('Quote', {
     
   },
   
+  depositPaidAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'deposit_paid_at',
+    comment: 'Date when deposit payment was completed'
+  },
+  
   depositVerifiedAt: {
     type: DataTypes.DATE,
     allowNull: true,
@@ -687,6 +694,7 @@ const Quote = sequelize.define('Quote', {
     { fields: ['final_invoice_amount'] },
     { fields: ['gbb_selected_tier'] },
     { using: 'GIN', fields: ['gbb_tier_pricing'] }
+    // Composite indexes removed - will be added via migration to avoid lock timeout
   ]
 });
 

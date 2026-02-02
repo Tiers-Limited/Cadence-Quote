@@ -587,6 +587,7 @@ exports.confirmFinalPayment = async (req, res) => {
       finalPaymentStatus: 'paid',
       finalPaymentDate: new Date(),
       finalPaymentTransactionId: paymentIntentId,
+      finalPaymentAmount: amountReceived,
       balanceRemaining: 0,
       depositAmount: newDepositAmount,
       status: 'closed',

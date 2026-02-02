@@ -354,80 +354,100 @@ class JobAnalyticsController {
   /**
    * GET /api/job-analytics/completed-jobs
    * Get all completed jobs for the tenant with their analytics status
+   * Optimized to avoid N+1 queries and use database aggregations
    */
   static async getCompletedJobs(req, res) {
     try {
       const tenantId = req.user.tenantId;
 
-      // Get all completed or closed jobs from Jobs table
+      // Get contractor settings once for overhead percentage
+      const settings = await ContractorSettings.findOne({
+        where: { tenantId: tenantId },
+        attributes: ['overheadPercent', 'netProfitPercent'],
+        raw: true
+      });
+
+      const overheadConfigured = settings && settings.overheadPercent !== null;
+
+      // Get all completed or closed jobs with their quotes and analytics in ONE query
       const completedJobs = await Job.findAll({
         where: {
           tenantId: tenantId,
           status: { [Op.in]: ['completed', 'closed'] }
         },
+        attributes: [
+          'id', 'jobNumber', 'customerName', 'status', 
+          'actualEndDate', 'updatedAt', 'totalAmount'
+        ],
         include: [
           {
             model: Quote,
             as: 'quote',
             required: true,
+            attributes: [
+              'id', 'quoteNumber', 'laborTotal', 'materialTotal'
+            ],
             include: [
               {
                 model: JobAnalytics,
                 as: 'jobAnalytics',
-                required: false
+                required: false,
+                attributes: [
+                  'actualMaterialCost', 'actualLaborCost', 'allocatedOverhead',
+                  'netProfit', 'materialPercentage', 'laborPercentage',
+                  'overheadPercentage', 'profitPercentage', 'calculatedAt'
+                ]
               }
             ]
           },
           {
             model: Client,
             as: 'client',
-            required: false
+            required: false,
+            attributes: ['id', 'name']
           }
         ],
-        order: [['actualEndDate', 'DESC'], ['updatedAt', 'DESC']]
+        order: [['actualEndDate', 'DESC'], ['updatedAt', 'DESC']],
+        raw: false // Need nested objects for associations
       });
 
-      // Get contractor settings for overhead percentage
-      const settings = await ContractorSettings.findOne({
-        where: { tenantId: tenantId }
-      });
-
-      const overheadConfigured = settings && settings.overheadPercent !== null;
-
-      // Process each job and calculate analytics
-      const jobsData = await Promise.all(completedJobs.map(async (job) => {
-        const jobData = job.toJSON();
-        const quote = jobData.quote;
+      // Process jobs in memory (fast since we loaded everything in one query)
+      const jobsData = completedJobs.map(job => {
+        const quote = job.quote;
         
-        if (!quote) {
-          return null;
-        }
+        if (!quote) return null;
 
-        // Extract labor and material costs from quote
         const laborCost = quote.laborTotal ? parseFloat(quote.laborTotal) : 0;
         const materialCost = quote.materialTotal ? parseFloat(quote.materialTotal) : 0;
-        const jobPrice = parseFloat(jobData.totalAmount);
+        const jobPrice = parseFloat(job.totalAmount);
 
-        // Calculate or retrieve analytics
         let analytics = null;
         let hasAnalytics = false;
 
         if (quote.jobAnalytics) {
-          // Analytics already exist
+          // Analytics already exist - just format them
           hasAnalytics = true;
+          const ja = quote.jobAnalytics;
+          const profitPct = parseFloat(ja.profitPercentage);
+          
           analytics = {
-            materialCost: parseFloat(quote.jobAnalytics.actualMaterialCost || materialCost),
-            laborCost: parseFloat(quote.jobAnalytics.actualLaborCost || laborCost),
-            overheadCost: parseFloat(quote.jobAnalytics.allocatedOverhead),
-            netProfit: parseFloat(quote.jobAnalytics.netProfit),
-            materialPercentage: parseFloat(quote.jobAnalytics.materialPercentage),
-            laborPercentage: parseFloat(quote.jobAnalytics.laborPercentage),
-            overheadPercentage: parseFloat(quote.jobAnalytics.overheadPercentage),
-            profitPercentage: parseFloat(quote.jobAnalytics.profitPercentage),
-            breakdown: quote.jobAnalytics.getBreakdown(),
-            healthStatus: quote.jobAnalytics.getHealthStatus(),
-            isHealthy: quote.jobAnalytics.isHealthy(),
-            calculatedAt: quote.jobAnalytics.calculatedAt
+            materialCost: parseFloat(ja.actualMaterialCost || materialCost),
+            laborCost: parseFloat(ja.actualLaborCost || laborCost),
+            overheadCost: parseFloat(ja.allocatedOverhead),
+            netProfit: parseFloat(ja.netProfit),
+            materialPercentage: parseFloat(ja.materialPercentage),
+            laborPercentage: parseFloat(ja.laborPercentage),
+            overheadPercentage: parseFloat(ja.overheadPercentage),
+            profitPercentage: profitPct,
+            breakdown: {
+              materials: { amount: parseFloat(ja.actualMaterialCost || materialCost), percentage: parseFloat(ja.materialPercentage) },
+              labor: { amount: parseFloat(ja.actualLaborCost || laborCost), percentage: parseFloat(ja.laborPercentage) },
+              overhead: { amount: parseFloat(ja.allocatedOverhead), percentage: parseFloat(ja.overheadPercentage) },
+              profit: { amount: parseFloat(ja.netProfit), percentage: profitPct }
+            },
+            healthStatus: profitPct >= 12 ? 'good' : (profitPct >= 8 ? 'fair' : 'poor'),
+            isHealthy: profitPct >= 8,
+            calculatedAt: ja.calculatedAt
           };
         } else if (overheadConfigured && jobPrice > 0) {
           // Calculate analytics on-the-fly
@@ -456,17 +476,17 @@ class JobAnalyticsController {
               calculatedAt: new Date()
             };
           } catch (error) {
-            console.error(`Error calculating analytics for job ${jobData.id}:`, error);
+            console.error(`Error calculating analytics for job ${job.id}:`, error);
           }
         }
 
         return {
-          id: jobData.id,
-          jobNumber: jobData.jobNumber,
+          id: job.id,
+          jobNumber: job.jobNumber,
           quoteNumber: quote.quoteNumber,
-          customerName: jobData.customerName,
-          status: jobData.status,
-          completedAt: jobData.actualEndDate || jobData.updatedAt,
+          customerName: job.customerName,
+          status: job.status,
+          completedAt: job.actualEndDate || job.updatedAt,
           jobPrice: jobPrice,
           laborCost: laborCost,
           materialCost: materialCost,
@@ -474,20 +494,17 @@ class JobAnalyticsController {
           canCalculateAnalytics: overheadConfigured && jobPrice > 0,
           analytics: analytics
         };
-      }));
-
-      // Filter out null entries
-      const validJobsData = jobsData.filter(j => j !== null);
+      }).filter(j => j !== null);
 
       // Calculate summary statistics
-      const totalJobs = validJobsData.length;
-      const withAnalytics = validJobsData.filter(j => j.hasAnalytics).length;
-      const needingAnalytics = validJobsData.filter(j => !j.hasAnalytics && j.canCalculateAnalytics).length;
+      const totalJobs = jobsData.length;
+      const withAnalytics = jobsData.filter(j => j.hasAnalytics).length;
+      const needingAnalytics = jobsData.filter(j => !j.hasAnalytics && j.canCalculateAnalytics).length;
 
       res.json({
         success: true,
         data: {
-          jobs: validJobsData,
+          jobs: jobsData,
           summary: {
             totalCompletedJobs: totalJobs,
             jobsWithAnalytics: withAnalytics,

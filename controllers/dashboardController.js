@@ -49,52 +49,62 @@ exports.getDashboardStats = async (req, res) => {
     const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
-    // Execute queries in parallel for better performance
-    const [currentMonthQuotes, paidQuotes, allTimePaidQuotes, lastMonthQuotes] = await Promise.all([
-      // Current month quotes
+    // Execute queries in parallel using database aggregations for better performance
+    const [currentMonthStats, lastMonthStats, totalRevenueResult, finalPaymentsRevenue] = await Promise.all([
+      // Current month aggregated stats
+      Quote.findAll({
+        where: {
+          tenantId,
+          isActive: true,
+          createdAt: { [Op.gte]: firstDayOfMonth }
+        },
+        attributes: [
+          'status',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+          [sequelize.fn('SUM', sequelize.cast(sequelize.col('total'), 'DECIMAL(10,2)')), 'totalValue'],
+          [sequelize.fn('SUM', 
+            sequelize.literal(`CASE 
+              WHEN deposit_verified = true 
+              AND deposit_transaction_id IS NOT NULL 
+              AND deposit_payment_method = 'stripe' 
+              THEN CAST(deposit_amount AS DECIMAL(10,2)) 
+              ELSE 0 
+            END`)
+          ), 'revenue']
+        ],
+        group: ['status'],
+        raw: true
+      }),
+      
+      // Last month aggregated stats  
       Quote.findAll({
         where: {
           tenantId,
           isActive: true,
           createdAt: {
-            [Op.gte]: firstDayOfMonth
+            [Op.gte]: firstDayOfLastMonth,
+            [Op.lte]: lastDayOfLastMonth
           }
         },
         attributes: [
-          'id',
           'status',
-          'total',
-          'laborTotal',
-          'materialTotal',
-          'markup',
-          'createdAt',
-          'depositAmount',
-          'depositTransactionId',
-          'depositPaymentMethod',
-          'depositVerified',
-          'depositVerifiedAt'
+          [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+          [sequelize.fn('SUM', 
+            sequelize.literal(`CASE 
+              WHEN deposit_verified = true 
+              AND deposit_transaction_id IS NOT NULL 
+              AND deposit_payment_method = 'stripe' 
+              THEN CAST(deposit_amount AS DECIMAL(10,2)) 
+              ELSE 0 
+            END`)
+          ), 'revenue']
         ],
-        raw: true // Use raw queries for better performance
-      }),
-      
-      // Current month paid quotes for revenue calculation
-      Quote.findAll({
-        where: {
-          tenantId,
-          isActive: true,
-          depositVerified: true,
-          depositTransactionId: { [Op.ne]: null },
-          depositPaymentMethod: 'stripe',
-          depositVerifiedAt: {
-            [Op.gte]: firstDayOfMonth
-          }
-        },
-        attributes: ['id', 'total', 'depositAmount', 'depositTransactionId'],
+        group: ['status'],
         raw: true
       }),
       
-      // All-time paid quotes for total revenue
-      Quote.findAll({
+      // All-time total revenue from Stripe (deposits only)
+      Quote.findOne({
         where: {
           tenantId,
           isActive: true,
@@ -102,56 +112,79 @@ exports.getDashboardStats = async (req, res) => {
           depositTransactionId: { [Op.ne]: null },
           depositPaymentMethod: 'stripe'
         },
-        attributes: ['id', 'depositAmount'],
+        attributes: [
+          [sequelize.fn('SUM', sequelize.cast(sequelize.col('deposit_amount'), 'DECIMAL(10,2)')), 'totalRevenue']
+        ],
         raw: true
       }),
       
-      // Last month quotes for comparison
-      Quote.findAll({
-        where: {
-          tenantId,
-          isActive: true,
-          depositVerified: true,
-          depositTransactionId: { [Op.ne]: null },
-          depositPaymentMethod: 'stripe',
-          depositVerifiedAt: {
-            [Op.gte]: firstDayOfLastMonth,
-            [Op.lte]: lastDayOfLastMonth
-          }
-        },
-        attributes: ['depositAmount'],
+      // All-time final payments revenue from Jobs
+      sequelize.query(`
+        SELECT COALESCE(SUM(CAST(final_payment_amount AS DECIMAL(10,2))), 0) as totalFinalPayments
+        FROM jobs
+        WHERE tenant_id = :tenantId
+        AND final_payment_status = 'paid'
+        AND final_payment_transaction_id IS NOT NULL
+      `, {
+        replacements: { tenantId },
+        type: sequelize.QueryTypes.SELECT,
         raw: true
       })
     ]);
 
-    // Calculate revenue from paid quotes
-    const currentMonthRevenue = paidQuotes.reduce((sum, quote) => 
-      sum + Number.parseFloat(quote.depositAmount || 0), 0
-    );
+    // Process aggregated results
+    const processStats = (stats) => {
+      const result = {
+        activeQuotes: 0,
+        completedJobs: 0,
+        totalValue: 0,
+        revenue: 0,
+        byStatus: {
+          draft: 0, sent: 0, accepted: 0, deposit_paid: 0,
+          scheduled: 0, completed: 0, rejected: 0, declined: 0
+        }
+      };
+      
+      stats.forEach(row => {
+        const count = parseInt(row.count) || 0;
+        const revenue = parseFloat(row.revenue) || 0;
+        const totalValue = parseFloat(row.totalValue) || 0;
+        
+        result.byStatus[row.status] = count;
+        result.revenue += revenue;
+        result.totalValue += totalValue;
+        
+        if (['sent', 'accepted', 'deposit_paid', 'scheduled'].includes(row.status)) {
+          result.activeQuotes += count;
+        }
+        if (['completed', 'scheduled'].includes(row.status)) {
+          result.completedJobs += count;
+        }
+      });
+      
+      result.avgJobValue = result.completedJobs > 0 
+        ? result.totalValue / result.completedJobs 
+        : 0;
+      
+      return result;
+    };
     
-    // Calculate all-time total revenue from Stripe
-    const totalRevenue = allTimePaidQuotes.reduce((sum, quote) => 
-      sum + Number.parseFloat(quote.depositAmount || 0), 0
-    );
-
-    const lastMonthRevenue = lastMonthQuotes.reduce((sum, q) => 
-      sum + Number.parseFloat(q.depositAmount || 0), 0
-    );
-
-    // Calculate current month stats
-    const currentStats = calculateMonthStats(currentMonthQuotes);
-    const lastMonthStats = calculateMonthStats(lastMonthQuotes);
+    const currentStats = processStats(currentMonthStats);
+    const lastStats = processStats(lastMonthStats);
+    const depositRevenue = parseFloat(totalRevenueResult?.totalRevenue) || 0;
+    const finalPaymentRevenue = parseFloat(finalPaymentsRevenue[0]?.totalFinalPayments) || 0;
+    const totalRevenue = depositRevenue + finalPaymentRevenue;
 
     // Calculate changes (percentage or absolute)
-    const revenueChange = calculatePercentageChange(currentMonthRevenue, lastMonthRevenue);
-    const quotesChange = currentStats.activeQuotes - lastMonthStats.activeQuotes;
-    const jobsChange = currentStats.completedJobs - lastMonthStats.completedJobs;
-    const avgChange = calculatePercentageChange(currentStats.avgJobValue, lastMonthStats.avgJobValue);
+    const revenueChange = calculatePercentageChange(currentStats.revenue, lastStats.revenue);
+    const quotesChange = currentStats.activeQuotes - lastStats.activeQuotes;
+    const jobsChange = currentStats.completedJobs - lastStats.completedJobs;
+    const avgChange = calculatePercentageChange(currentStats.avgJobValue, lastStats.avgJobValue);
 
     const dashboardData = {
       stats: {
         totalRevenue: totalRevenue, // All-time revenue from verified Stripe payments
-        currentMonthRevenue: currentMonthRevenue, // Current month revenue
+        currentMonthRevenue: currentStats.revenue, // Current month revenue
         activeQuotes: currentStats.activeQuotes,
         completedJobs: currentStats.completedJobs,
         avgJobValue: currentStats.avgJobValue,
@@ -299,61 +332,60 @@ exports.getMonthlyPerformance = async (req, res) => {
     const now = new Date();
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const monthlyQuotes = await Quote.findAll({
-      where: {
-        tenantId,
-        isActive: true,
-        createdAt: {
-          [Op.gte]: firstDayOfMonth
-        }
-      },
-      attributes: [
-        'id',
-        'status',
-        'total',
-        'createdAt',
-        'sentAt',
-        'approvedAt',
-        'depositAmount',
-        'depositVerified',
-        'depositVerifiedAt',
-        'depositTransactionId',
-        'depositPaymentMethod'
-      ],
-      raw: true // Use raw queries for better performance
-    });
+    // Use database aggregation for better performance
+    const [statsResult, responseTimeData] = await Promise.all([
+      // Aggregated stats query
+      Quote.findOne({
+        where: {
+          tenantId,
+          isActive: true,
+          createdAt: { [Op.gte]: firstDayOfMonth }
+        },
+        attributes: [
+          [sequelize.fn('COUNT', sequelize.literal(`CASE WHEN status != 'draft' THEN 1 END`)), 'sentCount'],
+          [sequelize.fn('COUNT', sequelize.literal(`CASE WHEN status IN ('accepted', 'scheduled') THEN 1 END`)), 'acceptedCount'],
+          [sequelize.fn('SUM', 
+            sequelize.literal(`CASE 
+              WHEN deposit_verified = true 
+              AND deposit_transaction_id IS NOT NULL 
+              AND deposit_payment_method = 'stripe' 
+              THEN CAST(deposit_amount AS DECIMAL(10,2)) 
+              ELSE 0 
+            END`)
+          ), 'totalRevenue']
+        ],
+        raw: true
+      }),
+      
+      // Response time calculation (only for accepted quotes with timestamps)
+      Quote.findAll({
+        where: {
+          tenantId,
+          isActive: true,
+          createdAt: { [Op.gte]: firstDayOfMonth },
+          status: { [Op.in]: ['accepted', 'scheduled'] },
+          approvedAt: { [Op.ne]: null }
+        },
+        attributes: ['createdAt', 'approvedAt'],
+        raw: true
+      })
+    ]);
 
-    // Use array methods for better performance than filter
-    const sentQuotes = monthlyQuotes.filter(q => q.status !== 'draft');
-    const acceptedQuotes = monthlyQuotes.filter(q => 
-      q.status === 'accepted' || q.status === 'scheduled'
-    );
-
-    const conversionRate = sentQuotes.length > 0
-      ? ((acceptedQuotes.length / sentQuotes.length) * 100).toFixed(1)
+    const sentCount = parseInt(statsResult?.sentCount) || 0;
+    const acceptedCount = parseInt(statsResult?.acceptedCount) || 0;
+    const totalRevenue = parseFloat(statsResult?.totalRevenue) || 0;
+    
+    const conversionRate = sentCount > 0
+      ? ((acceptedCount / sentCount) * 100).toFixed(1)
       : '0.0';
 
-    // Calculate real revenue from Stripe payments
-    const paidQuotes = monthlyQuotes.filter(q => 
-      q.depositVerified && 
-      q.depositTransactionId && 
-      q.depositPaymentMethod === 'stripe'
-    );
-    
-    const totalRevenue = paidQuotes.reduce((sum, q) => 
-      sum + Number.parseFloat(q.depositAmount || 0), 0
-    );
-
-    // Calculate average response time (time from creation to approval)
+    // Calculate average response time from loaded data
     let totalResponseTime = 0;
-    let quotesWithResponse = 0;
+    let quotesWithResponse = responseTimeData.length;
 
-    for (const quote of acceptedQuotes) {
-      if (quote.approvedAt && quote.createdAt) {
-        const responseTime = (new Date(quote.approvedAt) - new Date(quote.createdAt)) / (1000 * 60 * 60); // hours
-        totalResponseTime += responseTime;
-        quotesWithResponse++;
-      }
+    for (const quote of responseTimeData) {
+      const responseTime = (new Date(quote.approvedAt) - new Date(quote.createdAt)) / (1000 * 60 * 60); // hours
+      totalResponseTime += responseTime;
     }
 
     const avgResponseTime = quotesWithResponse > 0
@@ -361,7 +393,7 @@ exports.getMonthlyPerformance = async (req, res) => {
       : '0.0';
 
     const performanceData = {
-      quotesSent: sentQuotes.length,
+      quotesSent: sentCount,
       conversionRate: conversionRate,
       avgResponseTime: avgResponseTime,
       revenue: (totalRevenue / 1000).toFixed(1) // in thousands, from real Stripe payments
@@ -391,12 +423,27 @@ exports.getMonthlyPerformance = async (req, res) => {
 
 /**
  * GET /api/v1/dashboard/recent-activity
- * Get recent quote activity
+ * Get recent quote activity with caching
  */
 exports.getRecentActivity = async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
     const limit = parseInt(req.query.limit) || 10;
+    const cacheKey = `${CACHE_KEYS.RECENT_ACTIVITY(tenantId)}:${limit}`;
+    
+    // Try to get from cache first
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      const cachedActivity = await utils.cache?.get(cacheKey);
+      
+      if (cachedActivity) {
+        return res.json({
+          success: true,
+          data: cachedActivity,
+          cached: true
+        });
+      }
+    }
 
     const recentQuotes = await Quote.findAll({
       where: {
@@ -414,7 +461,8 @@ exports.getRecentActivity = async (req, res) => {
         'createdAt'
       ],
       order: [['createdAt', 'DESC']],
-      limit
+      limit,
+      raw: true // Use raw for better performance
     });
 
     const getStatusDisplay = (status) => {
@@ -443,6 +491,14 @@ exports.getRecentActivity = async (req, res) => {
       createdAt: q.createdAt,
       description: `${q.jobType ? q.jobType.charAt(0).toUpperCase() + q.jobType.slice(1) : 'Job'} - ${q.jobCategory ? q.jobCategory.charAt(0).toUpperCase() + q.jobCategory.slice(1) : 'General'}`
     }));
+
+    // Cache the results (shorter TTL for recent activity)
+    if (optimizationSystem.initialized) {
+      const utils = optimizationSystem.getUtils();
+      await utils.cache?.set(cacheKey, activity, 60, { // 1 minute cache
+        tags: [`tenant:${tenantId}`, 'dashboard', 'activity']
+      });
+    }
 
     return res.json({
       success: true,

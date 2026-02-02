@@ -155,6 +155,36 @@ const Job = sequelize.define('Job', {
     
   },
 
+  // Final Payment Information
+  finalPaymentStatus: {
+    type: DataTypes.ENUM('pending', 'paid', 'waived'),
+    allowNull: false,
+    defaultValue: 'pending',
+    field: 'final_payment_status',
+    comment: 'Status of final payment after job completion'
+  },
+
+  finalPaymentDate: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'final_payment_date',
+    comment: 'Date when final payment was received'
+  },
+
+  finalPaymentTransactionId: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'final_payment_transaction_id',
+    comment: 'Stripe payment intent ID for final payment'
+  },
+
+  finalPaymentAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    field: 'final_payment_amount',
+    comment: 'Amount of final payment received'
+  },
+
   // Scheduling
   scheduledStartDate: {
     type: DataTypes.DATE,
@@ -384,6 +414,7 @@ const Job = sequelize.define('Job', {
     { fields: ['status'] },
     { fields: ['scheduled_start_date'] },
     { fields: ['created_at'] }
+    // Composite indexes removed - will be added via migration to avoid lock timeout
   ]
 });
 

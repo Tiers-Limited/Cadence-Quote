@@ -122,6 +122,8 @@ class DatabasePoolManager extends EventEmitter {
     if (this.config.indexOptimization.enabled) {
       this.indexManager = new IndexManager(this.sequelize, this.config.indexOptimization);
       await this.indexManager.initialize();
+    } else {
+      console.log('⚠️  Index Manager disabled - skipping index optimization');
     }
     
     // Start health monitoring

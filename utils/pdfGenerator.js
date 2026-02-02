@@ -1,9 +1,10 @@
 // utils/pdfGenerator.js
-const puppeteer = require('puppeteer');
+const htmlPdf = require('html-pdf-node');
 
 /**
- * Professional PDF Generator using Puppeteer
+ * Professional PDF Generator using html-pdf-node
  * Generates high-quality PDFs from HTML templates
+ * Switched from Puppeteer for better deployment compatibility
  */
 class PDFGenerator {
   /**
@@ -12,26 +13,12 @@ class PDFGenerator {
    * @returns {Promise<Buffer>} PDF file as buffer
    */
   static async generateQuotePDF({ quote, calculation, contractor, settings }) {
-    let browser = null;
-    
     try {
       const html = this.getQuoteHTML({ quote, calculation, contractor, settings });
       
-      // Launch browser in headless mode
-      browser = await puppeteer.launch({
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
-      
-      const page = await browser.newPage();
-      
-      // Set content and wait for fonts/images to load
-      await page.setContent(html, {
-        waitUntil: 'networkidle0'
-      });
-      
-      // Generate PDF with professional settings
-      const pdfBuffer = await page.pdf({
+      // Configure html-pdf-node
+      const file = { content: html };
+      const options = {
         format: 'Letter',
         printBackground: true,
         margin: {
@@ -41,17 +28,27 @@ class PDFGenerator {
           left: '0.5in'
         },
         preferCSSPageSize: false
-      });
+      };
+
+      const launchOptions = {
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-zygote',
+          '--single-process'
+        ]
+      };
+
+      // Generate PDF
+      const pdfBuffer = await htmlPdf.generatePdf(file, options, launchOptions);
       
       return pdfBuffer;
       
     } catch (error) {
       console.error('PDF generation error:', error);
       throw new Error(`Failed to generate PDF: ${error.message}`);
-    } finally {
-      if (browser) {
-        await browser.close();
-      }
     }
   }
 
