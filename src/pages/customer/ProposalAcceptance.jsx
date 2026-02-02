@@ -3,13 +3,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Button, Radio, Spin, Result, Alert, Divider, Descriptions, Modal } from 'antd';
+import { Card, Button, Radio, Spin, Result, Alert, Divider, Descriptions, Modal, message, Progress } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, DollarOutlined } from '@ant-design/icons';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { customerPortalAPI } from '../../services/customerPortalAPI';
 import { apiService } from '../../services/apiService';
 import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader';
+import { useAbortableEffect, isAbortError } from '../../hooks/useAbortableEffect';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
@@ -18,68 +19,210 @@ const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
+  const [paymentSubmitted, setPaymentSubmitted] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Prevent double submission
+    if (processing || paymentSubmitted) {
+      message.info('Payment is already being processed. Please wait...');
+      return;
+    }
+
     if (!stripe || !elements) {
+      message.warning('Payment form not ready. Please wait a moment.');
       return;
     }
 
     setProcessing(true);
+    setPaymentSubmitted(true);
+    message.loading({ content: 'Processing your deposit payment...', key: 'payment-process', duration: 0 });
 
     try {
+      const cardElement = elements.getElement(CardElement);
       const result = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
-          card: elements.getElement(CardElement),
+          card: cardElement,
+          billing_details: {
+            // Add billing details if available
+          }
         },
       });
 
       if (result.error) {
-        onError(result.error.message);
+        message.destroy('payment-process');
+        // Handle specific error types
+        if (result.error.code === 'card_declined') {
+          onError('Your card was declined. Please check your card details or try a different card.');
+        } else if (result.error.code === 'expired_card') {
+          onError('Your card has expired. Please use a different card.');
+        } else if (result.error.code === 'incorrect_cvc') {
+          onError('The security code (CVC) is incorrect. Please check and try again.');
+        } else if (result.error.code === 'insufficient_funds') {
+          onError('Insufficient funds. Please use a different card.');
+        } else if (result.error.code === 'processing_error') {
+          onError('An error occurred while processing your card. Please try again.');
+        } else {
+          onError(result.error.message || 'Payment failed. Please check your card details and try again.');
+        }
+        setProcessing(false);
+        setPaymentSubmitted(false);
       } else if (result.paymentIntent.status === 'succeeded') {
+        message.success({ content: '✓ Payment successful! Verifying and unlocking portal...', key: 'payment-process', duration: 2 });
+        setVerifying(true);
         onSuccess(result.paymentIntent.id);
+      } else if (result.paymentIntent.status === 'processing') {
+        message.loading({ content: 'Payment is processing. Please wait...', key: 'payment-process', duration: 0 });
+        setTimeout(() => checkPaymentStatus(result.paymentIntent.id), 3000);
+      } else if (result.paymentIntent.status === 'requires_payment_method') {
+        message.destroy('payment-process');
+        onError('Payment failed. Please check your card details or try a different card.');
+        setProcessing(false);
+        setPaymentSubmitted(false);
+      } else {
+        message.destroy('payment-process');
+        onError(`Payment status: ${result.paymentIntent.status}. Please contact support.`);
+        setProcessing(false);
+        setPaymentSubmitted(false);
       }
     } catch (err) {
-      onError(err.message);
-    } finally {
+      console.error('Payment error:', err);
+      message.destroy('payment-process');
+      onError(err.message || 'Payment processing failed. Please try again.');
       setProcessing(false);
+      setPaymentSubmitted(false);
+    }
+  };
+
+  const checkPaymentStatus = async (paymentIntentId) => {
+    try {
+      const { paymentIntent } = await stripe.retrievePaymentIntent(clientSecret);
+      
+      if (paymentIntent.status === 'succeeded') {
+        message.success({ content: '✓ Payment successful! Verifying and unlocking portal...', key: 'payment-process', duration: 2 });
+        setVerifying(true);
+        onSuccess(paymentIntent.id);
+      } else if (paymentIntent.status === 'processing') {
+        setTimeout(() => checkPaymentStatus(paymentIntentId), 3000);
+      } else {
+        message.destroy('payment-process');
+        onError('Payment could not be completed.');
+        setProcessing(false);
+        setPaymentSubmitted(false);
+      }
+    } catch (err) {
+      console.error('Status check error:', err);
+      message.destroy('payment-process');
+      onError('Failed to verify payment status.');
+      setProcessing(false);
+      setPaymentSubmitted(false);
     }
   };
 
   return (
     <form onSubmit={handleSubmit}>
-     <div className="bg-white border mb-8 border-gray-300 rounded-lg p-4 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all duration-200">
-  <CardElement 
-    options={{
-      style: {
-        base: {
-          fontSize: '16px',
-          color: '#1f2937',
-          '::placeholder': {
-            color: '#9ca3af',
-          },
-          padding: '10px 0',          // vertical spacing inside Stripe fields
-        },
-        invalid: {
-          color: '#ef4444',
-        },
-      },
-      hidePostalCode: false,
-    }}
-  />
-</div>
+      {verifying && (
+        <Alert
+          message="Verifying Payment"
+          description="Please wait while we verify your payment and unlock your portal access..."
+          type="info"
+          showIcon
+          icon={<Spin />}
+          className="mb-4"
+        />
+      )}
+      
+      <div 
+        className="border rounded-lg p-4 mb-6 transition-all duration-300"
+        style={{
+          borderColor: processing ? '#1890ff' : '#d9d9d9',
+          backgroundColor: processing ? '#f0f5ff' : '#ffffff',
+          borderWidth: processing ? '2px' : '1px',
+          opacity: processing ? 0.7 : 1,
+          boxShadow: processing ? '0 0 0 3px rgba(24, 144, 255, 0.1)' : 'none'
+        }}
+      >
+        <CardElement 
+          options={{
+            style: {
+              base: {
+                fontSize: '16px',
+                color: '#1f2937',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                fontSmoothing: 'antialiased',
+                '::placeholder': {
+                  color: '#9ca3af',
+                },
+                padding: '12px 0',
+              },
+              invalid: {
+                color: '#ef4444',
+                iconColor: '#ef4444'
+              },
+              complete: {
+                color: '#10b981'
+              }
+            },
+            hidePostalCode: false,
+          }}
+        />
+      </div>
+
+      {processing && (
+        <div className="mb-6">
+          <Progress 
+            percent={verifying ? 100 : 66} 
+            status={verifying ? 'success' : 'active'}
+            showInfo={false}
+            strokeColor={{
+              '0%': '#1890ff',
+              '100%': '#52c41a',
+            }}
+          />
+          <p className="text-center text-gray-600 text-sm mt-2">
+            {verifying ? '🔓 Unlocking your portal access...' : '💳 Processing your payment...'}
+          </p>
+        </div>
+      )}
+
+      <Alert
+        message="🔒 Secure Deposit Payment"
+        description={
+          <div>
+            <p className="mb-2">Your payment information is encrypted and secure.</p>
+            <p className="text-xs text-gray-600 mb-0">
+              ✓ PCI-DSS Compliant • ✓ SSL Encrypted • ✓ Powered by Stripe
+            </p>
+          </div>
+        }
+        type="info"
+        className="mb-6"
+      />
+      
       <Button
         type="primary"
         htmlType="submit"
         size="large"
         block
-        loading={processing}
-        disabled={!stripe || processing}
+        loading={processing || verifying}
+        disabled={!stripe || processing || verifying}
         icon={<DollarOutlined />}
+        className="h-12 text-lg font-semibold"
+        style={{
+          background: processing || verifying ? undefined : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+          border: 'none'
+        }}
       >
-        Pay Deposit ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {processing ? '⏳ Processing Payment...' : 
+         verifying ? '🔓 Unlocking Portal...' :
+         `Pay Deposit $${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
       </Button>
+
+      <p className="text-center text-gray-500 text-xs mt-4 mb-0">
+        By completing this payment, you confirm your acceptance of the proposal terms and initiate your project.
+      </p>
     </form>
   );
 };
@@ -102,20 +245,23 @@ const ProposalAcceptance = () => {
   const [success, setSuccess] = useState(false);
   const [verifyingPayment, setVerifyingPayment] = useState(false);
 
-  useEffect(() => {
-    fetchProposal();
+  useAbortableEffect((signal) => {
+    fetchProposal(signal);
   }, [proposalId]);
 
-  const fetchProposal = async () => {
+  const fetchProposal = async (signalsignal) => {
     try {
       setLoading(true);
-      const response = await customerPortalAPI.getProposal(proposalId);
+      const response = await customerPortalAPI.getProposal(proposalId, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       const payload = response.data?.data || response.data || response;
       setProposal(payload);
 
       // Track quote view (fire-and-forget)
       try {
-        await apiService.post(`/customer/quotes/${proposalId}/view`);
+        await apiService.post(`/customer/quotes/${proposalId}/view`, {}, { signal });
       } catch (viewError) {
         // Silently fail - tracking is not critical
         console.debug('Quote view tracking failed:', viewError);
@@ -136,12 +282,17 @@ const ProposalAcceptance = () => {
           setDepositAmount(payload.depositAmount);
         }
       }
-
-      setLoading(false);
     } catch (err) {
+      if (isAbortError(err)) {
+        console.log('Fetch proposal aborted');
+        return;
+      }
       console.error('Error fetching proposal:', err);
       setError(err.response?.data?.message || 'Failed to load proposal');
-      setLoading(false);
+    } finally {
+      if (signal && !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 
@@ -156,12 +307,15 @@ const ProposalAcceptance = () => {
 
     try {
       setAccepting(true);
+      message.loading({ content: 'Preparing your proposal...', key: 'accept-proposal', duration: 0 });
+      
       const response = await customerPortalAPI.acceptProposal(proposalId, { selectedTier });
       
       console.log('Accept proposal response:', response); // Debug log
       
       // Check if payment is already completed
       if (response.paymentCompleted) {
+        message.destroy('accept-proposal');
         Modal.success({
           title: 'Payment Already Completed',
           content: 'Your deposit has already been paid. Redirecting to product selections...',
@@ -187,11 +341,14 @@ const ProposalAcceptance = () => {
       setClientSecret(clientSecretValue);
       setDepositAmount(depositAmountValue);
       
+      message.success({ content: 'Proposal accepted! Please complete your deposit payment.', key: 'accept-proposal', duration: 3 });
+      
       // Move to payment step
       setPaymentStep(true);
       setAccepting(false);
     } catch (err) {
       console.error('Error accepting proposal:', err);
+      message.destroy('accept-proposal');
       Modal.error({
         title: 'Error',
         content: err.response?.data?.message || err.message || 'Failed to accept proposal',
@@ -202,10 +359,12 @@ const ProposalAcceptance = () => {
 
   const handlePaymentSuccess = async (paymentIntentId) => {
     setVerifyingPayment(true);
+    message.loading({ content: 'Verifying payment and unlocking portal...', key: 'verify-payment', duration: 0 });
     
     try {
-      await customerPortalAPI.confirmDepositPayment(proposalId, { paymentIntentId });
+      const response = await customerPortalAPI.confirmDepositPayment(proposalId, { paymentIntentId });
       
+      message.success({ content: '🎉 Payment verified! Portal unlocked successfully!', key: 'verify-payment', duration: 3 });
       setSuccess(true);
       setVerifyingPayment(false);
       
@@ -215,18 +374,56 @@ const ProposalAcceptance = () => {
       }, 3000);
     } catch (err) {
       console.error('Error confirming payment:', err);
+      message.destroy('verify-payment');
       setVerifyingPayment(false);
-      Modal.error({
-        title: 'Payment Confirmation Error',
-        content: 'Payment was successful but failed to update. Please contact support.',
-      });
+      
+      const errorMessage = err.response?.data?.message || 'Payment was successful but failed to update. Please contact support.';
+      const errorCode = err.response?.data?.code;
+      
+      if (errorCode === 'ALREADY_VERIFIED') {
+        Modal.info({
+          title: 'Payment Already Verified',
+          content: 'Your payment has already been verified. Redirecting to selections...',
+          onOk: () => navigate(`/portal/proposals/${proposalId}/selections`)
+        });
+      } else {
+        Modal.error({
+          title: 'Payment Verification Error',
+          content: (
+            <div>
+              <p>{errorMessage}</p>
+              <p className="mt-3 text-gray-600 text-sm">
+                Transaction ID: <strong>{paymentIntentId}</strong>
+              </p>
+              <p className="mt-2 text-gray-600 text-sm">
+                Please save this ID and contact support if needed.
+              </p>
+            </div>
+          )
+        });
+      }
     }
   };
 
   const handlePaymentError = (errorMessage) => {
     Modal.error({
       title: 'Payment Failed',
-      content: errorMessage,
+      content: (
+        <div>
+          <p className="mb-3">{errorMessage}</p>
+          <div className="bg-gray-50 border border-gray-200 rounded p-3 text-sm">
+            <p className="font-semibold mb-2">What to do next:</p>
+            <ul className="list-disc list-inside space-y-1 text-gray-700">
+              <li>Check your card details and try again</li>
+              <li>Ensure you have sufficient funds</li>
+              <li>Try a different card if the issue persists</li>
+              <li>Contact your bank if you continue to experience issues</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      okText: 'Try Again',
+      width: 500
     });
   };
 
@@ -283,31 +480,66 @@ const ProposalAcceptance = () => {
 
   if (success) {
     return (
-      <Result
-        status="success"
-        title="Deposit Payment Successful!"
-        subTitle="Redirecting to product selection..."
-        icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-      />
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
+        <Card className="max-w-md w-full text-center shadow-xl">
+          <Result
+            status="success"
+            title={
+              <div>
+                <div className="text-3xl mb-2">🎉</div>
+                <div>Deposit Payment Successful!</div>
+              </div>
+            }
+            subTitle={
+              <div className="space-y-2">
+                <p>Your payment has been verified and your portal is now unlocked!</p>
+                <p className="text-gray-600">Redirecting to product selection...</p>
+                <Progress 
+                  percent={100}
+                  status="success"
+                  strokeColor="#52c41a"
+                  showInfo={false}
+                  className="mt-4"
+                />
+              </div>
+            }
+            icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+          />
+        </Card>
+      </div>
     );
   }
 
   // Show verifying payment overlay
   if (verifyingPayment) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Card className="max-w-md w-full text-center">
-          <Spin size="large" />
-          <div className="mt-6">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-2">
-              Verifying Your Payment
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-green-50">
+        <Card className="max-w-md w-full text-center shadow-xl">
+          <div className="mb-6">
+            <Spin size="large" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-800 mb-3">
+              🔓 Unlocking Your Portal
             </h2>
             <p className="text-gray-600 mb-4">
-              Please wait while we confirm your payment with our payment processor...
+              Please wait while we verify your payment and unlock access to the product selection portal...
             </p>
+            <Progress 
+              percent={66}
+              status="active"
+              strokeColor={{
+                '0%': '#1890ff',
+                '100%': '#52c41a',
+              }}
+              className="mb-4"
+            />
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
-              <p className="text-sm text-blue-800">
-                ⏳ This may take a few moments. Please don't close this window.
+              <p className="text-sm text-blue-800 mb-2">
+                ⏳ This usually takes just a few moments
+              </p>
+              <p className="text-xs text-blue-600">
+                Please don't close this window or press the back button
               </p>
             </div>
           </div>
@@ -319,28 +551,68 @@ const ProposalAcceptance = () => {
   if (paymentStep) {
     return (
       <div className="max-w-2xl mx-auto p-6">
-        <Card title="Complete Deposit Payment">
-          <Alert
-            message="Almost Done!"
-            description={`Please complete your deposit payment of $${depositAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} to proceed with product selections.`}
-            type="info"
-            showIcon
-            className="mb-6"
-          />
-          
-          <Elements stripe={stripePromise}>
-            <PaymentForm
-              clientSecret={clientSecret}
-              amount={depositAmount}
-              onSuccess={handlePaymentSuccess}
-              onError={handlePaymentError}
+        <Spin spinning={verifyingPayment} tip="Verifying payment and unlocking portal..." size="large">
+          <Card 
+            title={
+              <div className="flex items-center gap-2">
+                <DollarOutlined className="text-green-600" />
+                <span>Complete Your Deposit Payment</span>
+              </div>
+            }
+          >
+            <Alert
+              message="Almost There!"
+              description={
+                <div>
+                  <p className="mb-2">Complete your deposit payment to unlock the full interactive portal.</p>
+                  <div className="mt-3 p-3 bg-green-50 rounded">
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-gray-700">Deposit Amount:</span>
+                      <span className="text-2xl font-bold text-green-600">
+                        ${depositAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-sm text-gray-600">
+                    <p className="mb-1">✓ Confirms your project acceptance</p>
+                    <p className="mb-1">✓ Unlocks product selection portal</p>
+                    <p className="mb-0">✓ Starts your selection period</p>
+                  </div>
+                </div>
+              }
+              type="info"
+              showIcon
+              className="mb-6"
             />
-          </Elements>
-          
-          <div className="mt-4 text-center text-gray-500 text-sm">
-            <p>🔒 Your payment information is secure and encrypted</p>
-          </div>
-        </Card>
+            
+            {clientSecret ? (
+              <Elements stripe={stripePromise}>
+                <PaymentForm
+                  clientSecret={clientSecret}
+                  amount={depositAmount}
+                  onSuccess={handlePaymentSuccess}
+                  onError={handlePaymentError}
+                />
+              </Elements>
+            ) : (
+              <div className="text-center py-8">
+                <Spin size="large" tip="Loading secure payment form..." />
+              </div>
+            )}
+            
+            <Divider />
+            
+            <div className="text-center">
+              <Button
+                type="link"
+                onClick={() => setPaymentStep(false)}
+                disabled={verifyingPayment}
+              >
+                ← Back to Proposal
+              </Button>
+            </div>
+          </Card>
+        </Spin>
       </div>
     );
   }

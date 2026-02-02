@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Radio, Typography, Space, message, Spin, Alert, Tag, Modal } from 'antd';
 import { FiCheckCircle, FiDollarSign, FiEdit } from 'react-icons/fi';
 import { magicLinkApiService } from '../../services/magicLinkApiService';
+import { useAbortableEffect, isAbortError } from '../../hooks/useAbortableEffect';
 import PortalStatusIndicator from '../../components/PortalStatusIndicator';
 import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader';
 import TierChangeModal from '../../components/TierChangeModal';
@@ -20,14 +21,17 @@ function ViewProposal() {
   const [tierChangeModalVisible, setTierChangeModalVisible] = useState(false);
   const [productsMap, setProductsMap] = useState({});
 
-  useEffect(() => {
-    fetchProposal();
-    fetchProducts();
+  useAbortableEffect((signal) => {
+    fetchProposal(signal);
+    fetchProducts(signal);
   }, [proposalId]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (signal) => {
     try {
-      const response = await magicLinkApiService.get('/api/customer-portal/product-configs');
+      const response = await magicLinkApiService.get('/api/customer-portal/product-configs', null, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         const productMap = {};
         (response.data || []).forEach(config => {
@@ -49,22 +53,35 @@ function ViewProposal() {
         setProductsMap(productMap);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch products aborted');
+        return;
+      }
       console.error('Error fetching products:', error);
     }
   };
 
-  const fetchProposal = async () => {
+  const fetchProposal = async (signal) => {
     try {
       setLoading(true);
-      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`);
+      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`, null, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         setProposal(response.data);
         setSelectedTier(response.data.selectedTier || null);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch proposal aborted');
+        return;
+      }
       message.error('Failed to load proposal: ' + error.message);
     } finally {
-      setLoading(false);
+      if (signal && !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 

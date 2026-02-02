@@ -38,6 +38,7 @@ function PaymentForm({ proposal, onSuccess }) {
 
     // PREVENT DOUBLE SUBMISSION
     if (processing || paymentSubmitted) {
+      message.info('Payment is already being processed. Please wait...');
       return;
     }
 
@@ -48,6 +49,7 @@ function PaymentForm({ proposal, onSuccess }) {
 
     setProcessing(true);
     setPaymentSubmitted(true);
+    message.loading({ content: 'Processing your payment securely...', key: 'payment-process', duration: 0 });
 
     try {
       const cardElement = elements.getElement(CardElement);
@@ -74,17 +76,18 @@ function PaymentForm({ proposal, onSuccess }) {
         // Handle specific error types
         if (error.code === 'payment_intent_unexpected_state') {
           // Payment already succeeded - retrieve and verify
-          message.info('Verifying your payment...');
+          message.info({ content: 'Verifying your payment...', key: 'payment-process' });
           const { paymentIntent: existingPI } = await stripe.retrievePaymentIntent(clientSecret);
           
           if (existingPI && existingPI.status === 'succeeded') {
-            message.success('Payment already completed!');
+            message.success({ content: 'Payment already completed!', key: 'payment-process', duration: 3 });
             onSuccess(existingPI.id);
             return;
           }
         }
         
-        message.error(error.message || 'Payment failed');
+        message.destroy('payment-process');
+        message.error({ content: error.message || 'Payment failed. Please check your card details and try again.', duration: 5 });
         setProcessing(false);
         setPaymentSubmitted(false);
         return;
@@ -92,18 +95,20 @@ function PaymentForm({ proposal, onSuccess }) {
 
       // Handle different payment statuses
       if (paymentIntent.status === 'succeeded') {
-        message.success('Payment successful!');
+        message.success({ content: '✓ Payment successful! Redirecting...', key: 'payment-process', duration: 3 });
         onSuccess(paymentIntent.id);
       } else if (paymentIntent.status === 'processing') {
-        message.loading('Payment is processing. Please wait...');
+        message.loading({ content: 'Payment is processing. Please wait...', key: 'payment-process', duration: 0 });
         // Poll for status update
         setTimeout(() => checkPaymentStatus(paymentIntentId), 3000);
       } else if (paymentIntent.status === 'requires_payment_method') {
-        message.error('Payment failed. Please try with a different card.');
+        message.destroy('payment-process');
+        message.error({ content: 'Payment declined. Please check your card details or try a different card.', duration: 5 });
         setProcessing(false);
         setPaymentSubmitted(false);
       } else {
-        message.warning(`Payment status: ${paymentIntent.status}. Please contact support.`);
+        message.destroy('payment-process');
+        message.warning({ content: `Payment status: ${paymentIntent.status}. Please contact support if this persists.`, duration: 5 });
         setProcessing(false);
         setPaymentSubmitted(false);
       }
@@ -141,9 +146,11 @@ function PaymentForm({ proposal, onSuccess }) {
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <div style={{ 
           padding: '12px', 
-          border: '1px solid #d9d9d9', 
+          border: processing ? '2px solid #1890ff' : '1px solid #d9d9d9', 
           borderRadius: '8px',
-          backgroundColor: '#fafafa'
+          backgroundColor: processing ? '#f0f5ff' : '#fafafa',
+          transition: 'all 0.3s ease',
+          opacity: processing ? 0.7 : 1
         }}>
           <CardElement options={CARD_ELEMENT_OPTIONS} />
         </div>
@@ -224,6 +231,7 @@ function DepositPayment() {
   const initiatePayment = async () => {
     try {
       setLoading(true);
+      message.loading({ content: 'Initializing secure payment...', key: 'payment-init', duration: 0 });
       
       const response = await magicLinkApiService.post(`/api/customer-portal/proposals/${proposalId}/create-payment-intent`, {
         tier: proposal.selectedTier
@@ -240,12 +248,12 @@ function DepositPayment() {
           clientSecret: response.data.clientSecret
         }));
         
-        message.success('Payment form ready');
+        message.success({ content: 'Payment form ready - please enter your card details', key: 'payment-init', duration: 3 });
       } else {
-        message.error('Failed to initialize payment');
+        message.error({ content: 'Failed to initialize payment', key: 'payment-init', duration: 3 });
       }
     } catch (error) {
-      message.error('Failed to initiate payment: ' + error.message);
+      message.error({ content: 'Failed to initiate payment: ' + error.message, key: 'payment-init', duration: 4 });
     } finally {
       setLoading(false);
     }

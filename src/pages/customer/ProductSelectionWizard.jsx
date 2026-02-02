@@ -201,6 +201,16 @@ const ProductSelectionWizard = () => {
       }
     } catch (err) {
       console.error('Failed to save single selection:', err);
+      // Revert the optimistic update on error
+      const reverted = [...selections];
+      if (isTurnkey) {
+        reverted.forEach((sel, idx) => {
+          reverted[idx] = { ...reverted[idx], selectedColor: null, selectedColorId: null, selectedColorHex: null };
+        });
+      } else {
+        reverted[areaIdx] = { ...reverted[areaIdx], selectedColor: null, selectedColorId: null, selectedColorHex: null };
+      }
+      setSelections(reverted);
       Modal.error({
         title: 'Save Failed',
         content: 'Failed to save your color selection. Please try again.',
@@ -342,7 +352,8 @@ const ProductSelectionWizard = () => {
       if (updated[index]._needsSave) updated[index]._needsSave = false;
     }
     
-    // Don't update UI yet - wait for API response
+    // Update UI immediately for seamless experience
+    setSelections(updated);
 
     // Persist this area if a color is selected (or if it was previously marked for save)
     if (updated[index].selectedColorId || updated[index].selectedColor) {
@@ -381,7 +392,7 @@ const ProductSelectionWizard = () => {
         setSavingSelection(true);
         const saveResp = await customerPortalAPI.saveSelections(proposalId, { selections: payload });
         
-        // Only update UI after successful API response
+        // Update with server response
         if (saveResp && Array.isArray(saveResp.selections)) {
           setSelections(saveResp.selections);
           const newSel = saveResp.selections[index];
@@ -391,6 +402,16 @@ const ProductSelectionWizard = () => {
         }
       } catch (err) {
         console.error('Failed to save sheen selection:', err);
+        // Revert the optimistic update on error
+        const reverted = [...selections];
+        if (isTurnkey) {
+          reverted.forEach((sel, idx) => {
+            reverted[idx] = { ...reverted[idx], selectedSheen: null };
+          });
+        } else {
+          reverted[index] = { ...reverted[index], selectedSheen: null };
+        }
+        setSelections(reverted);
         Modal.error({
           title: 'Save Failed',
           content: 'Failed to save your selection. Please try again.',

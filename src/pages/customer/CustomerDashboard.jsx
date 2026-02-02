@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Card, 
   Table, 
@@ -26,6 +26,7 @@ import {
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../../services/apiService';
+import { isAbortError } from '../../hooks/useAbortableEffect';
 import '../../styles/customerPortal.css';
 
 const { Title, Text, Paragraph } = Typography;
@@ -46,16 +47,35 @@ function CustomerDashboard() {
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [actionLoading, setActionLoading] = useState(false);
+  
+  // AbortController ref for cancelling requests
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
-    if (activeTab === 'proposals') {
-      fetchProposals();
-    } else {
-      fetchJobs();
+    // Cancel previous request if exists
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
+    
+    // Create new AbortController for this effect
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    
+    if (activeTab === 'proposals') {
+      fetchProposals(signal);
+    } else {
+      fetchJobs(signal);
+    }
+    
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [pagination.current, pagination.pageSize, searchText, statusFilter, activeTab]);
 
-  const fetchProposals = async () => {
+  const fetchProposals = async (signal) => {
     try {
       setLoading(true);
       const response = await apiService.get('/customer/proposals', {
@@ -65,7 +85,9 @@ function CustomerDashboard() {
           search: searchText,
           status: statusFilter
         }
-      });
+      }, { signal });
+      
+      if (signal && signal.aborted) return;
       
       if (response.success) {
         setProposals(response.data || []);
@@ -75,24 +97,38 @@ function CustomerDashboard() {
         }));
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch proposals aborted');
+        return;
+      }
       message.error('Failed to load proposals: ' + error.message);
     } finally {
-      setLoading(false);
+      if (signal && !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 
-  const fetchJobs = async () => {
+  const fetchJobs = async (signal) => {
     try {
       setLoading(true);
-      const response = await apiService.get('/customer/jobs');
+      const response = await apiService.get('/customer/jobs', null, { signal });
+      
+      if (signal && signal.aborted) return;
       
       if (response.success) {
         setJobs(response.data || []);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch jobs aborted');
+        return;
+      }
       message.error('Failed to load jobs: ' + error.message);
     } finally {
-      setLoading(false);
+      if (signal && !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 

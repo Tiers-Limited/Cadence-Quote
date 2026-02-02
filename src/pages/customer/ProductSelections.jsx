@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Select, Typography, Space, message, Spin, Alert, Tag, Modal, Table, Empty } from 'antd';
 import { FiCheckCircle, FiEdit, FiLock } from 'react-icons/fi';
 import { apiService } from '../../services/apiService';
+import { useAbortableEffect, isAbortError } from '../../hooks/useAbortableEffect';
 import PortalStatusIndicator from '../../components/PortalStatusIndicator';
 import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader';
 
@@ -35,18 +36,21 @@ function ProductSelections() {
     sheen: null
   });
 
-  useEffect(() => {
-    fetchProposal();
-    fetchBrands();
-    fetchAllProducts();
-    fetchAllColors();
-    fetchSheens();
+  useAbortableEffect((signal) => {
+    fetchProposal(signal);
+    fetchBrands(signal);
+    fetchAllProducts(signal);
+    fetchAllColors(signal);
+    fetchSheens(signal);
   }, [proposalId]);
 
-  const fetchProposal = async () => {
+  const fetchProposal = async (signal) => {
     try {
       setLoading(true);
-      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`);
+      const response = await magicLinkApiService.get(`/api/customer-portal/proposals/${proposalId}`, null, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         setProposal(response.data);
         setAreas(response.data.areas || []);
@@ -57,55 +61,89 @@ function ProductSelections() {
         }
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch proposal aborted');
+        return;
+      }
       message.error('Failed to load proposal: ' + error.message);
     } finally {
-      setLoading(false);
+      if (signal && !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 
-  const fetchBrands = async () => {
+  const fetchBrands = async (signal) => {
     try {
-      const response = await magicLinkApiService.get('/api/customer-portal/brands');
+      const response = await magicLinkApiService.get('/api/customer-portal/brands', null, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         setBrands(response.data || []);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch brands aborted');
+        return;
+      }
       console.error('Failed to load brands:', error);
       message.error('Failed to load brands');
     }
   };
 
-  const fetchAllProducts = async () => {
+  const fetchAllProducts = async (signal) => {
     try {
-      const response = await magicLinkApiService.get('/api/customer-portal/products?limit=1000');
+      const response = await magicLinkApiService.get('/api/customer-portal/products?limit=1000', null, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         setAllProducts(response.data || []);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch products aborted');
+        return;
+      }
       console.error('Failed to load products:', error);
       message.error('Failed to load products');
     }
   };
 
-  const fetchAllColors = async () => {
+  const fetchAllColors = async (signal) => {
     try {
-      const response = await magicLinkApiService.get('/api/customer-portal/colors?limit=1000');
+      const response = await magicLinkApiService.get('/api/customer-portal/colors?limit=1000', null, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         setAllColors(response.data || []);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch colors aborted');
+        return;
+      }
       console.error('Failed to load colors:', error);
       message.error('Failed to load colors');
     }
   };
 
-  const fetchSheens = async () => {
+  const fetchSheens = async (signal) => {
     try {
-      const response = await magicLinkApiService.get('/api/customer-portal/sheens');
+      const response = await magicLinkApiService.get('/api/customer-portal/sheens', null, { signal });
+      
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         setSheens(response.data || []);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch sheens aborted');
+        return;
+      }
       console.error('Failed to load sheens:', error);
       // Fallback to hardcoded sheens if API fails
       setSheens([

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Table,
   Button,
@@ -27,6 +27,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import apiService from '../services/apiService';
+import { isAbortError } from '../hooks/useAbortableEffect';
 
 const { Option } = Select;
 const { TabPane } = Tabs;
@@ -114,6 +115,9 @@ const ContractorProductConfigManager = () => {
   const [laborSearchText, setLaborSearchText] = useState('');
   const [laborHasChanges, setLaborHasChanges] = useState(false);
   const [pricingSchemes, setPricingSchemes] = useState([]);
+  
+  // AbortController ref for cancelling requests
+  const abortControllerRef = useRef(null);
 
   // Responsive detection
   useEffect(() => {
@@ -124,7 +128,21 @@ const ContractorProductConfigManager = () => {
 
   // Fetch initial data
   useEffect(() => {
-    fetchAllData();
+    // Cancel previous request if exists
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    
+    fetchAllData(signal);
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   // Populate markup form when laborDefaults loads
@@ -188,29 +206,37 @@ const ContractorProductConfigManager = () => {
     }
   }, [laborDefaults, markupForm]);
 
-  const fetchAllData = async () => {
+  const fetchAllData = async (signal) => {
     setLoading(true);
     try {
       const [brandsRes, configsRes, defaultsRes, schemesRes] = await Promise.all([
-        apiService.getAdminBrands(),
-        apiService.getProductConfigs(),
-        apiService.getProductConfigDefaults(),
-        apiService.getPricingSchemes(),
+        apiService.getAdminBrands({ signal }),
+        apiService.getProductConfigs({ signal }),
+        apiService.getProductConfigDefaults({ signal }),
+        apiService.getPricingSchemes({ signal }),
       ]);
+
+      if (signal && signal.aborted) return;
 
       setBrands(brandsRes.data || []);
       setConfigs(configsRes?.data || []);
       setLaborDefaults(defaultsRes.data || null);
       setPricingSchemes(schemesRes.data || []);
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch all data aborted');
+        return;
+      }
       handleApiError(error, 'Failed to load data');
     } finally {
-      setLoading(false);
+      if (signal && !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 
   // Fetch global products with pagination and brand filter
-  const fetchGlobalProducts = async (page = 1, brandId = null, category = null, search = '', append = false) => {
+  const fetchGlobalProducts = async (page = 1, brandId = null, category = null, search = '', append = false, signal = null) => {
     try {
       if (page === 1) {
         setLoadingMoreProducts(true);
@@ -233,7 +259,9 @@ const ContractorProductConfigManager = () => {
         params.search = search.trim();
       }
       
-      const response = await apiService.getGlobalProducts(params);
+      const response = await apiService.getGlobalProducts(params, signal ? { signal } : {});
+      
+      if (signal && signal.aborted) return;
       
       if (response.success) {
         const newProducts = response.data || [];
@@ -248,9 +276,17 @@ const ContractorProductConfigManager = () => {
         });
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch global products aborted');
+        return;
+      }
       handleApiError(error, 'Failed to load products');
     } finally {
-      setLoadingMoreProducts(false);
+      if (signal && !signal.aborted) {
+        setLoadingMoreProducts(false);
+      } else if (!signal) {
+        setLoadingMoreProducts(false);
+      }
     }
   };
 
@@ -270,28 +306,36 @@ const ContractorProductConfigManager = () => {
   useEffect(() => {
     // Only auto-fetch when modal is visible and in catalog mode (not custom mode)
     if (modalVisible && !customMode && !editingConfig) {
+      const abortController = new AbortController();
+      
       // Debounce search text changes (500ms), immediate for brand/category
       const timeoutId = setTimeout(() => {
-        fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, modalSearchText, false);
+        fetchGlobalProducts(1, modalBrandFilter, modalCategoryFilter, modalSearchText, false, abortController.signal);
       }, modalSearchText ? 500 : 0);
       
-      return () => clearTimeout(timeoutId);
+      return () => {
+        clearTimeout(timeoutId);
+        abortController.abort();
+      };
     }
   }, [modalBrandFilter, modalCategoryFilter, modalSearchText, modalVisible, customMode, editingConfig]);
 
   // Load labor categories + rates for Pricing Engine
   useEffect(() => {
-    (async () => {
-      await fetchLaborData();
-    })();
+    const abortController = new AbortController();
+    fetchLaborData(abortController.signal);
+    
+    return () => {
+      abortController.abort();
+    };
   }, []);
 
-  const fetchLaborData = async () => {
+  const fetchLaborData = async (signal) => {
     try {
       setLaborLoading(true);
       const [categoriesResponse, ratesResponse] = await Promise.all([
-        apiService.get('/labor-categories'),
-        apiService.get('/labor-categories/rates'),
+        apiService.get('/labor-categories', null, { signal }),
+        apiService.get('/labor-categories/rates', null, { signal }),
       ]);
 
       if (categoriesResponse.success) {
@@ -314,24 +358,38 @@ const ContractorProductConfigManager = () => {
         setLaborRates(ratesObj);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Labor data fetch aborted');
+        return;
+      }
       handleApiError(error, 'Failed to load labor categories');
     } finally {
-      setLaborLoading(false);
+      if (!signal || !signal.aborted) {
+        setLaborLoading(false);
+      }
     }
   };
 
-  const initializeLaborCategories = async () => {
+  const initializeLaborCategories = async (signal = null) => {
     try {
       setLaborInitializing(true);
-      const response = await apiService.post('/labor-categories/initialize');
+      const response = await apiService.post('/labor-categories/initialize', {}, signal ? { signal } : {});
+      if (signal && signal.aborted) return;
+      
       if (response.success) {
         message.success('Labor categories initialized successfully');
-        await fetchLaborData();
+        await fetchLaborData(signal);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Initialize labor categories aborted');
+        return;
+      }
       message.error('Failed to initialize categories: ' + error.message);
     } finally {
-      setLaborInitializing(false);
+      if (!signal || !signal.aborted) {
+        setLaborInitializing(false);
+      }
     }
   };
 
@@ -412,16 +470,24 @@ const ContractorProductConfigManager = () => {
     },
   ];
 
-  const fetchConfigs = async (brandId = null) => {
+  const fetchConfigs = async (brandId = null, signal = null) => {
     setLoading(true);
     try {
       const params = brandId ? { brandId } : {};
-      const response = await apiService.getProductConfigs(params);
+      const response = await apiService.getProductConfigs(params, signal ? { signal } : {});
+      if (signal && signal.aborted) return;
+      
       setConfigs(response?.data || []);
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Fetch configs aborted');
+        return;
+      }
       message.error('Failed to fetch configurations: ' + error.message);
     } finally {
-      setLoading(false);
+      if (!signal || !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 

@@ -13,7 +13,9 @@ import {
   Result,
   Modal,
   Alert,
-  Divider
+  Divider,
+  message,
+  Progress
 } from 'antd'
 import {
   ClockCircleOutlined,
@@ -39,63 +41,195 @@ const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
   const stripe = useStripe()
   const elements = useElements()
   const [processing, setProcessing] = useState(false)
+  const [paymentSubmitted, setPaymentSubmitted] = useState(false)
+  const [verifying, setVerifying] = useState(false)
 
   const handleSubmit = async e => {
     e.preventDefault()
 
-    if (!stripe || !elements) return
+    // Prevent double submission
+    if (processing || paymentSubmitted) {
+      message.info('Payment is already being processed. Please wait...')
+      return
+    }
+
+    if (!stripe || !elements) {
+      message.warning('Payment form not ready. Please wait a moment.')
+      return
+    }
 
     setProcessing(true)
+    setPaymentSubmitted(true)
+    message.loading({ content: 'Processing your payment securely...', key: 'payment-process', duration: 0 })
 
     try {
+      const cardElement = elements.getElement(CardElement)
       const result = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
-          card: elements.getElement(CardElement)
+          card: cardElement,
+          billing_details: {
+            // Add any billing details if available
+          }
         }
       })
 
       if (result.error) {
-        onError(result.error.message)
+        message.destroy('payment-process')
+        // Handle specific error types
+        if (result.error.code === 'card_declined') {
+          onError('Your card was declined. Please check your card details or try a different card.')
+        } else if (result.error.code === 'expired_card') {
+          onError('Your card has expired. Please use a different card.')
+        } else if (result.error.code === 'incorrect_cvc') {
+          onError('The security code (CVC) is incorrect. Please check and try again.')
+        } else if (result.error.code === 'processing_error') {
+          onError('An error occurred while processing your card. Please try again.')
+        } else {
+          onError(result.error.message || 'Payment failed. Please check your card details and try again.')
+        }
+        setProcessing(false)
+        setPaymentSubmitted(false)
       } else if (result.paymentIntent.status === 'succeeded') {
+        message.success({ content: '✓ Payment successful! Verifying...', key: 'payment-process', duration: 2 })
+        setVerifying(true)
         onSuccess(result.paymentIntent.id)
+      } else if (result.paymentIntent.status === 'processing') {
+        message.loading({ content: 'Payment is processing. Please wait...', key: 'payment-process', duration: 0 })
+        // Poll for status
+        setTimeout(() => checkPaymentStatus(result.paymentIntent.id), 3000)
+      } else if (result.paymentIntent.status === 'requires_payment_method') {
+        message.destroy('payment-process')
+        onError('Payment failed. Please check your card details or try a different card.')
+        setProcessing(false)
+        setPaymentSubmitted(false)
+      } else {
+        message.destroy('payment-process')
+        onError(`Payment status: ${result.paymentIntent.status}. Please contact support.`)
+        setProcessing(false)
+        setPaymentSubmitted(false)
       }
     } catch (err) {
-      onError(err.message)
-    } finally {
+      console.error('Payment error:', err)
+      message.destroy('payment-process')
+      onError(err.message || 'Payment processing failed. Please try again.')
       setProcessing(false)
+      setPaymentSubmitted(false)
+    }
+  }
+
+  const checkPaymentStatus = async (paymentIntentId) => {
+    try {
+      const { paymentIntent } = await stripe.retrievePaymentIntent(clientSecret)
+      
+      if (paymentIntent.status === 'succeeded') {
+        message.success({ content: '✓ Payment successful! Verifying...', key: 'payment-process', duration: 2 })
+        setVerifying(true)
+        onSuccess(paymentIntent.id)
+      } else if (paymentIntent.status === 'processing') {
+        setTimeout(() => checkPaymentStatus(paymentIntentId), 3000)
+      } else {
+        message.destroy('payment-process')
+        onError('Payment could not be completed.')
+        setProcessing(false)
+        setPaymentSubmitted(false)
+      }
+    } catch (err) {
+      console.error('Status check error:', err)
+      message.destroy('payment-process')
+      onError('Failed to verify payment status.')
+      setProcessing(false)
+      setPaymentSubmitted(false)
     }
   }
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className='bg-gray-50 p-4 rounded-lg mb-4'>
+      {verifying && (
+        <Alert
+          message="Verifying Payment"
+          description="Please wait while we verify your payment..."
+          type="info"
+          showIcon
+          icon={<Spin />}
+          className="mb-4"
+        />
+      )}
+      
+      <div 
+        className='p-4 rounded-lg mb-4'
+        style={{
+          border: processing ? '2px solid #1890ff' : '1px solid #d9d9d9',
+          backgroundColor: processing ? '#f0f5ff' : '#fafafa',
+          transition: 'all 0.3s ease',
+          opacity: processing ? 0.7 : 1
+        }}
+      >
         <CardElement
           options={{
             style: {
               base: {
                 fontSize: '16px',
                 color: '#424770',
-                '::placeholder': { color: '#aab7c4' }
+                '::placeholder': { color: '#aab7c4' },
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                fontSmoothing: 'antialiased'
               },
-              invalid: { color: '#9e2146' }
-            }
+              invalid: { 
+                color: '#9e2146',
+                iconColor: '#9e2146'
+              },
+              complete: {
+                color: '#52c41a'
+              }
+            },
+            hidePostalCode: true
           }}
         />
       </div>
+
+      {processing && (
+        <div className="mb-4">
+          <Progress 
+            percent={verifying ? 100 : 66} 
+            status={verifying ? 'success' : 'active'}
+            showInfo={false}
+            strokeColor={{
+              '0%': '#108ee9',
+              '100%': '#87d068',
+            }}
+          />
+          <p className="text-center text-gray-600 text-sm mt-2">
+            {verifying ? 'Verifying payment...' : 'Processing payment...'}
+          </p>
+        </div>
+      )}
+
+      <Alert
+        message="Secure Payment"
+        description="Your payment is processed securely through Stripe. All card information is encrypted."
+        type="info"
+        showIcon
+        className="mb-4"
+      />
+      
       <Button
         type='primary'
         htmlType='submit'
         size='large'
         block
-        loading={processing}
-        disabled={!stripe || processing || !(Number(amount) > 0)}
+        loading={processing || verifying}
+        disabled={!stripe || processing || verifying || !(Number(amount) > 0)}
         icon={<DollarOutlined />}
+        className="h-12 text-lg font-semibold"
       >
-        Pay Final Balance $
-        {Number(amount || 0).toLocaleString('en-US', {
-          minimumFractionDigits: 2
-        })}
+        {processing ? 'Processing Payment...' : 
+         verifying ? 'Verifying...' :
+         `Pay Final Balance $${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
       </Button>
+
+      <p className="text-center text-gray-500 text-xs mt-3">
+        By clicking "Pay Final Balance", you authorize the final payment for your completed project.
+      </p>
     </form>
   )
 }
@@ -110,6 +244,8 @@ const JobTracking = () => {
   const [showPayment, setShowPayment] = useState(false)
   const [clientSecret, setClientSecret] = useState(null)
   const [paymentComplete, setPaymentComplete] = useState(false)
+  const [initiatingPayment, setInitiatingPayment] = useState(false)
+  const [confirmingPayment, setConfirmingPayment] = useState(false)
 
   useEffect(() => {
     fetchJobDetails()
@@ -131,44 +267,107 @@ const JobTracking = () => {
 
   const handleInitiatePayment = async () => {
     try {
+      setInitiatingPayment(true)
+      message.loading({ content: 'Preparing payment form...', key: 'init-payment', duration: 0 })
+      
       const response = await customerPortalAPI.createFinalPayment(jobId)
-      setClientSecret(response.payment.clientSecret)
-      setShowPayment(true)
+      
+      if (response.payment && response.payment.clientSecret) {
+        setClientSecret(response.payment.clientSecret)
+        setShowPayment(true)
+        message.success({ content: 'Payment form ready - please enter your card details', key: 'init-payment', duration: 3 })
+      } else {
+        throw new Error('Invalid payment response')
+      }
     } catch (err) {
       console.error('Error creating payment:', err)
+      message.destroy('init-payment')
+      
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to initiate payment'
+      
       Modal.error({
-        title: 'Payment Error',
-        content: err.response?.data?.message || 'Failed to initiate payment'
+        title: 'Payment Initialization Failed',
+        content: errorMessage,
+        okText: 'Try Again'
       })
+    } finally {
+      setInitiatingPayment(false)
     }
   }
 
   const handlePaymentSuccess = async paymentIntentId => {
     try {
-      await customerPortalAPI.confirmFinalPayment(jobId, { paymentIntentId })
+      setConfirmingPayment(true)
+      message.loading({ content: 'Confirming payment and updating job status...', key: 'confirm-payment', duration: 0 })
+      
+      const response = await customerPortalAPI.confirmFinalPayment(jobId, { paymentIntentId })
+      
+      message.destroy('confirm-payment')
       setPaymentComplete(true)
       setShowPayment(false)
 
       Modal.success({
-        title: 'Payment Complete!',
-        content:
-          'Thank you for your payment. A receipt has been sent to your email.',
-        onOk: () => fetchJobDetails()
+        title: '🎉 Payment Complete!',
+        content: (
+          <div>
+            <p>Thank you for your payment! Your project is now fully complete.</p>
+            <p className="mt-2">A receipt has been sent to your email.</p>
+            <p className="mt-2 text-gray-600 text-sm">Transaction ID: {paymentIntentId}</p>
+          </div>
+        ),
+        okText: 'View Job Details',
+        onOk: () => {
+          fetchJobDetails()
+          setConfirmingPayment(false)
+        }
       })
     } catch (err) {
       console.error('Error confirming payment:', err)
-      Modal.error({
-        title: 'Confirmation Error',
-        content:
-          'Payment was successful but failed to update. Please contact support.'
-      })
+      message.destroy('confirm-payment')
+      setConfirmingPayment(false)
+      
+      const errorMessage = err.response?.data?.message || 'Failed to confirm payment'
+      const errorCode = err.response?.data?.code
+      
+      if (errorCode === 'ALREADY_PAID') {
+        Modal.info({
+          title: 'Payment Already Recorded',
+          content: 'This payment has already been recorded. Your job is complete.',
+          onOk: () => fetchJobDetails()
+        })
+      } else {
+        Modal.error({
+          title: 'Payment Confirmation Error',
+          content: (
+            <div>
+              <p>{errorMessage}</p>
+              <p className="mt-2 text-gray-600 text-sm">
+                Your payment was successful but we couldn't update the job status automatically.
+              </p>
+              <p className="mt-2 text-gray-600 text-sm">
+                Please contact support with this transaction ID: <strong>{paymentIntentId}</strong>
+              </p>
+            </div>
+          )
+        })
+      }
     }
   }
 
   const handlePaymentError = errorMessage => {
     Modal.error({
       title: 'Payment Failed',
-      content: errorMessage
+      content: (
+        <div>
+          <p>{errorMessage}</p>
+          <p className="mt-3 text-gray-600 text-sm">
+            Please check your card details and try again. If the problem persists, 
+            contact your bank or try a different payment method.
+          </p>
+        </div>
+      ),
+      okText: 'Try Again',
+      width: 500
     })
   }
 
@@ -220,36 +419,60 @@ const JobTracking = () => {
   if (showPayment) {
     return (
       <div className='max-w-2xl mx-auto p-6'>
-        <Card title='Complete Final Payment'>
-          <Alert
-            message='Final Payment Required'
-            description={`Your project is complete! Please submit the final payment of $${Number(
-              job?.balanceRemaining || 0
-            ).toLocaleString('en-US', {
-              minimumFractionDigits: 2
-            })} to close out the job.`}
-            type='info'
-            showIcon
-            className='mb-6'
-          />
-
-          <Elements stripe={stripePromise}>
-            <FinalPaymentForm
-              clientSecret={clientSecret}
-              amount={job.balanceRemaining}
-              onSuccess={handlePaymentSuccess}
-              onError={handlePaymentError}
-            />
-          </Elements>
-
-          <Button
-            type='link'
-            onClick={() => setShowPayment(false)}
-            className='mt-4 block text-center w-full'
+        <Spin spinning={confirmingPayment} tip="Confirming payment and updating job status..." size="large">
+          <Card 
+            title={
+              <div className="flex items-center gap-2">
+                <DollarOutlined className="text-green-600" />
+                <span>Complete Final Payment</span>
+              </div>
+            }
           >
-            Cancel
-          </Button>
-        </Card>
+            <Alert
+              message='Final Payment Required'
+              description={
+                <div>
+                  <p>Your project is complete! Please submit the final payment to close out the job.</p>
+                  <div className="mt-3 p-3 bg-blue-50 rounded">
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold">Amount Due:</span>
+                      <span className="text-2xl font-bold text-green-600">
+                        ${Number(job?.balanceRemaining || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              }
+              type='info'
+              showIcon
+              className='mb-6'
+            />
+
+            {clientSecret ? (
+              <Elements stripe={stripePromise}>
+                <FinalPaymentForm
+                  clientSecret={clientSecret}
+                  amount={job.balanceRemaining}
+                  onSuccess={handlePaymentSuccess}
+                  onError={handlePaymentError}
+                />
+              </Elements>
+            ) : (
+              <div className="text-center py-8">
+                <Spin size="large" tip="Loading payment form..." />
+              </div>
+            )}
+
+            <Button
+              type='link'
+              onClick={() => setShowPayment(false)}
+              className='mt-4 block text-center w-full'
+              disabled={confirmingPayment}
+            >
+              ← Back to Job Details
+            </Button>
+          </Card>
+        </Spin>
       </div>
     )
   }
@@ -377,8 +600,10 @@ const JobTracking = () => {
                   size='large'
                   onClick={handleInitiatePayment}
                   icon={<DollarOutlined />}
+                  loading={initiatingPayment}
+                  disabled={initiatingPayment}
                 >
-                  Pay Now
+                  {initiatingPayment ? 'Preparing...' : 'Pay Now'}
                 </Button>
               }
               className='mb-6'

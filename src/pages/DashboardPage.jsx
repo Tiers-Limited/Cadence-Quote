@@ -7,6 +7,7 @@ import dashboardService from '../services/dashboardService'
 import MainLayout from '../components/MainLayout'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
 import { useState, useEffect } from 'react'
+import { useAbortableEffect, isAbortError } from '../hooks/useAbortableEffect'
 
 function DashboardPage () {
   const navigate = useNavigate()
@@ -43,19 +44,22 @@ function DashboardPage () {
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
 
   // Fetch dashboard data on mount
-  useEffect(() => {
-    fetchDashboardData()
-  }, [])
+  useAbortableEffect((signal) => {
+    fetchDashboardData(signal);
+  }, []);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (signal) => {
     setLoading(true)
     try {
       const [dashboardStats, analytics, performance, activity] = await Promise.all([
-        dashboardService.getDashboardStats(),
-        fetchJobAnalyticsSummary(), // Use our new analytics API
-        dashboardService.getMonthlyPerformance(),
-        dashboardService.getRecentActivity(10)
-      ])
+        dashboardService.getDashboardStats({ signal }),
+        fetchJobAnalyticsSummary(signal), // Use our new analytics API
+        dashboardService.getMonthlyPerformance({ signal }),
+        dashboardService.getRecentActivity(10, { signal })
+      ]);
+
+      // Check if aborted
+      if (signal && signal.aborted) return;
 
       // Update stats from backend
       if (dashboardStats.success && dashboardStats.data.stats) {
@@ -139,18 +143,26 @@ function DashboardPage () {
       }
 
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Dashboard data fetch aborted');
+        return;
+      }
       console.error('Error fetching dashboard data:', error)
       message.error('Failed to load dashboard data')
     } finally {
-      setLoading(false)
+      if (signal && !signal.aborted) {
+        setLoading(false)
+      }
     }
   }
 
   // Fetch job analytics summary from our new API
-  const fetchJobAnalyticsSummary = async () => {
+  const fetchJobAnalyticsSummary = async (signal) => {
     try {
       // Use the completed jobs endpoint which calculates analytics on-the-fly
-      const response = await apiService.get('/job-analytics/completed-jobs');
+      const response = await apiService.get('/job-analytics/completed-jobs', null, { signal });
+      
+      if (signal && signal.aborted) return { success: false, data: null };
       
       if (response.success && response.data) {
         const { jobs, summary } = response.data;
@@ -216,6 +228,10 @@ function DashboardPage () {
       
       return { success: false, data: null };
     } catch (error) {
+      if (isAbortError(error)) {
+        console.log('Job analytics fetch aborted');
+        return { success: false, data: null };
+      }
       console.error('Error fetching job analytics summary:', error);
       return { success: false, data: null };
     }

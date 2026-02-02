@@ -17,7 +17,8 @@ import {
   Modal,
   Select,
   Row,
-  Col
+  Col,
+  Progress
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -25,13 +26,13 @@ import {
   EditOutlined,
   CheckCircleOutlined,
   FileTextOutlined,
-  DownloadOutlined
+  DownloadOutlined,
+  LoadingOutlined
 } from '@ant-design/icons'
 
 import { jobsService } from '../services/jobsService'
 import dayjs from 'dayjs'
 import JobProgressTracker from '../components/JobProgressTracker'
-import CompleteJobModal from '../components/CompleteJobModal'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -42,13 +43,15 @@ function JobDetailPage () {
   const [job, setJob] = useState(null)
   const [schedulingModalVisible, setSchedulingModalVisible] = useState(false)
   const [statusModalVisible, setStatusModalVisible] = useState(false)
-  const [completeJobModalVisible, setCompleteJobModalVisible] = useState(false)
   const [form] = Form.useForm()
   const [documents, setDocuments] = useState([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingDoc, setDownloadingDoc] = useState(null)
   const [customerSelections, setCustomerSelections] = useState(null)
   const [selectionsLoading, setSelectionsLoading] = useState(false)
+  const [schedulingJob, setSchedulingJob] = useState(false)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [approvingSelections, setApprovingSelections] = useState(false)
 
   useEffect(() => {
     if (jobId) {
@@ -196,8 +199,43 @@ function JobDetailPage () {
     setSchedulingModalVisible(true)
   }
 
+  // Auto-calculate duration when dates change
+  const handleDateChange = () => {
+    const startDate = form.getFieldValue('scheduledStartDate')
+    const endDate = form.getFieldValue('scheduledEndDate')
+    
+    if (startDate && endDate) {
+      const duration = endDate.diff(startDate, 'day') + 1 // Include both start and end day
+      if (duration > 0) {
+        form.setFieldsValue({ estimatedDuration: duration })
+      }
+    }
+  }
+
+  // Disable dates before today
+  const disabledStartDate = (current) => {
+    return current && current < dayjs().startOf('day')
+  }
+
+  // Disable dates before start date
+  const disabledEndDate = (current) => {
+    const startDate = form.getFieldValue('scheduledStartDate')
+    if (!current) return false
+    
+    // Can't be before today
+    if (current < dayjs().startOf('day')) return true
+    
+    // Can't be before start date
+    if (startDate && current < startDate.startOf('day')) return true
+    
+    return false
+  }
+
   const handleScheduleSubmit = async values => {
     try {
+      setSchedulingJob(true)
+      message.loading({ content: 'Scheduling job...', key: 'schedule-job', duration: 0 })
+      
       const scheduleData = {
         scheduledStartDate: values.scheduledStartDate?.toISOString(),
         scheduledEndDate: values.scheduledEndDate?.toISOString(),
@@ -206,8 +244,9 @@ function JobDetailPage () {
 
       const response = await jobsService.updateJobSchedule(jobId, scheduleData)
       if (response.success) {
-        message.success('Job scheduled successfully')
+        message.success({ content: '✓ Job scheduled successfully!', key: 'schedule-job', duration: 3 })
         setSchedulingModalVisible(false)
+        form.resetFields()
         // Update local state immediately for UI responsiveness
         setJob(prevJob => ({
           ...prevJob,
@@ -218,7 +257,10 @@ function JobDetailPage () {
         await fetchJobDetails()
       }
     } catch (error) {
-      message.error('Failed to schedule job: ' + error.message)
+      message.destroy('schedule-job')
+      message.error({ content: 'Failed to schedule job: ' + error.message, duration: 4 })
+    } finally {
+      setSchedulingJob(false)
     }
   }
 
@@ -228,14 +270,25 @@ function JobDetailPage () {
 
   const handleStatusSubmit = async values => {
     try {
+      setUpdatingStatus(true)
+      message.loading({ content: 'Updating job status...', key: 'update-status', duration: 0 })
+      
       const response = await jobsService.updateJobStatus(jobId, values.status)
       if (response.success) {
-        message.success('Job status updated successfully')
+        message.success({ content: '✓ Job status updated successfully!', key: 'update-status', duration: 3 })
         setStatusModalVisible(false)
-        fetchJobDetails()
+        // Update local state immediately
+        setJob(prevJob => ({
+          ...prevJob,
+          status: values.status
+        }))
+        await fetchJobDetails()
       }
     } catch (error) {
-      message.error('Failed to update status: ' + error.message)
+      message.destroy('update-status')
+      message.error({ content: 'Failed to update status: ' + error.message, duration: 4 })
+    } finally {
+      setUpdatingStatus(false)
     }
   }
 
@@ -266,23 +319,26 @@ function JobDetailPage () {
           icon={<ArrowLeftOutlined />}
           onClick={() => navigate('/jobs')}
           className='mb-4'
+          size='large'
         >
           Back to Jobs
         </Button>
-        <div className='flex justify-between items-start'>
-          <div>
-            <Title level={2}>{job.jobNumber}</Title>
-            {job.quote && <Text type='secondary'>{job.quote.projectName}</Text>}
+        <Card className='shadow-sm'>
+          <div className='flex justify-between items-start'>
+            <div>
+              <Title level={2} style={{ marginBottom: 8 }}>{job.jobNumber}</Title>
+              {job.quote && <Text type='secondary' style={{ fontSize: 16 }}>{job.quote.projectName}</Text>}
+            </div>
+            <Space>
+              <Tag
+                color={jobsService.getStatusColor(job.status)}
+                style={{ fontSize: 16, padding: '8px 16px', borderRadius: 8 }}
+              >
+                {jobsService.getStatusLabel(job.status)}
+              </Tag>
+            </Space>
           </div>
-          <Space>
-            <Tag
-              color={jobsService.getStatusColor(job.status)}
-              style={{ fontSize: 16, padding: '4px 12px' }}
-            >
-              {jobsService.getStatusLabel(job.status)}
-            </Tag>
-          </Space>
-        </div>
+        </Card>
       </div>
 
       <Row gutter={[16, 16]}>
@@ -426,55 +482,61 @@ function JobDetailPage () {
         <Col xs={24} lg={8}>
           {/* Quick Actions */}
           <Card title='Quick Actions' className='mb-4'>
-            <Space direction='vertical' style={{ width: '100%' }}>
-              {job.status !== 'completed' && (
-                <Button
-                  block
-                  type="primary"
-                  icon={<CheckCircleOutlined />}
-                  onClick={() => setCompleteJobModalVisible(true)}
-                  style={{ background: '#52c41a', borderColor: '#52c41a' }}
-                >
-                  Mark Job as Complete
-                </Button>
-              )}
+            <Space direction='vertical' style={{ width: '100%' }} size='middle'>
               <Button
                 block
-                icon={<EditOutlined />}
+                size='large'
+                icon={updatingStatus ? <LoadingOutlined /> : <EditOutlined />}
                 onClick={handleStatusUpdate}
+                loading={updatingStatus}
+                disabled={updatingStatus}
               >
-                Update Status
+                Update Job Status
               </Button>
               <Button
                 block
-                icon={<CalendarOutlined />}
+                size='large'
+                icon={schedulingJob ? <LoadingOutlined /> : <CalendarOutlined />}
                 onClick={handleScheduleJob}
+                loading={schedulingJob}
+                disabled={schedulingJob}
               >
-                Schedule Job
+                {job.scheduledStartDate ? 'Update Schedule' : 'Schedule Job'}
               </Button>
               {job.customerSelectionsComplete && (
                 <Button
                   block
+                  size='large'
                   type='primary'
+                  icon={approvingSelections ? <LoadingOutlined /> : <CheckCircleOutlined />}
+                  loading={approvingSelections}
+                  disabled={approvingSelections}
                   onClick={async () => {
                     Modal.confirm({
-                      title: 'Approve selections',
-                      content: 'Approve customer selections and lock the portal? This will notify the customer.',
+                      title: 'Approve Customer Selections',
+                      content: 'Approve customer selections and lock the portal? This will notify the customer and they will no longer be able to make changes.',
+                      okText: 'Approve & Lock',
+                      cancelText: 'Cancel',
                       onOk: async () => {
                         try {
+                          setApprovingSelections(true)
+                          message.loading({ content: 'Approving selections...', key: 'approve-selections', duration: 0 })
                           const response = await jobsService.approveSelections(jobId)
                           if (response.success) {
-                            message.success('Selections approved')
-                            fetchJobDetails()
+                            message.success({ content: '✓ Selections approved and portal locked!', key: 'approve-selections', duration: 3 })
+                            await fetchJobDetails()
                           }
                         } catch (err) {
-                          message.error('Failed to approve selections: ' + err.message)
+                          message.destroy('approve-selections')
+                          message.error({ content: 'Failed to approve selections: ' + err.message, duration: 4 })
+                        } finally {
+                          setApprovingSelections(false)
                         }
                       }
                     })
                   }}
                 >
-                  Approve Selections
+                  Approve Customer Selections
                 </Button>
               )}
             </Space>
@@ -648,88 +710,224 @@ function JobDetailPage () {
 
       {/* Schedule Modal */}
       <Modal
-        title='Schedule Job'
+        title={
+          <Space>
+            <CalendarOutlined />
+            <span>{job.scheduledStartDate ? 'Update Job Schedule' : 'Schedule Job'}</span>
+          </Space>
+        }
         open={schedulingModalVisible}
-        onCancel={() => setSchedulingModalVisible(false)}
+        onCancel={() => {
+          if (!schedulingJob) {
+            setSchedulingModalVisible(false)
+            form.resetFields()
+          }
+        }}
         footer={null}
         width={600}
+        maskClosable={!schedulingJob}
+        closable={!schedulingJob}
       >
-        <Form form={form} layout='vertical' onFinish={handleScheduleSubmit}>
-          <Form.Item
-            name='scheduledStartDate'
-            label='Start Date'
-            rules={[{ required: true, message: 'Please select start date' }]}
-          >
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
+        <Spin spinning={schedulingJob} tip="Scheduling job...">
+          <Form form={form} layout='vertical' onFinish={handleScheduleSubmit}>
+            <Alert
+              message="Schedule Information"
+              description="Set the start date, end date, and the duration will be calculated automatically. All dates must be today or in the future."
+              type="info"
+              showIcon
+              className="mb-4"
+            />
+            
+            <Form.Item
+              name='scheduledStartDate'
+              label='Start Date'
+              rules={[
+                { required: true, message: 'Please select start date' },
+                {
+                  validator: (_, value) => {
+                    if (!value) return Promise.resolve()
+                    if (value.isBefore(dayjs().startOf('day'))) {
+                      return Promise.reject(new Error('Start date cannot be in the past'))
+                    }
+                    return Promise.resolve()
+                  }
+                }
+              ]}
+            >
+              <DatePicker 
+                style={{ width: '100%' }} 
+                size='large'
+                format='MMM DD, YYYY'
+                disabled={schedulingJob}
+                disabledDate={disabledStartDate}
+                onChange={handleDateChange}
+                placeholder='Select start date'
+              />
+            </Form.Item>
 
-          <Form.Item name='scheduledEndDate' label='End Date'>
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
+            <Form.Item 
+              name='scheduledEndDate' 
+              label='End Date (Optional)'
+              rules={[
+                {
+                  validator: (_, value) => {
+                    if (!value) return Promise.resolve()
+                    const startDate = form.getFieldValue('scheduledStartDate')
+                    if (startDate && value.isBefore(startDate.startOf('day'))) {
+                      return Promise.reject(new Error('End date cannot be before start date'))
+                    }
+                    if (value.isBefore(dayjs().startOf('day'))) {
+                      return Promise.reject(new Error('End date cannot be in the past'))
+                    }
+                    return Promise.resolve()
+                  }
+                }
+              ]}
+            >
+              <DatePicker 
+                style={{ width: '100%' }} 
+                size='large'
+                format='MMM DD, YYYY'
+                disabled={schedulingJob}
+                disabledDate={disabledEndDate}
+                onChange={handleDateChange}
+                placeholder='Select end date'
+              />
+            </Form.Item>
 
-          <Form.Item name='estimatedDuration' label='Estimated Duration (days)'>
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
+            <Form.Item 
+              name='estimatedDuration' 
+              label='Estimated Duration (days)'
+              tooltip='Automatically calculated from start and end dates, or enter manually'
+            >
+              <InputNumber 
+                min={1} 
+                style={{ width: '100%' }} 
+                size='large'
+                placeholder='e.g., 5 (auto-calculated if end date is set)'
+                disabled={schedulingJob}
+              />
+            </Form.Item>
 
-          <Form.Item>
-            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-              <Button onClick={() => setSchedulingModalVisible(false)}>
-                Cancel
-              </Button>
-              <Button type='primary' htmlType='submit'>
-                Save Schedule
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
+            {schedulingJob && (
+              <div className="mb-4">
+                <Progress percent={66} status="active" showInfo={false} />
+                <p className="text-center text-gray-600 text-sm mt-2">Updating schedule...</p>
+              </div>
+            )}
+
+            <Form.Item>
+              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                <Button 
+                  onClick={() => {
+                    setSchedulingModalVisible(false)
+                    form.resetFields()
+                  }}
+                  disabled={schedulingJob}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type='primary' 
+                  htmlType='submit'
+                  loading={schedulingJob}
+                  disabled={schedulingJob}
+                  size='large'
+                >
+                  {schedulingJob ? 'Scheduling...' : 'Save Schedule'}
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Spin>
       </Modal>
 
       {/* Status Update Modal */}
       <Modal
-        title='Update Job Status'
+        title={
+          <Space>
+            <EditOutlined />
+            <span>Update Job Status</span>
+          </Space>
+        }
         open={statusModalVisible}
-        onCancel={() => setStatusModalVisible(false)}
+        onCancel={() => {
+          if (!updatingStatus) {
+            setStatusModalVisible(false)
+          }
+        }}
         footer={null}
+        maskClosable={!updatingStatus}
+        closable={!updatingStatus}
       >
-        <Form layout='vertical' onFinish={handleStatusSubmit}>
-          <Form.Item
-            name='status'
-            label='New Status'
-            rules={[{ required: true, message: 'Please select status' }]}
-          >
-            <Select>
-              <Select.Option value='deposit_paid'>Deposit Paid</Select.Option>
-              <Select.Option value='selections_complete'>
-                Selections Complete
-              </Select.Option>
-              <Select.Option value='scheduled'>Scheduled</Select.Option>
-              <Select.Option value='in_progress'>In Progress</Select.Option>
-              <Select.Option value='paused'>Paused</Select.Option>
-              <Select.Option value='completed'>Completed</Select.Option>
-              <Select.Option value='on_hold'>On Hold</Select.Option>
-            </Select>
-          </Form.Item>
+        <Spin spinning={updatingStatus} tip="Updating status...">
+          <Form layout='vertical' onFinish={handleStatusSubmit}>
+            <Alert
+              message="Current Status"
+              description={
+                <Space>
+                  <span>Current status:</span>
+                  <Tag color={jobsService.getStatusColor(job.status)}>
+                    {jobsService.getStatusLabel(job.status)}
+                  </Tag>
+                </Space>
+              }
+              type="info"
+              showIcon
+              className="mb-4"
+            />
+            
+            <Form.Item
+              name='status'
+              label='Select New Status'
+              rules={[{ required: true, message: 'Please select a status' }]}
+            >
+              <Select 
+                size='large'
+                placeholder='Choose a status...'
+                disabled={updatingStatus}
+              >
+                <Select.Option value='deposit_paid'>💰 Deposit Paid</Select.Option>
+                <Select.Option value='selections_complete'>
+                  ✓ Selections Complete
+                </Select.Option>
+                <Select.Option value='scheduled'>📅 Scheduled</Select.Option>
+                <Select.Option value='in_progress'>🚧 In Progress</Select.Option>
+                <Select.Option value='paused'>⏸️ Paused</Select.Option>
+                <Select.Option value='completed'>✅ Completed</Select.Option>
+                <Select.Option value='on_hold'>⏳ On Hold</Select.Option>
+              </Select>
+            </Form.Item>
 
-          <Form.Item>
-            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-              <Button onClick={() => setStatusModalVisible(false)}>
-                Cancel
-              </Button>
-              <Button type='primary' htmlType='submit'>
-                Update Status
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
+            {updatingStatus && (
+              <div className="mb-4">
+                <Progress percent={66} status="active" showInfo={false} />
+                <p className="text-center text-gray-600 text-sm mt-2">Updating job status...</p>
+              </div>
+            )}
+
+            <Form.Item>
+              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                <Button 
+                  onClick={() => setStatusModalVisible(false)}
+                  disabled={updatingStatus}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type='primary' 
+                  htmlType='submit'
+                  loading={updatingStatus}
+                  disabled={updatingStatus}
+                  size='large'
+                >
+                  {updatingStatus ? 'Updating...' : 'Update Status'}
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Spin>
       </Modal>
-
-      {/* Complete Job Modal */}
-      <CompleteJobModal
-        visible={completeJobModalVisible}
-        onCancel={() => setCompleteJobModalVisible(false)}
-        job={job}
-        onSuccess={fetchJobDetails}
-      />
     </div>
   )
 }

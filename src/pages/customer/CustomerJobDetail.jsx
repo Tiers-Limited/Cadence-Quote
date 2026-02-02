@@ -14,12 +14,14 @@ import {
   Progress,
   Row,
   Col,
-  Modal
+  Modal,
+  Alert
 } from 'antd';
 import {
   ArrowLeftOutlined,
   CheckCircleOutlined,
-  CalendarOutlined
+  CalendarOutlined,
+  DollarOutlined
 } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 import { magicLinkApiService } from '../../services/magicLinkApiService';
@@ -27,6 +29,7 @@ import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHe
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import customerPortalAPI from '../../services/customerPortalAPI';
+import { useAbortableEffect, isAbortError } from '../../hooks/useAbortableEffect';
 
 const { Title, Text } = Typography;
 
@@ -40,24 +43,41 @@ function CustomerJobDetail() {
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [stripePromise, setStripePromise] = useState(null);
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [paymentInProgress, setPaymentInProgress] = useState(false);
 
-  useEffect(() => {
+  // Use custom hook for abortable API calls
+  useAbortableEffect((signal) => {
     if (jobId) {
-      fetchJobDetails();
+      fetchJobDetails(signal);
     }
   }, [jobId]);
 
-  const fetchJobDetails = async () => {
+  const fetchJobDetails = async (signal) => {
     try {
       setLoading(true);
-      const response = await magicLinkApiService.get(`/api/customer-portal/jobs/${jobId}`);
+      const response = await magicLinkApiService.get(`/api/customer-portal/jobs/${jobId}`, null, { signal });
+      
+      // Check if request was aborted
+      if (signal && signal.aborted) {
+        return;
+      }
+      
       if (response.success) {
         setJob(response.data);
       }
     } catch (error) {
+      // Ignore abort errors (user navigated away)
+      if (isAbortError(error)) {
+        console.log('Fetch aborted: user navigated away');
+        return;
+      }
       message.error('Failed to load job details: ' + error.message);
     } finally {
-      setLoading(false);
+      // Only update loading state if not aborted
+      if (signal && !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 
@@ -349,9 +369,9 @@ function CustomerJobDetail() {
               )}
 
               {/* Pay Remaining CTA */}
-              {job.status === 'completed' && (job.finalPaymentStatus === 'pending' || job.balanceRemaining > 0) && (
+              {!paymentCompleted && job.status === 'completed' && (job.finalPaymentStatus === 'pending' || job.balanceRemaining > 0) && (
                 <div style={{ marginTop: 10 }}>
-                  <Button type="primary" onClick={async () => {
+                  <Button type="primary" block onClick={async () => {
                     try {
                       const resp = await customerPortalAPI.createFinalPayment(job.id);
                       if (resp.success && resp.payment) {
@@ -377,26 +397,91 @@ function CustomerJobDetail() {
 
       {/* Final Payment Modal */}
       <Modal
-        title={`Pay Remaining - $${parseFloat(paymentAmount || 0).toFixed(2)}`}
+        title={
+          <div className="flex items-center gap-2">
+            <DollarOutlined className="text-green-600" />
+            <span>Complete Final Payment</span>
+          </div>
+        }
         open={paymentModalVisible}
-        onCancel={() => { setPaymentModalVisible(false); setPaymentClientSecret(null); }}
+        onCancel={() => {
+          if (paymentInProgress) {
+            message.warning('Please wait while your payment is being processed. Do not close this window.');
+            return;
+          }
+          setPaymentModalVisible(false);
+          setPaymentClientSecret(null);
+        }}
+        closable={!paymentInProgress}
+        maskClosable={false}
+        keyboard={false}
         footer={null}
+        width={600}
       >
         {stripePromise && paymentClientSecret ? (
-          <Elements stripe={stripePromise} options={{ clientSecret: paymentClientSecret }}>
-            <FinalPaymentForm
-              jobId={job.id}
-              clientSecret={paymentClientSecret}
-              amount={paymentAmount}
-              onSuccess={async () => {
-                setPaymentModalVisible(false);
-                setPaymentClientSecret(null);
-                message.success('Payment completed. Thank you!');
-                await fetchJobDetails();
-              }}
-              onCancel={() => { setPaymentModalVisible(false); setPaymentClientSecret(null); }}
+          <div>
+            <Alert
+              message="Final Payment"
+              description={
+                <div>
+                  <p className="mb-2">Complete your final payment to close this project.</p>
+                  <div className="mt-3 p-3 bg-green-50 rounded">
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-gray-700">Final Balance:</span>
+                      <span className="text-2xl font-bold text-green-600">
+                        ${parseFloat(paymentAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-sm text-gray-600">
+                    <p className="mb-1">✓ Job has been completed</p>
+                    <p className="mb-1">✓ Final payment closes the project</p>
+                    <p className="mb-0">✓ Receipt will be sent to your email</p>
+                  </div>
+                </div>
+              }
+              type="info"
+              showIcon
+              className="mb-6"
             />
-          </Elements>
+            <Elements stripe={stripePromise} options={{ clientSecret: paymentClientSecret }}>
+              <FinalPaymentForm
+                jobId={job.id}
+                clientSecret={paymentClientSecret}
+                amount={paymentAmount}
+                onSuccess={async () => {
+                  setPaymentModalVisible(false);
+                  setPaymentClientSecret(null);
+                  setPaymentCompleted(true); // Hide payment button immediately
+                  
+                  // Show success message
+                  Modal.success({
+                    title: '🎉 Payment Successful!',
+                    content: (
+                      <div>
+                        <p className="mb-2">Your final payment has been processed successfully.</p>
+                        <p className="text-gray-600">This job has been marked as paid and closed.</p>
+                      </div>
+                    ),
+                    okText: 'Done',
+                  });
+                  
+                  // Refresh job details to get updated status
+                  await fetchJobDetails();
+                }}
+                onCancel={() => {
+                  if (paymentInProgress) {
+                    message.warning('Please wait while your payment is being processed. Do not close this window.');
+                    return;
+                  }
+                  setPaymentModalVisible(false);
+                  setPaymentClientSecret(null);
+                }}
+                onPaymentStart={() => setPaymentInProgress(true)}
+                onPaymentEnd={() => setPaymentInProgress(false)}
+              />
+            </Elements>
+          </div>
         ) : (
           <div style={{ textAlign: 'center' }}><Spin /></div>
         )}
@@ -407,73 +492,357 @@ function CustomerJobDetail() {
 
 
 
-function FinalPaymentForm({ jobId, clientSecret, amount, onSuccess, onCancel }) {
+function FinalPaymentForm({ jobId, clientSecret, amount, onSuccess, onCancel, onPaymentStart, onPaymentEnd }) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
+  const [paymentSubmitted, setPaymentSubmitted] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!stripe || !elements) return;
+    
+    // Prevent double submission
+    if (processing || paymentSubmitted) {
+      message.info('Payment is already being processed. Please wait...');
+      return;
+    }
+
+    if (!stripe || !elements) {
+      message.warning('Payment form not ready. Please wait a moment.');
+      return;
+    }
+
     setProcessing(true);
+    setPaymentSubmitted(true);
+    onPaymentStart && onPaymentStart();
+    message.loading({ content: 'Processing your final payment...', key: 'final-payment-process', duration: 0 });
 
     try {
-      const card = elements.getElement(CardElement);
+      const cardElement = elements.getElement(CardElement);
       const result = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
-          card,
-        }
+          card: cardElement,
+          billing_details: {}
+        },
       });
 
       if (result.error) {
+        message.destroy('final-payment-process');
+        
         // Handle specific Stripe error when confirming an already-succeeded PaymentIntent
         if (result.error.code === 'payment_intent_unexpected_state' || (result.error.message && result.error.message.includes('already succeeded'))) {
           const paymentIntentId = result.error.payment_intent?.id || (clientSecret && clientSecret.split('_secret')[0]);
           if (paymentIntentId) {
             try {
+              message.loading({ content: 'Verifying payment status...', key: 'final-payment-process', duration: 0 });
               await customerPortalAPI.confirmFinalPayment(jobId, { paymentIntentId });
+              message.success({ content: '✓ Payment verified successfully!', key: 'final-payment-process', duration: 2 });
+              onPaymentEnd && onPaymentEnd();
               onSuccess && onSuccess();
               return;
             } catch (confirmErr) {
-              message.error('Payment succeeded but server failed to process it. Please contact support.');
+              Modal.error({
+                title: 'Payment Verification Error',
+                content: (
+                  <div>
+                    <p>Payment succeeded but server failed to process it.</p>
+                    <p className="mt-3 text-gray-600 text-sm">
+                      Transaction ID: <strong>{paymentIntentId}</strong>
+                    </p>
+                    <p className="mt-2 text-gray-600 text-sm">
+                      Please save this ID and contact support.
+                    </p>
+                  </div>
+                )
+              });
               setProcessing(false);
+              setPaymentSubmitted(false);
+              onPaymentEnd && onPaymentEnd();
               return;
             }
           }
-          message.error('Payment appears to have already succeeded. Please refresh or contact support if your job is not marked closed.');
+          message.error('Payment appears to have already succeeded. Please refresh or contact support.');
           setProcessing(false);
+          setPaymentSubmitted(false);
+          onPaymentEnd && onPaymentEnd();
           return;
         }
 
-        message.error(result.error.message || 'Payment failed');
-        setProcessing(false);
-        return;
-      }
+        // Handle specific error types
+        let errorMessage = result.error.message || 'Payment failed. Please check your card details and try again.';
+        if (result.error.code === 'card_declined') {
+          errorMessage = 'Your card was declined. Please check your card details or try a different card.';
+        } else if (result.error.code === 'expired_card') {
+          errorMessage = 'Your card has expired. Please use a different card.';
+        } else if (result.error.code === 'incorrect_cvc') {
+          errorMessage = 'The security code (CVC) is incorrect. Please check and try again.';
+        } else if (result.error.code === 'insufficient_funds') {
+          errorMessage = 'Insufficient funds. Please use a different card.';
+        } else if (result.error.code === 'processing_error') {
+          errorMessage = 'An error occurred while processing your card. Please try again.';
+        }
 
-      const paymentIntent = result.paymentIntent;
-      if (paymentIntent && paymentIntent.status === 'succeeded') {
-        // Confirm via API
-        await customerPortalAPI.confirmFinalPayment(jobId, { paymentIntentId: paymentIntent.id });
-        onSuccess && onSuccess();
+        Modal.error({
+          title: 'Payment Failed',
+          content: (
+            <div>
+              <p className="mb-3">{errorMessage}</p>
+              <div className="bg-gray-50 border border-gray-200 rounded p-3 text-sm">
+                <p className="font-semibold mb-2">What to do next:</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-700">
+                  <li>Check your card details and try again</li>
+                  <li>Ensure you have sufficient funds</li>
+                  <li>Try a different card if the issue persists</li>
+                  <li>Contact your bank if you continue to experience issues</li>
+                </ul>
+              </div>
+            </div>
+          ),
+          okText: 'Try Again',
+          width: 500
+        });
+        setProcessing(false);
+        setPaymentSubmitted(false);
+        onPaymentEnd && onPaymentEnd();
+      } else if (result.paymentIntent.status === 'succeeded') {
+        message.success({ content: '✓ Payment successful! Verifying and closing job...', key: 'final-payment-process', duration: 2 });
+        setVerifying(true);
+        try {
+          await customerPortalAPI.confirmFinalPayment(jobId, { paymentIntentId: result.paymentIntent.id });
+          message.success({ content: '🎉 Payment verified! Job closed successfully!', key: 'final-payment-process', duration: 3 });
+          onPaymentEnd && onPaymentEnd();
+          onSuccess && onSuccess();
+        } catch (confirmErr) {
+          message.destroy('final-payment-process');
+          Modal.error({
+            title: 'Payment Verification Error',
+            content: (
+              <div>
+                <p>Payment succeeded but server failed to process it.</p>
+                <p className="mt-3 text-gray-600 text-sm">
+                  Transaction ID: <strong>{result.paymentIntent.id}</strong>
+                </p>
+                <p className="mt-2 text-gray-600 text-sm">
+                  Please save this ID and contact support.
+                </p>
+              </div>
+            )
+          });
+          setProcessing(false);
+          setPaymentSubmitted(false);
+          setVerifying(false);
+          onPaymentEnd && onPaymentEnd();
+        }
+      } else if (result.paymentIntent.status === 'processing') {
+        message.loading({ content: 'Payment is processing. Please wait...', key: 'final-payment-process', duration: 0 });
+        setTimeout(() => checkPaymentStatus(result.paymentIntent.id), 3000);
+      } else if (result.paymentIntent.status === 'requires_payment_method') {
+        message.destroy('final-payment-process');
+        Modal.error({
+          title: 'Payment Failed',
+          content: 'Payment failed. Please check your card details or try a different card.',
+          okText: 'Try Again'
+        });
+        setProcessing(false);
+        setPaymentSubmitted(false);
+        onPaymentEnd && onPaymentEnd();
       } else {
-        message.error('Payment did not complete successfully');
+        message.destroy('final-payment-process');
+        Modal.error({
+          title: 'Payment Status Unknown',
+          content: `Payment status: ${result.paymentIntent.status}. Please contact support.`
+        });
+        setProcessing(false);
+        setPaymentSubmitted(false);
+        onPaymentEnd && onPaymentEnd();
       }
     } catch (err) {
-      message.error('Payment error: ' + (err.response?.data?.message || err.message));
-    } finally {
+      console.error('Payment error:', err);
+      message.destroy('final-payment-process');
+      Modal.error({
+        title: 'Payment Error',
+        content: err.response?.data?.message || err.message || 'Payment processing failed. Please try again.'
+      });
       setProcessing(false);
+      setPaymentSubmitted(false);
+      onPaymentEnd && onPaymentEnd();
+    }
+  };
+
+  const checkPaymentStatus = async (paymentIntentId) => {
+    try {
+      const { paymentIntent } = await stripe.retrievePaymentIntent(clientSecret);
+      
+      if (paymentIntent.status === 'succeeded') {
+        message.success({ content: '✓ Payment successful! Verifying and closing job...', key: 'final-payment-process', duration: 2 });
+        setVerifying(true);
+        try {
+          await customerPortalAPI.confirmFinalPayment(jobId, { paymentIntentId: paymentIntent.id });
+          message.success({ content: '🎉 Payment verified! Job closed successfully!', key: 'final-payment-process', duration: 3 });
+          onPaymentEnd && onPaymentEnd();
+          onSuccess && onSuccess();
+        } catch (confirmErr) {
+          message.destroy('final-payment-process');
+          Modal.error({
+            title: 'Payment Verification Error',
+            content: (
+              <div>
+                <p>Payment succeeded but server failed to process it.</p>
+                <p className="mt-3 text-gray-600 text-sm">
+                  Transaction ID: <strong>{paymentIntent.id}</strong>
+                </p>
+                <p className="mt-2 text-gray-600 text-sm">
+                  Please save this ID and contact support.
+                </p>
+              </div>
+            )
+          });
+          setProcessing(false);
+          setPaymentSubmitted(false);
+          setVerifying(false);
+          onPaymentEnd && onPaymentEnd();
+        }
+      } else if (paymentIntent.status === 'processing') {
+        setTimeout(() => checkPaymentStatus(paymentIntentId), 3000);
+      } else {
+        message.destroy('final-payment-process');
+        Modal.error({
+          title: 'Payment Failed',
+          content: 'Payment could not be completed.'
+        });
+        setProcessing(false);
+        setPaymentSubmitted(false);
+        onPaymentEnd && onPaymentEnd();
+      }
+    } catch (err) {
+      console.error('Status check error:', err);
+      message.destroy('final-payment-process');
+      Modal.error({
+        title: 'Verification Error',
+        content: 'Failed to verify payment status. Please contact support.'
+      });
+      setProcessing(false);
+      setPaymentSubmitted(false);
+      onPaymentEnd && onPaymentEnd();
     }
   };
 
   return (
     <form onSubmit={handleSubmit}>
-      <div style={{ marginBottom: 12 }}>
-        <CardElement options={{ hidePostalCode: true }} />
+      {verifying && (
+        <Alert
+          message="Verifying Payment"
+          description="Please wait while we verify your payment and close your job..."
+          type="info"
+          showIcon
+          icon={<Spin />}
+          className="mb-4"
+        />
+      )}
+      
+      <div 
+        className="border rounded-lg p-4 mb-6 transition-all duration-300"
+        style={{
+          borderColor: processing ? '#1890ff' : '#d9d9d9',
+          backgroundColor: processing ? '#f0f5ff' : '#ffffff',
+          borderWidth: processing ? '2px' : '1px',
+          opacity: processing ? 0.7 : 1,
+          boxShadow: processing ? '0 0 0 3px rgba(24, 144, 255, 0.1)' : 'none'
+        }}
+      >
+        <CardElement 
+          options={{
+            style: {
+              base: {
+                fontSize: '16px',
+                color: '#1f2937',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                fontSmoothing: 'antialiased',
+                '::placeholder': {
+                  color: '#9ca3af',
+                },
+                padding: '12px 0',
+              },
+              invalid: {
+                color: '#ef4444',
+                iconColor: '#ef4444'
+              },
+              complete: {
+                color: '#10b981'
+              }
+            },
+            hidePostalCode: false,
+          }}
+        />
       </div>
+
+      {processing && (
+        <div className="mb-6">
+          <Progress 
+            percent={verifying ? 100 : 66} 
+            status={verifying ? 'success' : 'active'}
+            showInfo={false}
+            strokeColor={{
+              '0%': '#1890ff',
+              '100%': '#52c41a',
+            }}
+          />
+          <p className="text-center text-gray-600 text-sm mt-2">
+            {verifying ? '🔐 Verifying and closing your job...' : '💳 Processing your payment...'}
+          </p>
+        </div>
+      )}
+
+      <Alert
+        message="🔒 Secure Final Payment"
+        description={
+          <div>
+            <p className="mb-2">Your payment information is encrypted and secure.</p>
+            <p className="text-xs text-gray-600 mb-0">
+              ✓ PCI-DSS Compliant • ✓ SSL Encrypted • ✓ Powered by Stripe
+            </p>
+          </div>
+        }
+        type="info"
+        className="mb-6"
+      />
+      
       <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-        <Button onClick={onCancel}>Cancel</Button>
-        <Button type="primary" htmlType="submit" loading={processing}>Pay ${parseFloat(amount || 0).toFixed(2)}</Button>
+        <Button 
+          onClick={() => {
+            if (processing || verifying) {
+              message.warning('Please wait while your payment is being processed. Do not close this window.');
+              return;
+            }
+            onCancel && onCancel();
+          }}
+          disabled={processing || verifying}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="primary"
+          htmlType="submit"
+          size="large"
+          loading={processing || verifying}
+          disabled={!stripe || processing || verifying}
+          icon={<DollarOutlined />}
+          className="h-12 text-lg font-semibold"
+          style={{
+            background: processing || verifying ? undefined : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+            border: 'none'
+          }}
+        >
+          {processing ? '⏳ Processing Payment...' : 
+           verifying ? '🔐 Closing Job...' :
+           `Pay Final Balance $${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+        </Button>
       </Space>
+
+      <p className="text-center text-gray-500 text-xs mt-4 mb-0">
+        By completing this payment, you confirm the job is complete and close the project.
+      </p>
     </form>
   );
 }
