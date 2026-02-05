@@ -6,7 +6,6 @@ import { quoteBuilderApi } from '../../services/quoteBuilderApi';
 import { apiService } from '../../services/apiService';
 import loadingService from '../../services/loadingService';
 import ProposalPreviewModal from './ProposalPreviewModal';
-import SendQuoteEmailModal from './SendQuoteEmailModal';
 import { calculateGallonsNeeded } from '../../utils/paintUtils';
 
 const { Title, Text, Paragraph } = Typography;
@@ -219,7 +218,6 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
     const [showProposalPreview, setShowProposalPreview] = useState(false);
-    const [showEmailModal, setShowEmailModal] = useState(false);
     const [totalEstimatedHours, setTotalEstimatedHours] = useState(0);
     const [productsMap, setProductsMap] = useState({});
 
@@ -394,7 +392,8 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
             setSending(true);
 
             // CRITICAL FIX: Save the quote first if it doesn't have an ID
-            if (!formData?.quoteId) {
+            let currentQuoteId = formData?.quoteId;
+            if (!currentQuoteId) {
                 console.log('[SummaryStep] No quote ID found, saving draft first...');
                 
                 const quoteData = {
@@ -408,47 +407,56 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                 
                 if (response.success && response.quote?.id) {
                     console.log('[SummaryStep] Quote saved with ID:', response.quote.id);
+                    currentQuoteId = response.quote.id;
                     // Update formData with the new quote ID
-                    onUpdate({ quoteId: response.quote.id });
+                    onUpdate({ quoteId: currentQuoteId });
                 } else {
                     throw new Error('Failed to save quote before sending');
                 }
             }
 
-            // Open the email modal
-            setShowEmailModal(true);
-        } catch (error) {
-            console.error('Error preparing quote for send:', error);
-            Modal.error({
-                title: 'Send Failed',
-                content: error.message || 'Failed to prepare quote for sending. Please try again.',
-            });
-        } finally {
-            setSending(false);
-        }
-    };
-
-    const handleSendEmail = async (emailData) => {
-        try {
-            const quoteId = formData?.quoteId;
+            // Fetch email settings from backend using apiService
+            let emailSettings = {};
+            let companyName = 'Our Company';
             
-            if (!quoteId) {
-                throw new Error('Quote ID not found. Please save the quote first.');
+            try {
+                const settingsData = await apiService.get('/settings');
+                if (settingsData.success && settingsData.data) {
+                    const { data } = settingsData;
+                    
+                    // Extract email settings from Tenant
+                    if (data.Tenant?.defaultEmailMessage) {
+                        emailSettings = {
+                            subject: data.Tenant.defaultEmailMessage.subject,
+                            body: data.Tenant.defaultEmailMessage.body,
+                            bodyHtml: data.Tenant.defaultEmailMessage.body
+                        };
+                    }
+                    
+                    // Extract company name
+                    if (data.Tenant?.companyName) {
+                        companyName = data.Tenant.companyName;
+                    }
+                }
+            } catch (settingsError) {
+                console.warn('Could not fetch email settings, using defaults:', settingsError);
+                // Continue with default settings instead of failing
             }
 
-            // Send the quote email directly - sendQuote will handle any necessary updates
-            const response = await quoteBuilderApi.sendQuote(quoteId, {
-                emailSubject: emailData.emailSubject,
-                emailBody: emailData.emailBody
-            });
+            // Use email template from settings with defaults
+            const emailData = {
+                emailSubject: emailSettings.subject || `Your Painting Quote from ${companyName}`,
+                emailBody: emailSettings.bodyHtml || emailSettings.body || `Hello ${formData.customerName},\n\nPlease find your painting quote attached. You can view and respond to this quote using the link below.\n\nThank you for considering our services!`
+            };
 
-            setShowEmailModal(false);
+            // Send the quote email directly
+            const response = await quoteBuilderApi.sendQuote(currentQuoteId, emailData);
 
             Modal.success({
                 title: 'Quote Sent Successfully!',
                 content: (
                     <div>
-                        <p>Quote #{quoteId} has been sent to {formData.customerEmail}</p>
+                        <p>Quote #{currentQuoteId} has been sent to {formData.customerEmail}</p>
                         <p>The customer can view and accept the quote in their portal.</p>
                     </div>
                 ),
@@ -458,10 +466,17 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                 }
             });
         } catch (error) {
-            console.error('Error sending quote email:', error);
-            throw error;
+            console.error('Error sending quote:', error);
+            Modal.error({
+                title: 'Send Failed',
+                content: error.message || 'Failed to send quote. Please try again.',
+            });
+        } finally {
+            setSending(false);
         }
     };
+
+
 
     const handleSaveDraft = async () => {
         try {
@@ -2495,17 +2510,6 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                 quoteData={formData}
                 calculatedQuote={calculatedQuote}
                 pricingSchemes={pricingSchemes}
-            />
-
-            {/* Send Quote Email Modal */}
-            <SendQuoteEmailModal
-                visible={showEmailModal}
-                loading={sending}
-                customerEmail={formData.customerEmail}
-                customerName={formData.customerName}
-                quoteId={formData?.quoteId}
-                onSend={handleSendEmail}
-                onCancel={() => setShowEmailModal(false)}
             />
         </div>
     );

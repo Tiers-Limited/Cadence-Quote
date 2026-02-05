@@ -174,7 +174,7 @@ function CustomerDocuments() {
         {!proposal?.selectionsComplete && proposal?.status !== 'deposit_paid' && (
           <Alert
             message="Some Documents Not Yet Available"
-            description="Work order, product order form, and material list will be available once your product selections are complete and the deposit is paid."
+            description="Invoice will be available once your product selections are complete and the deposit is paid."
             type="info"
             showIcon
           />
