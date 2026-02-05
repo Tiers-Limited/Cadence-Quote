@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Client = require("../models/Client");
 const Tenant = require("../models/Tenant");
 const Payment = require("../models/Payment");
+const Subscription = require("../models/Subscription");
 const TwoFactorCode = require("../models/TwoFactorCode");
 const {
   generateToken,
@@ -1150,8 +1151,41 @@ const registerWithPayment = async (req, res) => {
       });
     }
 
-    // Create payment
+    // Create subscription record first
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
+    console.log("Creating subscription for tenant:", tenant.id);
+    let subscription;
+    try {
+      subscription = await Subscription.create(
+        {
+          tenantId: tenant.id,
+          stripeSubscriptionId: `pending_${Date.now()}`, // Temporary, will be updated after Stripe
+          stripePriceId: `pending_${subscriptionPlan}`,
+          stripeCustomerId: `pending_${tenant.id}`,
+          tier: subscriptionPlan,
+          status: "incomplete",
+          mrr: planDetails.price,
+          quantity: 1,
+          metadata: {
+            registrationFlow: true,
+            planFeatures: planDetails.features,
+          },
+        },
+        { transaction }
+      );
+      console.log("Subscription created:", subscription.id);
+    } catch (error) {
+      console.error("Subscription creation failed:", error);
+      if (!transaction.finished) {
+        await transaction.rollback();
+      }
+      return res.status(500).json({
+        success: false,
+        message: "Failed to create subscription: " + error.message,
+      });
+    }
+
+    // Create payment with subscription reference
     console.log("Creating payment for tenant:", tenant.id);
     let payment;
     try {
@@ -1160,24 +1194,28 @@ const registerWithPayment = async (req, res) => {
           tenantId: tenant.id,
           userId: user.id,
           subscriptionPlan,
+          subscriptionId: subscription.id,
           amount: planDetails.price,
           currency: "usd",
           status: "pending",
+          paymentMethod: "card",
           description: `${planDetails.name} - ${tenant.companyName}`,
           metadata: {
             planFeatures: planDetails.features,
             registrationFlow: true,
           },
         },
-        { transaction }
+        // { transaction }
       );
       console.log("Payment created:", payment.id);
     } catch (error) {
       console.error("Payment creation failed:", error);
-      await transaction.rollback();
+      if (!transaction.finished) {
+        await transaction.rollback();
+      }
       return res.status(500).json({
         success: false,
-        message: "Failed to create payment",
+        message: "Failed to create payment: " + error.message,
       });
     }
 
@@ -1198,10 +1236,12 @@ const registerWithPayment = async (req, res) => {
       console.log("Stripe session created:", session.sessionId);
     } catch (error) {
       console.error("Stripe session creation failed:", error);
-      await transaction.rollback();
+      if (!transaction.finished) {
+        await transaction.rollback();
+      }
       return res.status(500).json({
         success: false,
-        message: "Failed to create Stripe checkout session",
+        message: "Failed to create Stripe checkout session: " + error.message,
       });
     }
 
@@ -1216,10 +1256,12 @@ const registerWithPayment = async (req, res) => {
       console.log("Payment updated with session ID:", session.sessionId);
     } catch (error) {
       console.error("Payment update failed:", error);
-      await transaction.rollback();
+      if (!transaction.finished) {
+        await transaction.rollback();
+      }
       return res.status(500).json({
         success: false,
-        message: "Failed to update payment",
+        message: "Failed to update payment: " + error.message,
       });
     }
 
@@ -1258,7 +1300,7 @@ const registerWithPayment = async (req, res) => {
           companyName: tenant.companyName,
           tradeType: tenant.tradeType,
           subscriptionPlan: tenant.subscriptionPlan,
-          companyLogoUrl: user.tenant.companyLogoUrl,
+          companyLogoUrl: tenant.companyLogoUrl,
         },
         user: {
           id: user.id,
@@ -1511,6 +1553,18 @@ const completeGoogleSignup = async (req, res) => {
       });
     }
 
+    // Sanitize company name to prevent XSS
+    const sanitizedCompanyName = companyName
+      .replace(/[<>]/g, '')
+      .trim();
+    
+    if (!sanitizedCompanyName) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid company name",
+      });
+    }
+
     // Check if email already exists
     const existingUser = await User.findOne({
       where: { email: googleInfo.email },
@@ -1585,15 +1639,37 @@ const completeGoogleSignup = async (req, res) => {
     // Get plan details
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
 
-    // Create payment record
+    // Create subscription record first
+    const subscription = await Subscription.create(
+      {
+        tenantId: tenant.id,
+        stripeSubscriptionId: `pending_google_${Date.now()}`,
+        stripePriceId: `pending_${subscriptionPlan}`,
+        stripeCustomerId: `pending_${tenant.id}`,
+        tier: subscriptionPlan,
+        status: "incomplete",
+        mrr: planDetails.price,
+        quantity: 1,
+        metadata: {
+          registrationFlow: true,
+          authProvider: "google",
+          planFeatures: planDetails.features,
+        },
+      },
+      { transaction }
+    );
+
+    // Create payment record with subscription reference
     const payment = await Payment.create(
       {
         tenantId: tenant.id,
         userId: user.id,
         subscriptionPlan,
+        subscriptionId: subscription.id,
         amount: planDetails.price,
         currency: "usd",
         status: "pending",
+        paymentMethod: "card",
         description: `${planDetails.name} - ${tenant.companyName}`,
         metadata: {
           planFeatures: planDetails.features,
@@ -1605,15 +1681,15 @@ const completeGoogleSignup = async (req, res) => {
     );
 
     // Create Stripe Checkout Session
-    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
-    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:4001";
+    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4001";
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
     const session = await createCheckoutSession({
       userId: user.id,
       tenantId: tenant.id,
       subscriptionPlan,
       email: user.email,
-      successUrl: `${BACKEND_URL}/api/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
+      successUrl: `${BACKEND_URL}/api/v1/payments/confirm?sessionId={CHECKOUT_SESSION_ID}&registration=true`,
       cancelUrl: `${FRONTEND_URL}/register?step=2&plan=${subscriptionPlan}&error=payment_cancelled`,
     });
 
@@ -1645,7 +1721,7 @@ const completeGoogleSignup = async (req, res) => {
         tenant: {
           id: tenant.id,
           companyName: tenant.companyName,
-          companyLogoUrl: user.tenant.companyLogoUrl,
+          companyLogoUrl: tenant.companyLogoUrl,
         },
         user: {
           id: user.id,
@@ -2001,15 +2077,37 @@ const completeAppleSignup = async (req, res) => {
     // Get plan details
     const planDetails = SUBSCRIPTION_PLANS[subscriptionPlan];
 
-    // Create payment record
+    // Create subscription record first
+    const subscription = await Subscription.create(
+      {
+        tenantId: tenant.id,
+        stripeSubscriptionId: `pending_apple_${Date.now()}`,
+        stripePriceId: `pending_${subscriptionPlan}`,
+        stripeCustomerId: `pending_${tenant.id}`,
+        tier: subscriptionPlan,
+        status: "incomplete",
+        mrr: planDetails.price,
+        quantity: 1,
+        metadata: {
+          registrationFlow: true,
+          authProvider: "apple",
+          planFeatures: planDetails.features,
+        },
+      },
+      { transaction }
+    );
+
+    // Create payment record with subscription reference
     const payment = await Payment.create(
       {
         tenantId: tenant.id,
         userId: user.id,
         subscriptionPlan,
+        subscriptionId: subscription.id,
         amount: planDetails.price,
         currency: "usd",
         status: "pending",
+        paymentMethod: "card",
         description: `${planDetails.name} - ${tenant.companyName}`,
         metadata: {
           planFeatures: planDetails.features,
@@ -2061,7 +2159,7 @@ const completeAppleSignup = async (req, res) => {
         tenant: {
           id: tenant.id,
           companyName: tenant.companyName,
-          companyLogoUrl: user.tenant.companyLogoUrl,
+          companyLogoUrl: tenant.companyLogoUrl,
         },
         user: {
           id: user.id,

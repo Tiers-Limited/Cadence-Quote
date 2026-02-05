@@ -14,7 +14,7 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: Tenant,
+      model: 'Tenants',
       key: 'id'
     },
     onDelete: 'CASCADE'
@@ -23,7 +23,7 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: User,
+      model: 'Users',
       key: 'id'
     },
     onDelete: 'CASCADE'
@@ -40,6 +40,7 @@ const Payment = sequelize.define('Payment', {
       key: 'id'
     },
     onDelete: 'SET NULL',
+    onUpdate: 'CASCADE',
     field: 'subscription_id'
   },
   amount: {
@@ -75,6 +76,7 @@ const Payment = sequelize.define('Payment', {
   paymentMethod: {
     type: DataTypes.STRING,
     defaultValue: 'card',
+    allowNull:true,
     comment: 'Payment method type (card, etc.)'
   },
   description: {
@@ -95,6 +97,7 @@ const Payment = sequelize.define('Payment', {
     allowNull: true
   }
 }, {
+  tableName: 'Payments',
   timestamps: true,
   indexes: [
     {
@@ -103,10 +106,7 @@ const Payment = sequelize.define('Payment', {
     {
       fields: ['userId']
     },
-    {
-      
-      fields: ['stripeSessionId']
-    },
+   
     {
       fields: ['status']
     },

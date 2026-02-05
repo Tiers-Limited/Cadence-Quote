@@ -293,13 +293,14 @@ app.use(function(err, req, res, next) {
 // Wrapped in async to handle errors gracefully
 (async () => {
   try {
-    // Skip automatic sync to avoid foreign key constraint issues
-    // Use manual database setup instead
-     const syncOptions = process.env.NODE_ENV === 'development' 
-      ? { alter: true } // Don't alter - schema is now stable
+    // Sync database with alter to update schema changes
+    const syncOptions = process.env.NODE_ENV === 'development' 
+      ? { alter: true } // Alter tables to match models
       : { force: false };
     
+    console.log('🔄 Syncing database with options:', syncOptions);
     await sequelize.sync(syncOptions);
+    console.log('✓ Database sync completed successfully');
     
     // Check for existing users (this runs at startup, not after registration)
     const userCount = await User.count();

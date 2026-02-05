@@ -66,8 +66,8 @@ const sequelize = new Sequelize(
     
     dialectOptions: {
       connectTimeout: 10000, // 10 seconds timeout
-      statement_timeout: 30000, // 30 seconds query timeout
-      query_timeout: 30000,
+      statement_timeout: 0, // Unlimited - no timeout for sync operations
+    
       
       // SSL configuration for AWS RDS
       ssl: {

@@ -12,7 +12,8 @@ const TwoFactorCode = sequelize.define('TwoFactorCode', {
     type: DataTypes.INTEGER,
     allowNull: true, // Made nullable for pre-signup verification codes
     references: {
-      model: User,
+     model: 'Users',
+      
       key: 'id'
     },
     onDelete: 'CASCADE'
