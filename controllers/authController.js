@@ -1205,7 +1205,7 @@ const registerWithPayment = async (req, res) => {
             registrationFlow: true,
           },
         },
-        // { transaction }
+        { transaction }
       );
       console.log("Payment created:", payment.id);
     } catch (error) {
