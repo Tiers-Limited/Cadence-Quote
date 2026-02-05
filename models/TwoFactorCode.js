@@ -50,6 +50,7 @@ const TwoFactorCode = sequelize.define('TwoFactorCode', {
     comment: 'Additional data for the verification code'
   }
 }, {
+  tableName: 'TwoFactorCodes',
   timestamps: true,
   indexes: [
     { fields: ['userId'] },

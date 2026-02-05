@@ -17,7 +17,7 @@ const Payment = sequelize.define('Payment', {
       model: 'Tenants',
       key: 'id'
     },
-    onDelete: 'CASCADE'
+   
   },
   userId: {
     type: DataTypes.INTEGER,
@@ -26,7 +26,7 @@ const Payment = sequelize.define('Payment', {
       model: 'Users',
       key: 'id'
     },
-    onDelete: 'CASCADE'
+   
   },
   subscriptionPlan: {
     type: DataTypes.ENUM('basic', 'pro', 'enterprise'),
@@ -39,8 +39,7 @@ const Payment = sequelize.define('Payment', {
       model: 'subscriptions',
       key: 'id'
     },
-    onDelete: 'SET NULL',
-    onUpdate: 'CASCADE',
+   
     field: 'subscription_id'
   },
   amount: {
@@ -121,11 +120,13 @@ const Payment = sequelize.define('Payment', {
 
 // Associations
 Payment.associate = (models) => {
-  Payment.belongsTo(models.Tenant, { foreignKey: 'tenantId' });
-  Payment.belongsTo(models.User, { foreignKey: 'userId' });
+  Payment.belongsTo(models.Tenant, { foreignKey: 'tenantId',onDelete: 'CASCADE' });
+  Payment.belongsTo(models.User, { foreignKey: 'userId',onDelete: 'CASCADE' });
   Payment.belongsTo(models.Subscription, { 
     foreignKey: 'subscriptionId',
-    as: 'subscription'
+    as: 'subscription',
+    onDelete: 'SET NULL',
+    onUpdate: 'CASCADE'
   });
 };
 

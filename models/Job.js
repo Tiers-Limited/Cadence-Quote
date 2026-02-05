@@ -161,28 +161,27 @@ const Job = sequelize.define('Job', {
     allowNull: false,
     defaultValue: 'pending',
     field: 'final_payment_status',
-    comment: 'Status of final payment after job completion'
   },
 
   finalPaymentDate: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'final_payment_date',
-    comment: 'Date when final payment was received'
+    
   },
 
   finalPaymentTransactionId: {
     type: DataTypes.STRING(255),
     allowNull: true,
     field: 'final_payment_transaction_id',
-    comment: 'Stripe payment intent ID for final payment'
+    
   },
 
   finalPaymentAmount: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: true,
     field: 'final_payment_amount',
-    comment: 'Amount of final payment received'
+    
   },
 
   // Scheduling
@@ -355,35 +354,35 @@ const Job = sequelize.define('Job', {
     type: DataTypes.STRING(500),
     allowNull: true,
     field: 'material_list_url',
-    comment: 'URL/path to the material list PDF'
+    
   },
 
   paintOrderUrl: {
     type: DataTypes.STRING(500),
     allowNull: true,
     field: 'paint_order_url',
-    comment: 'URL/path to the paint product order PDF'
+    
   },
 
   workOrderUrl: {
     type: DataTypes.STRING(500),
     allowNull: true,
     field: 'work_order_url',
-    comment: 'URL/path to the work order PDF'
+    
   },
 
   documentsGeneratedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'documents_generated_at',
-    comment: 'When job documents were generated'
+    
   },
 
   quoteAcceptedAt: {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'quote_accepted_at',
-    comment: 'When the quote was accepted by customer'
+    
   },
 
   // Metadata
