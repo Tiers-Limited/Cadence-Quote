@@ -3792,9 +3792,152 @@ exports.getJobDetail = async (req, res) => {
       });
     }
 
+    // Fetch customer selections if they exist
+    let customerSelections = null;
+    if (job.customerSelectionsComplete) {
+      try {
+        const CustomerSelection = require('../models/CustomerSelection');
+        const ProductConfig = require('../models/ProductConfig');
+        const GlobalProduct = require('../models/GlobalProduct');
+        const Brand = require('../models/Brand');
+
+        const selections = await CustomerSelection.findAll({
+          where: {  quoteId: job.quoteId, },
+          attributes: ['id', 'areaId', 'areaName', 'surfaceType', 'productId', 'colorId', 'colorName', 'colorNumber', 'colorHex', 'sheen', 'customerNotes'],
+          order: [['areaId', 'ASC']]
+        });
+
+        // Parse productSets to get product information
+        let productSets = job.quote.productSets;
+        if (typeof productSets === 'string') {
+          try {
+            productSets = JSON.parse(productSets);
+          } catch (e) {
+            productSets = [];
+          }
+        }
+        if (!Array.isArray(productSets)) {
+          productSets = [];
+        }
+
+        // Use selectedTier from Job model (saved during deposit payment)
+        const selectedTier = job.selectedTier || 'better';
+        const productStrategy = job.quote.productStrategy;
+
+        // Build a map of areaId/surfaceType to product info
+        const productMap = new Map();
+        const productIds = new Set();
+
+        for (const productSet of productSets) {
+          const areaId = productSet.areaId || productSet.id;
+          const surfaceType = productSet.surfaceType || productSet.type || 'general';
+          const products = productSet.products || {};
+
+          let productId = null;
+          if (productStrategy === 'GBB') {
+            // Use the tier from Job model (customer's selected tier)
+            productId = products[selectedTier];
+          } else {
+            productId = products.single || products.good || products.better || products.best;
+          }
+
+          if (productId) {
+            // Create multiple keys for better matching
+            if (areaId) {
+              const key1 = `${areaId}_${surfaceType}`;
+              productMap.set(key1, productId);
+            }
+            productMap.set(surfaceType, productId);
+            const normalizedSurface = String(surfaceType).toLowerCase().replace(/\s+/g, '');
+            productMap.set(normalizedSurface, productId);
+            productIds.add(productId);
+          }
+        }
+
+        // Fetch all product configs in one query
+        const productConfigs = await ProductConfig.findAll({
+          where: { id: Array.from(productIds) },
+          include: [
+            {
+              model: GlobalProduct,
+              as: 'globalProduct',
+              include: [{
+                model: Brand,
+                as: 'brand',
+                attributes: ['id', 'name']
+              }]
+            }
+          ]
+        });
+
+        // Create a map of productId to product details
+        const productDetailsMap = new Map();
+        productConfigs.forEach(config => {
+          const productName = config.isCustom && config.customProduct 
+            ? config.customProduct.name 
+            : config.globalProduct?.name || 'Unknown Product';
+          
+          const brandName = config.isCustom && config.customProduct
+            ? config.customProduct.brandName
+            : config.globalProduct?.brand?.name || '';
+
+          productDetailsMap.set(config.id, {
+            productName,
+            brandName
+          });
+        });
+
+        // Format selections for display with product information
+        customerSelections = selections.map(selection => {
+          // Try to find product info from productSets using multiple key strategies
+          let productId = null;
+          
+          // Strategy 1: Try areaId_surfaceType
+          if (selection.areaId) {
+            const key1 = `${selection.areaId}_${selection.surfaceType}`;
+            productId = productMap.get(key1);
+          }
+          
+          // Strategy 2: Try just surfaceType
+          if (!productId && selection.surfaceType) {
+            productId = productMap.get(selection.surfaceType);
+          }
+          
+          // Strategy 3: Try normalized surfaceType
+          if (!productId && selection.surfaceType) {
+            const normalizedSurface = String(selection.surfaceType).toLowerCase().replace(/\s+/g, '');
+            productId = productMap.get(normalizedSurface);
+          }
+          
+          const productDetails = productId ? productDetailsMap.get(productId) : null;
+
+          return {
+            id: selection.id,
+            areaId: selection.areaId,
+            areaName: selection.areaName,
+            surfaceType: selection.surfaceType,
+            productName: productDetails?.productName || 'Not specified',
+            brandName: productDetails?.brandName || '',
+            colorName: selection.colorName,
+            colorCode: selection.colorNumber,
+            colorHex: selection.colorHex,
+            sheen: selection.sheen,
+            notes: selection.customerNotes
+          };
+        });
+      } catch (selectionError) {
+        console.error('Error fetching customer selections:', selectionError);
+        // Don't fail the entire request if selections fail
+        customerSelections = null;
+      }
+    }
+
     const result = {
       success: true,
-      data: job
+      data: {
+        ...job.toJSON(),
+        customerSelections
+      }
     };
 
     // Cache the results

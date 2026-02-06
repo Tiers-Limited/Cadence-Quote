@@ -1269,6 +1269,16 @@ const registerWithPayment = async (req, res) => {
     await transaction.commit();
     console.log("Transaction committed successfully");
 
+    // Create default pricing schemes for the new tenant
+    try {
+      const models = require("../models");
+      await createDefaultPricingSchemesForTenant(tenant.id, models);
+      console.log(`✓ Default pricing schemes created for tenant ${tenant.id}`);
+    } catch (schemeError) {
+      console.error("Failed to create default pricing schemes:", schemeError);
+      // Don't fail registration if scheme creation fails
+    }
+
     // Send email verification for non-OAuth users
     if (!isOAuth) {
       try {
@@ -1703,6 +1713,16 @@ const completeGoogleSignup = async (req, res) => {
 
     await transaction.commit();
     console.log("Transaction committed successfully");
+
+    // Create default pricing schemes for the new tenant
+    try {
+      const models = require("../models");
+      await createDefaultPricingSchemesForTenant(tenant.id, models);
+      console.log(`✓ Default pricing schemes created for tenant ${tenant.id}`);
+    } catch (schemeError) {
+      console.error("Failed to create default pricing schemes:", schemeError);
+      // Don't fail registration if scheme creation fails
+    }
 
     console.log("Google signup initiated:", {
       tenantId: tenant.id,
@@ -2142,6 +2162,16 @@ const completeAppleSignup = async (req, res) => {
     await transaction.commit();
     console.log("Transaction committed successfully");
 
+    // Create default pricing schemes for the new tenant
+    try {
+      const models = require("../models");
+      await createDefaultPricingSchemesForTenant(tenant.id, models);
+      console.log(`✓ Default pricing schemes created for tenant ${tenant.id}`);
+    } catch (schemeError) {
+      console.error("Failed to create default pricing schemes:", schemeError);
+      // Don't fail registration if scheme creation fails
+    }
+
     console.log("Apple signup initiated:", {
       tenantId: tenant.id,
       userId: user.id,
@@ -2247,7 +2277,7 @@ const linkAppleAccount = async (req, res) => {
  */
 const setPassword = async (req, res) => {
   try {
-    const userId = req.user.userId; // From JWT token
+    const userId = req.user.id; // From auth middleware
     const { password, confirmPassword } = req.body;
 
     // Validation
@@ -2312,7 +2342,7 @@ const setPassword = async (req, res) => {
  */
 const sendVerificationEmail = async (req, res) => {
   try {
-    const userId = req.user.userId; // From JWT token
+    const userId = req.user.id; // From auth middleware
 
     // Find user
     const user = await User.findByPk(userId);
@@ -2430,7 +2460,7 @@ const verifyEmail = async (req, res) => {
  */
 const resendVerificationEmail = async (req, res) => {
   try {
-    const userId = req.user.userId; // From JWT token
+    const userId = req.user.id; // From auth middleware
 
     // Find user
     const user = await User.findByPk(userId);
