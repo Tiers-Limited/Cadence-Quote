@@ -216,37 +216,57 @@ function SettingsPage () {
   }
 
   return (
-    <div className=''>
+    <div className='p-3 sm:p-4 md:p-6'>
       <div className='max-w-6xl mx-auto'>
         {/* Header */}
-        <div className='mb-6'>
-          <div className='flex items-center gap-3 mb-2'>
-            <FiSettings className='text-3xl text-blue-600' />
-            <h1 className='text-3xl font-bold text-gray-900'>Settings</h1>
+        <div className='mb-4 sm:mb-6'>
+          <div className='flex items-center gap-2 sm:gap-3 mb-2'>
+            <FiSettings className='text-2xl sm:text-3xl text-blue-600' />
+            <h1 className='text-2xl sm:text-3xl font-bold text-gray-900'>Settings</h1>
           </div>
-          <p className='text-gray-600'>
+          <p className='text-sm sm:text-base text-gray-600'>
             Manage your company information, pricing defaults, and system
             preferences
           </p>
         </div>
 
         {/* Tabs */}
-        <Card>
-          <div className='mb-4'>
-            <Segmented
-              value={activeTab}
-              onChange={val => setActiveTab(val)}
-              options={[
-                { label: 'Company', value: 'company' },
-                { label: 'Email', value: 'email' },
-                { label: 'Proposals', value: 'proposals' },
-                { label: 'Customer Portal', value: 'portal' },
-                // { label: 'GBB Pricing', value: 'gbb' },
-                { label: 'Account', value: 'account' }
-              ]}
-              className='ant-segmented--rounded'
-              block
-            />
+        <Card size="small">
+          <div className='mb-3 sm:mb-4'>
+            {/* Mobile: Dropdown Select */}
+            <div className='block sm:hidden'>
+              <Select
+                value={activeTab}
+                onChange={val => setActiveTab(val)}
+                style={{ width: '100%' }}
+                size='large'
+              >
+                <Option value='company'>Company</Option>
+                <Option value='email'>Email</Option>
+                <Option value='proposals'>Proposals</Option>
+                <Option value='portal'>Portal</Option>
+                <Option value='account'>Account</Option>
+              </Select>
+            </div>
+            
+            {/* Desktop: Segmented Control */}
+            <div className='hidden sm:block'>
+              <Segmented
+                value={activeTab}
+                onChange={val => setActiveTab(val)}
+                options={[
+                  { label: 'Company', value: 'company' },
+                  { label: 'Email', value: 'email' },
+                  { label: 'Proposals', value: 'proposals' },
+                  { label: 'Portal', value: 'portal' },
+                  // { label: 'GBB Pricing', value: 'gbb' },
+                  { label: 'Account', value: 'account' }
+                ]}
+                className='ant-segmented--rounded'
+                block
+                size='middle'
+              />
+            </div>
           </div>
 
           <Tabs
@@ -266,15 +286,15 @@ function SettingsPage () {
               }
               key='company'
             >
-              <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>
+              <div className='py-2 sm:py-4'>
+                <h3 className='text-base sm:text-lg font-semibold mb-3 sm:mb-4'>
                   Company Information
                 </h3>
                 <Form
                   form={companyForm}
                   layout='vertical'
                   onFinish={handleSaveCompanyInfo}
-                  className='max-w-2xl space-y-8'
+                  className='max-w-2xl space-y-4 sm:space-y-8'
                 >
                   <Form.Item
                     label='Company Name'
@@ -283,7 +303,7 @@ function SettingsPage () {
                       { required: true, message: 'Please enter company name' }
                     ]}
                   >
-                    <Input size='large' placeholder='Your Company Name' />
+                    <Input size='middle' placeholder='Your Company Name' />
                   </Form.Item>
 
                   <Form.Item
@@ -295,17 +315,18 @@ function SettingsPage () {
                       { type: 'email', message: 'Please enter a valid email' }
                     ]}
                   >
-                    <Input size='large' placeholder='company@example.com' readOnly disabled />
+                    <Input size='middle' placeholder='company@example.com' readOnly disabled />
                   </Form.Item>
 
                   <Form.Item label='Phone' name='phone'>
-                    <Input size='large' placeholder='(555) 123-4567' />
+                    <Input size='middle' placeholder='(555) 123-4567' />
                   </Form.Item>
 
                   <Form.Item label='Business Address' name='businessAddress'>
                     <TextArea
                       rows={3}
                       placeholder='123 Main Street, City, State, ZIP'
+                      size='middle'
                     />
                   </Form.Item>
 
@@ -316,7 +337,7 @@ function SettingsPage () {
                       { required: true, message: 'Please select a trade type' }
                     ]}
                   >
-                    <Select size='large' placeholder='Select your trade type'>
+                    <Select size='middle' placeholder='Select your trade type'>
                       <Option value='painter'>Painter</Option>
                       <Option value='drywall'>Drywall</Option>
                       <Option value='pressure_washing'>Pressure Washing</Option>
@@ -330,13 +351,13 @@ function SettingsPage () {
                   </Form.Item>
 
                   <Form.Item label='Company Logo' help='Upload your company logo to display in emails and proposals'>
-                    <div className='flex items-center gap-4'>
+                    <div className='flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4'>
                       {logoUrl && (
                         <div className='flex flex-col items-center gap-2'>
                           <img
                             src={logoUrl}
                             alt='Company Logo'
-                            className='h-20 w-auto border border-gray-300 rounded'
+                            className='h-16 sm:h-20 w-auto border border-gray-300 rounded'
                           />
                           <Button
                             type='text'
@@ -359,6 +380,7 @@ function SettingsPage () {
                           icon={<FiUpload />}
                           loading={uploading}
                           disabled={uploading}
+                          className='w-full sm:w-auto'
                         >
                           {logoUrl ? 'Change Logo' : 'Upload Logo'}
                         </Button>
@@ -372,7 +394,8 @@ function SettingsPage () {
                       htmlType='submit'
                       icon={<FiSave />}
                       loading={saving}
-                      size='large'
+                      size='middle'
+                      className='w-full sm:w-auto'
                     >
                       Save Company Info
                     </Button>
@@ -391,9 +414,9 @@ function SettingsPage () {
               }
               key='email'
             >
-              <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Default Email Message</h3>
-                <p className='text-gray-600 mb-6'>
+              <div className='py-2 sm:py-4'>
+                <h3 className='text-base sm:text-lg font-semibold mb-3 sm:mb-4'>Default Email Message</h3>
+                <p className='text-sm sm:text-base text-gray-600 mb-4 sm:mb-6'>
                   Set the default email subject and message body that will be sent with quotes. 
                   Your company signature with logo will be automatically appended.
                 </p>
@@ -401,7 +424,7 @@ function SettingsPage () {
                   form={emailForm}
                   layout='vertical'
                   onFinish={handleSaveEmailSettings}
-                  className='max-w-3xl space-y-12'
+                  className='max-w-3xl space-y-6 sm:space-y-12'
                 >
                   <Form.Item
                     label='Email Subject'
@@ -413,7 +436,7 @@ function SettingsPage () {
                     help='The subject line of the email. Keep it professional and concise.'
                   >
                     <Input 
-                      size='large' 
+                      size='middle' 
                       placeholder='Your Quote is Ready'
                       maxLength={100}
                     />
@@ -427,26 +450,28 @@ function SettingsPage () {
                     ]}
                     help='Write your message with headings, lists, and emphasis. Your signature will be added automatically. Do not include pricing, CTAs, or promotional content.'
                   >
-                    <ReactQuill
-                      theme='snow'
-                      value={emailForm.getFieldValue('emailBody') ?? emailBodyHtml}
-                      
-                      onChange={(val) => {
-                        setEmailBodyHtml(val)
-                        emailForm.setFieldsValue({ emailBody: val })
-                      }}
-                      placeholder='Write your email message...'
-                      modules={{
-                        toolbar: [
-                          [{ header: [1, 2, 3, false] }],
-                          ['bold', 'italic', 'underline', 'strike'],
-                          [{ list: 'ordered' }, { list: 'bullet' }],
-                          [{ align: [] }],
-                          ['blockquote', 'code-block'],
-                          ['clean']
-                        ]
-                      }}
-                    />
+                    <div className='quill-responsive'>
+                      <ReactQuill
+                        theme='snow'
+                        value={emailForm.getFieldValue('emailBody') ?? emailBodyHtml}
+                        
+                        onChange={(val) => {
+                          setEmailBodyHtml(val)
+                          emailForm.setFieldsValue({ emailBody: val })
+                        }}
+                        placeholder='Write your email message...'
+                        modules={{
+                          toolbar: [
+                            [{ header: [1, 2, 3, false] }],
+                            ['bold', 'italic', 'underline', 'strike'],
+                            [{ list: 'ordered' }, { list: 'bullet' }],
+                            [{ align: [] }],
+                            ['blockquote', 'code-block'],
+                            ['clean']
+                          ]
+                        }}
+                      />
+                    </div>
                   </Form.Item>
 
                   <Alert
@@ -454,7 +479,7 @@ function SettingsPage () {
                     description='This message will be sent to customers with your company logo and contact information appended as your signature.'
                     type='info'
                     showIcon
-                    className='mb-6'
+                    className='mb-4 sm:mb-6'
                   />
 
                   <Form.Item>
@@ -463,7 +488,8 @@ function SettingsPage () {
                       htmlType='submit'
                       icon={<FiSave />}
                       loading={saving}
-                      size='large'
+                      size='middle'
+                      className='w-full sm:w-auto'
                     >
                       Save Email Settings
                     </Button>
@@ -482,7 +508,7 @@ function SettingsPage () {
               }
               key='proposals'
             >
-              <div className='py-4'>
+              <div className='py-2 sm:py-4'>
                 <ProposalTemplatesConfig onSave={fetchAllSettings} />
               </div>
             </TabPane>
@@ -497,15 +523,15 @@ function SettingsPage () {
               }
               key='portal'
             >
-              <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Magic Link Portal Settings</h3>
-                <p className='text-gray-600 mb-6'>
+              <div className='py-2 sm:py-4'>
+                <h3 className='text-base sm:text-lg font-semibold mb-3 sm:mb-4'>Magic Link Portal Settings</h3>
+                <p className='text-sm sm:text-base text-gray-600 mb-4 sm:mb-6'>
                   Configure magic link expiry, authentication, and automatic maintenance for customer portals
                 </p>
                 <Form
                   form={portalForm}
                   layout='vertical'
-                  className='max-w-2xl space-y-6'
+                  className='max-w-2xl space-y-4 sm:space-y-6'
                   onFinish={async (values) => {
                     setSaving(true);
                     try {
@@ -522,9 +548,9 @@ function SettingsPage () {
                     }
                   }}
                 >
-                  <Card>
-                    <h4 className='font-semibold mb-4'>Link Expiry Configuration</h4>
-                    <div className='space-y-4'>
+                  <Card size="small">
+                    <h4 className='text-sm sm:text-base font-semibold mb-3 sm:mb-4'>Link Expiry Configuration</h4>
+                    <div className='space-y-3 sm:space-y-4'>
                       <Form.Item
                         label='Default Link Expiry (Days)'
                         name='portalLinkExpiryDays'
@@ -535,7 +561,7 @@ function SettingsPage () {
                         help='Default number of days before customer magic links expire'
                       >
                         <InputNumber 
-                          size='large' 
+                          size='middle' 
                           min={1} 
                           max={365}
                           style={{ width: '100%' }}
@@ -553,7 +579,7 @@ function SettingsPage () {
                         help='Maximum number of days when sending magic links to customers'
                       >
                         <InputNumber 
-                          size='large' 
+                          size='middle' 
                           min={1} 
                           max={365}
                           style={{ width: '100%' }}
@@ -597,19 +623,20 @@ function SettingsPage () {
                     </div>
                   </Card> */}
 
-                  <Card>
-                    <h4 className='font-semibold mb-4'>Portal Authentication</h4>
-                    <div className='space-y-4'>
+                  <Card size="small">
+                    <h4 className='text-sm sm:text-base font-semibold mb-3 sm:mb-4'>Portal Authentication</h4>
+                    <div className='space-y-3 sm:space-y-4'>
                       <Form.Item
-                        label='Require OTP for Multi-Project Access'
+                        label={
+                          <span className='text-sm'>
+                            Require OTP for Multi-Project Access
+                          </span>
+                        }
                         name='portalRequireOTPForMultiJob'
                         valuePropName='checked'
                         help='Require email verification (OTP) when accessing multiple projects'
                       >
-                        <Switch 
-                          checkedChildren='Required' 
-                          unCheckedChildren='Optional'
-                        />
+                        <Switch size='default' />
                       </Form.Item>
                     </div>
                   </Card>
@@ -655,7 +682,7 @@ function SettingsPage () {
                   <Alert
                     message='Magic Link Portal Features'
                     description={
-                      <ul className='list-disc pl-5 mt-2 space-y-1'>
+                      <ul className='list-disc pl-4 sm:pl-5 mt-2 space-y-1 text-sm'>
                         <li>Customers access via secure magic link (no password required)</li>
                         <li>Links automatically expire after configured days</li>
                         <li>Multi-project access requires OTP verification</li>
@@ -665,7 +692,7 @@ function SettingsPage () {
                     }
                     type='info'
                     showIcon
-                    className='mb-6'
+                    className='mb-4 sm:mb-6'
                   />
 
                   <Form.Item>
@@ -674,7 +701,8 @@ function SettingsPage () {
                       htmlType='submit'
                       icon={<FiSave />}
                       loading={saving}
-                      size='large'
+                      size='middle'
+                      className='w-full sm:w-auto'
                     >
                       Save Portal Settings
                     </Button>
@@ -711,28 +739,29 @@ function SettingsPage () {
               }
               key='account'
             >
-              <div className='py-4'>
-                <h3 className='text-lg font-semibold mb-4'>Account Settings</h3>
-                <div className='max-w-2xl space-y-4'>
-                  <Card>
-                    <h4 className='font-semibold mb-2'>Password</h4>
-                    <p className='text-gray-600 text-sm mb-3'>
+              <div className='py-2 sm:py-4'>
+                <h3 className='text-base sm:text-lg font-semibold mb-3 sm:mb-4'>Account Settings</h3>
+                <div className='max-w-2xl space-y-3 sm:space-y-4'>
+                  <Card size="small">
+                    <h4 className='text-sm sm:text-base font-semibold mb-2'>Password</h4>
+                    <p className='text-gray-600 text-xs sm:text-sm mb-3'>
                       Change your account password
                     </p>
                     <Button
                       onClick={() =>
                         message.info('Password change - Coming soon')
                       }
+                      className='w-full sm:w-auto'
                     >
                       Change Password
                     </Button>
                   </Card>
 
-                  <Card>
-                    <h4 className='font-semibold mb-2'>
+                  <Card size="small">
+                    <h4 className='text-sm sm:text-base font-semibold mb-2'>
                       Two-Factor Authentication
                     </h4>
-                    <p className='text-gray-600 text-sm mb-3'>
+                    <p className='text-gray-600 text-xs sm:text-sm mb-3'>
                       {twoFactorEnabled
                         ? 'Two-factor authentication is enabled. You will receive a code via email on login.'
                         : 'Enable two-factor authentication to add an extra layer of security to your account.'}
@@ -741,14 +770,14 @@ function SettingsPage () {
                       <>
                         {qrCodeUrl && (
                           <div className='mb-4'>
-                            <p className='text-gray-600 text-sm mb-2'>
+                            <p className='text-gray-600 text-xs sm:text-sm mb-2'>
                               Scan this QR code with your authenticator app to
                               set up 2FA:
                             </p>
                             <img
                               src={qrCodeUrl}
                               alt='2FA QR Code'
-                              className='w-48 h-48 mx-auto'
+                              className='w-40 h-40 sm:w-48 sm:h-48 mx-auto'
                             />
                           </div>
                         )}
@@ -764,6 +793,7 @@ function SettingsPage () {
                             danger
                             icon={<FiLock />}
                             loading={saving}
+                            className='w-full sm:w-auto'
                           >
                             Disable 2FA
                           </Button>
@@ -775,31 +805,33 @@ function SettingsPage () {
                         icon={<FiLock />}
                         onClick={handleEnable2FA}
                         loading={saving}
+                        className='w-full sm:w-auto'
                       >
                         Enable 2FA
                       </Button>
                     )}
                   </Card>
 
-                  <Card>
-                    <h4 className='font-semibold mb-2'>Subscription</h4>
-                    <p className='text-gray-600 text-sm mb-3'>
+                  <Card size="small">
+                    <h4 className='text-sm sm:text-base font-semibold mb-2'>Subscription</h4>
+                    <p className='text-gray-600 text-xs sm:text-sm mb-3'>
                       Manage your subscription and billing
                     </p>
                     <Button
                       onClick={() =>
                         message.info('Subscription management - Coming soon')
                       }
+                      className='w-full sm:w-auto'
                     >
                       Manage Subscription
                     </Button>
                   </Card>
 
-                  <Card className='border-red-200'>
-                    <h4 className='font-semibold text-red-600 mb-2'>
+                  <Card className='border-red-200' size="small">
+                    <h4 className='text-sm sm:text-base font-semibold text-red-600 mb-2'>
                       Danger Zone
                     </h4>
-                    <p className='text-gray-600 text-sm mb-3'>
+                    <p className='text-gray-600 text-xs sm:text-sm mb-3'>
                       Permanently delete your account and all data
                     </p>
                     <Button
@@ -809,6 +841,7 @@ function SettingsPage () {
                           'Account deletion requires confirmation'
                         )
                       }
+                      className='w-full sm:w-auto'
                     >
                       Delete Account
                     </Button>

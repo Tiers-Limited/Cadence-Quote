@@ -15,7 +15,9 @@ import {
   Typography,
   Spin,
   Tabs,
-  Checkbox
+  Checkbox,
+  Grid,
+  Drawer
 } from 'antd';
 import {
   CalendarOutlined,
@@ -24,20 +26,24 @@ import {
   FileTextOutlined,
   TeamOutlined,
   CheckCircleOutlined,
-  EditOutlined
+  EditOutlined,
+  FilterOutlined
 } from '@ant-design/icons';
 import { jobsService } from '../services/jobsService';
 import UpdateJobStatusModal from '../components/AdminActions/UpdateJobStatusModal';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { useBreakpoint } = Grid;
 
 function JobsListPage() {
   const navigate = useNavigate();
+  const screens = useBreakpoint();
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [stats, setStats] = useState(null);
   const [activeTab, setActiveTab] = useState('all');
+  const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 6,
@@ -51,6 +57,9 @@ function JobsListPage() {
   });
   const [updateStatusModalVisible, setUpdateStatusModalVisible] = useState(false);
   const [selectedJobForAction, setSelectedJobForAction] = useState(null);
+
+  const isMobile = !screens.md;
+  const isTablet = screens.md && !screens.lg;
 
   useEffect(() => {
     fetchJobs();
@@ -129,12 +138,15 @@ function JobsListPage() {
   };
 
   const getActionButton = (record) => {
+    const buttonSize = isMobile ? 'small' : 'middle';
+    
     return (
-      <Space>
+      <Space direction={isMobile ? 'vertical' : 'horizontal'} size="small" style={{ width: '100%' }}>
         {record.status === 'deposit_paid' || record.status === 'selections_complete' ? (
           <Button 
             type="default" 
-            style={{ backgroundColor: '#FFF4E6', borderColor: '#FFD591', color: '#FA8C16' }}
+            size={buttonSize}
+            style={{ backgroundColor: '#FFF4E6', borderColor: '#FFD591', color: '#FA8C16', width: isMobile ? '100%' : 'auto' }}
             onClick={() => navigate(`/jobs/${record.id}`)}
           >
             Schedule Job
@@ -142,24 +154,30 @@ function JobsListPage() {
         ) : record.status === 'scheduled' ? (
           <Button 
             type="primary" 
-            icon={<CalendarOutlined />}
+            size={buttonSize}
+            icon={!isMobile && <CalendarOutlined />}
             onClick={() => navigate(`/jobs/${record.id}`)}
+            style={{ width: isMobile ? '100%' : 'auto' }}
           >
             Reschedule
           </Button>
         ) : record.status === 'in_progress' ? (
           <Button 
             type="default"
-            icon={<CheckCircleOutlined />}
+            size={buttonSize}
+            icon={!isMobile && <CheckCircleOutlined />}
             onClick={() => navigate(`/jobs/${record.id}`)}
+            style={{ width: isMobile ? '100%' : 'auto' }}
           >
             Mark Complete
           </Button>
         ) : (
           <Button 
             type="default"
-            icon={<FolderOutlined />}
+            size={buttonSize}
+            icon={!isMobile && <FolderOutlined />}
             onClick={() => navigate(`/jobs/${record.id}`)}
+            style={{ width: isMobile ? '100%' : 'auto' }}
           >
             View Job
           </Button>
@@ -168,6 +186,7 @@ function JobsListPage() {
         {/* Admin Status Update Button */}
         <Button
           type="link"
+          size={buttonSize}
           icon={<EditOutlined />}
           onClick={() => {
             setSelectedJobForAction(record);
@@ -184,7 +203,7 @@ function JobsListPage() {
       title: 'Job ID',
       dataIndex: 'jobNumber',
       key: 'jobNumber',
-      width: 250,
+      width: isMobile ? 120 : 250,
       render: (text) => <span style={{ color: '#262626' }}>{text}</span>
      
     },
@@ -192,34 +211,34 @@ function JobsListPage() {
       title: 'Job Name',
       dataIndex: 'jobName',
       key: 'jobName',
-      width: 250,
+      width: isMobile ? 200 : 250,
       render: (text, record) => {
-      
-       
-        
         return (
           <div>
             <div style={{ fontWeight: 500, color: '#262626' }}>{record.jobName}</div>
-            <div style={{ fontSize: '12px', color: '#8C8C8C' }}>
-              {record.client ? record.client.email : 'N/A'}
-            </div>
-            <div style={{ fontSize: '12px', color: '#8C8C8C' }}>
-              {record.client ? record.client.name : 'N/A'}
-            </div>
-            <div style={{ fontSize: '12px', color: '#8C8C8C' }}>
-              {record.client ? record.client.phone : 'N/A'}
-            </div>
+            {!isMobile && (
+              <>
+                <div style={{ fontSize: '12px', color: '#8C8C8C' }}>
+                  {record.client ? record.client.email : 'N/A'}
+                </div>
+                <div style={{ fontSize: '12px', color: '#8C8C8C' }}>
+                  {record.client ? record.client.name : 'N/A'}
+                </div>
+                <div style={{ fontSize: '12px', color: '#8C8C8C' }}>
+                  {record.client ? record.client.phone : 'N/A'}
+                </div>
+              </>
+            )}
           </div>
         );
       }
     },
-    {
+    ...(!isMobile ? [{
       title: 'Address',
       dataIndex: 'jobAddress',
       width: 300,
       key: 'jobAddress',
       render: (text, record) => {
-        // Construct address from client object if jobAddress is null
         const fullAddress = text || (
           record.client 
             ? [record.client.street, record.client.city, record.client.state, record.client.zip]
@@ -232,23 +251,24 @@ function JobsListPage() {
           <div>
             <div style={{ color: '#262626' }}>{fullAddress || 'N/A'}</div>
             <div style={{ fontSize: '12px', color: '#8C8C8C' }}>
-              {record.client.city},{ record.client.state}
+              {record.client.city}, {record.client.state}
             </div>
           </div>
         );
       }
-    },
+    }] : []),
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
+      width: isMobile ? 100 : 'auto',
       render: (status) => (
         <Tag color={getStatusBadgeColor(status)} style={{ borderRadius: '4px' }}>
           {getStatusLabel(status)}
         </Tag>
       )
     },
-    {
+    ...(!isMobile ? [{
       title: 'Start Date',
       dataIndex: 'scheduledStartDate',
       width: 180,
@@ -272,12 +292,12 @@ function JobsListPage() {
         }
         return startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       }
-    },
-    
+    }] : []),
     {
       title: 'Action',
       key: 'action',
       align: 'center',
+      width: isMobile ? 150 : 'auto',
       render: (_, record) => getActionButton(record)
     }
   ];
@@ -285,11 +305,11 @@ function JobsListPage() {
   const tabItems = [
     {
       key: 'all',
-      label: `All (${stats?.total || 0})`,
+      label: isMobile ? `All (${stats?.total || 0})` : `All (${stats?.total || 0})`,
     },
     {
       key: 'not-scheduled',
-      label: `Not Scheduled (${stats?.selectionsNeeded || 0})`,
+      label: isMobile ? `Not Sched. (${stats?.selectionsNeeded || 0})` : `Not Scheduled (${stats?.selectionsNeeded || 0})`,
     },
     {
       key: 'scheduled',
@@ -297,7 +317,7 @@ function JobsListPage() {
     },
     {
       key: 'in-progress',
-      label: `In Progress (${stats?.inProgress || 0})`,
+      label: isMobile ? `In Prog. (${stats?.inProgress || 0})` : `In Progress (${stats?.inProgress || 0})`,
     },
     {
       key: 'completed',
@@ -309,52 +329,88 @@ function JobsListPage() {
     }
   ];
 
+  const FilterContent = () => (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Select
+        value={filters.status}
+        onChange={(value) => setFilters({ ...filters, status: value })}
+        style={{ width: '100%' }}
+      >
+        <Option value="all">Status: All</Option>
+        <Option value="deposit_paid">Not Scheduled</Option>
+        <Option value="scheduled">Scheduled</Option>
+        <Option value="in_progress">In Progress</Option>
+        <Option value="completed">Completed</Option>
+      </Select>
+
+      <Select
+        value={filters.scheduledDate}
+        onChange={(value) => setFilters({ ...filters, scheduledDate: value })}
+        style={{ width: '100%' }}
+      >
+        <Option value="all">Scheduled Date: All</Option>
+        <Option value="today">Today</Option>
+        <Option value="week">This Week</Option>
+        <Option value="month">This Month</Option>
+      </Select>
+
+      <Select
+        value={filters.assignedTo}
+        onChange={(value) => setFilters({ ...filters, assignedTo: value })}
+        style={{ width: '100%' }}
+      >
+        <Option value="all">Assigned To: All</Option>
+        <Option value="unassigned">Unassigned</Option>
+      </Select>
+    </Space>
+  );
+
   return (
-    <div style={{ padding: '24px', backgroundColor: '#F5F5F5', minHeight: '100vh' }}>
+    <div style={{ padding: isMobile ? '16px' : '24px', backgroundColor: '#F5F5F5', minHeight: '100vh' }}>
       {/* Header */}
-      <div style={{ marginBottom: '24px' }}>
-        <Title level={3} style={{ margin: 0, fontSize: '24px', fontWeight: 600 }}>Jobs</Title>
-        <Text type="secondary" style={{ fontSize: '14px' }}>
+      <div style={{ marginBottom: isMobile ? '16px' : '24px' }}>
+        <Title level={3} style={{ margin: 0, fontSize: isMobile ? '20px' : '24px', fontWeight: 600 }}>Jobs</Title>
+        <Text type="secondary" style={{ fontSize: isMobile ? '12px' : '14px' }}>
           Manage and schedule all your booked jobs from start to finish.
         </Text>
       </div>
 
       {/* Statistics Cards */}
       {stats && (
-        <Row gutter={16} style={{ marginBottom: '24px' }}>
-          <Col span={4}>
+        <Row gutter={[8, 8]} style={{ marginBottom: isMobile ? '16px' : '24px' }}>
+          <Col xs={12} sm={12} md={8} lg={4}>
             <Card style={{ textAlign: 'center', borderRadius: '8px' }}>
-              <FolderOutlined style={{ fontSize: '24px', color: '#1890FF', marginBottom: '8px' }} />
-              <div style={{ fontSize: '32px', fontWeight: 600, color: '#262626' }}>{stats.total}</div>
-              <div style={{ fontSize: '14px', color: '#8C8C8C' }}>Total Jobs</div>
+              <FolderOutlined style={{ fontSize: isMobile ? '20px' : '24px', color: '#1890FF', marginBottom: '8px' }} />
+              <div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 600, color: '#262626' }}>{stats.total}</div>
+              <div style={{ fontSize: isMobile ? '12px' : '14px', color: '#8C8C8C' }}>Total Jobs</div>
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={12} md={8} lg={4}>
             <Card style={{ textAlign: 'center', borderRadius: '8px' }}>
-              <FileTextOutlined style={{ fontSize: '24px', color: '#FA8C16', marginBottom: '8px' }} />
-              <div style={{ fontSize: '32px', fontWeight: 600, color: '#262626' }}>{stats.selectionsNeeded}</div>
-              <div style={{ fontSize: '14px', color: '#8C8C8C' }}>Not Scheduled</div>
+              <FileTextOutlined style={{ fontSize: isMobile ? '20px' : '24px', color: '#FA8C16', marginBottom: '8px' }} />
+              <div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 600, color: '#262626' }}>{stats.selectionsNeeded}</div>
+              <div style={{ fontSize: isMobile ? '12px' : '14px', color: '#8C8C8C' }}>Not Scheduled</div>
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={12} md={8} lg={4}>
             <Card style={{ textAlign: 'center', borderRadius: '8px' }}>
-              <CalendarOutlined style={{ fontSize: '24px', color: '#1890FF', marginBottom: '8px' }} />
-              <div style={{ fontSize: '32px', fontWeight: 600, color: '#262626' }}>{stats.scheduled}</div>
-              <div style={{ fontSize: '14px', color: '#8C8C8C' }}>Scheduled</div>
+              <CalendarOutlined style={{ fontSize: isMobile ? '20px' : '24px', color: '#1890FF', marginBottom: '8px' }} />
+              <div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 600, color: '#262626' }}>{stats.scheduled}</div>
+              <div style={{ fontSize: isMobile ? '12px' : '14px', color: '#8C8C8C' }}>Scheduled</div>
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={12} md={8} lg={4}>
             <Card style={{ textAlign: 'center', borderRadius: '8px' }}>
-              <CalendarOutlined style={{ fontSize: '24px', color: '#52C41A', marginBottom: '8px' }} />
-              <div style={{ fontSize: '32px', fontWeight: 600, color: '#262626' }}>{stats.inProgress}</div>
-              <div style={{ fontSize: '14px', color: '#8C8C8C' }}>In Progress</div>
+              <CalendarOutlined style={{ fontSize: isMobile ? '20px' : '24px', color: '#52C41A', marginBottom: '8px' }} />
+              <div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 600, color: '#262626' }}>{stats.inProgress}</div>
+              <div style={{ fontSize: isMobile ? '12px' : '14px', color: '#8C8C8C' }}>In Progress</div>
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={12} md={8} lg={4}>
             <Card style={{ textAlign: 'center', borderRadius: '8px' }}>
-              <TeamOutlined style={{ fontSize: '24px', color: '#8C8C8C', marginBottom: '8px' }} />
-              <div style={{ fontSize: '32px', fontWeight: 600, color: '#262626' }}>{stats.completed}</div>
-              <div style={{ fontSize: '14px', color: '#8C8C8C' }}>Closed</div>
+              <TeamOutlined style={{ fontSize: isMobile ? '20px' : '24px', color: '#8C8C8C', marginBottom: '8px' }} />
+              <div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 600, color: '#262626' }}>{stats.completed}</div>
+              <div style={{ fontSize: isMobile ? '12px' : '14px', color: '#8C8C8C' }}>Closed</div>
             </Card>
           </Col>
         </Row>
@@ -368,49 +424,67 @@ function JobsListPage() {
           onChange={setActiveTab} 
           items={tabItems}
           style={{ marginBottom: '16px' }}
+          size={isMobile ? 'small' : 'middle'}
         />
 
         {/* Filters */}
-        <Row gutter={16} style={{ marginBottom: '16px' }} align="middle">
-          <Col flex="auto">
-            <Space size="middle">
-              <Select
-                value={filters.status}
-                onChange={(value) => setFilters({ ...filters, status: value })}
-                style={{ width: 150 }}
+        {isMobile ? (
+          <Row gutter={16} style={{ marginBottom: '16px' }} align="middle">
+            <Col flex="auto">
+              <Button 
+                icon={<FilterOutlined />} 
+                onClick={() => setFilterDrawerVisible(true)}
+                block
               >
-                <Option value="all">Status: All</Option>
-                <Option value="deposit_paid">Not Scheduled</Option>
-                <Option value="scheduled">Scheduled</Option>
-                <Option value="in_progress">In Progress</Option>
-                <Option value="completed">Completed</Option>
-              </Select>
+                Filters
+              </Button>
+            </Col>
+            <Col>
+              <Button icon={<SearchOutlined />} />
+            </Col>
+          </Row>
+        ) : (
+          <Row gutter={16} style={{ marginBottom: '16px' }} align="middle">
+            <Col flex="auto">
+              <Space size="middle" wrap>
+                <Select
+                  value={filters.status}
+                  onChange={(value) => setFilters({ ...filters, status: value })}
+                  style={{ width: 150 }}
+                >
+                  <Option value="all">Status: All</Option>
+                  <Option value="deposit_paid">Not Scheduled</Option>
+                  <Option value="scheduled">Scheduled</Option>
+                  <Option value="in_progress">In Progress</Option>
+                  <Option value="completed">Completed</Option>
+                </Select>
 
-              <Select
-                value={filters.scheduledDate}
-                onChange={(value) => setFilters({ ...filters, scheduledDate: value })}
-                style={{ width: 180 }}
-              >
-                <Option value="all">Scheduled Date: All</Option>
-                <Option value="today">Today</Option>
-                <Option value="week">This Week</Option>
-                <Option value="month">This Month</Option>
-              </Select>
+                <Select
+                  value={filters.scheduledDate}
+                  onChange={(value) => setFilters({ ...filters, scheduledDate: value })}
+                  style={{ width: 180 }}
+                >
+                  <Option value="all">Scheduled Date: All</Option>
+                  <Option value="today">Today</Option>
+                  <Option value="week">This Week</Option>
+                  <Option value="month">This Month</Option>
+                </Select>
 
-              <Select
-                value={filters.assignedTo}
-                onChange={(value) => setFilters({ ...filters, assignedTo: value })}
-                style={{ width: 170 }}
-              >
-                <Option value="all">Assigned To: All</Option>
-                <Option value="unassigned">Unassigned</Option>
-              </Select>
-            </Space>
-          </Col>
-          <Col>
-            <Button icon={<SearchOutlined />} />
-          </Col>
-        </Row>
+                <Select
+                  value={filters.assignedTo}
+                  onChange={(value) => setFilters({ ...filters, assignedTo: value })}
+                  style={{ width: 170 }}
+                >
+                  <Option value="all">Assigned To: All</Option>
+                  <Option value="unassigned">Unassigned</Option>
+                </Select>
+              </Space>
+            </Col>
+            <Col>
+              <Button icon={<SearchOutlined />} />
+            </Col>
+          </Row>
+        )}
 
         {/* Table */}
         <Table
@@ -418,16 +492,29 @@ function JobsListPage() {
           dataSource={jobs}
           rowKey="id"
           loading={loading}
+          scroll={{ x: isMobile ? 800 : 'auto' }}
           pagination={{
             current: pagination.current,
             pageSize: pagination.pageSize,
             total: pagination.total,
             onChange: (page) => setPagination({ ...pagination, current: page }),
             showSizeChanger: false,
-            showTotal: (total, range) => `Showing ${range[0]}-${range[1]} of ${total}`
+            showTotal: (total, range) => `Showing ${range[0]}-${range[1]} of ${total}`,
+            size: isMobile ? 'small' : 'default'
           }}
         />
       </Card>
+
+      {/* Mobile Filter Drawer */}
+      <Drawer
+        title="Filters"
+        placement="right"
+        onClose={() => setFilterDrawerVisible(false)}
+        open={filterDrawerVisible}
+        width={isMobile ? '80%' : 400}
+      >
+        <FilterContent />
+      </Drawer>
 
       {/* Admin Status Update Modal */}
       <UpdateJobStatusModal

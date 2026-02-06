@@ -14,6 +14,19 @@ import { useAbortableEffect, isAbortError } from '../../hooks/useAbortableEffect
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
+// Hook to detect mobile devices
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  return isMobile;
+};
+
 // Payment Form Component
 const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
   const stripe = useStripe();
@@ -21,6 +34,7 @@ const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
   const [processing, setProcessing] = useState(false);
   const [paymentSubmitted, setPaymentSubmitted] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const isMobile = useIsMobile();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -131,12 +145,14 @@ const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
           showIcon
           icon={<Spin />}
           className="mb-4"
+          style={{ fontSize: isMobile ? '12px' : '14px' }}
         />
       )}
       
       <div 
-        className="border rounded-lg p-4 mb-6 transition-all duration-300"
+        className="border rounded-lg mb-6 transition-all duration-300"
         style={{
+          padding: isMobile ? '12px' : '16px',
           borderColor: processing ? '#1890ff' : '#d9d9d9',
           backgroundColor: processing ? '#f0f5ff' : '#ffffff',
           borderWidth: processing ? '2px' : '1px',
@@ -148,14 +164,14 @@ const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
           options={{
             style: {
               base: {
-                fontSize: '16px',
+                fontSize: isMobile ? '14px' : '16px',
                 color: '#1f2937',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                 fontSmoothing: 'antialiased',
                 '::placeholder': {
                   color: '#9ca3af',
                 },
-                padding: '12px 0',
+                padding: isMobile ? '10px 0' : '12px 0',
               },
               invalid: {
                 color: '#ef4444',
@@ -181,7 +197,7 @@ const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
               '100%': '#52c41a',
             }}
           />
-          <p className="text-center text-gray-600 text-sm mt-2">
+          <p className="text-center text-gray-600 mt-2" style={{ fontSize: isMobile ? '12px' : '14px' }}>
             {verifying ? '🔓 Unlocking your portal access...' : '💳 Processing your payment...'}
           </p>
         </div>
@@ -191,36 +207,41 @@ const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
         message="🔒 Secure Deposit Payment"
         description={
           <div>
-            <p className="mb-2">Your payment information is encrypted and secure.</p>
-            <p className="text-xs text-gray-600 mb-0">
+            <p className="mb-2" style={{ fontSize: isMobile ? '12px' : '14px' }}>
+              Your payment information is encrypted and secure.
+            </p>
+            <p className="mb-0" style={{ fontSize: isMobile ? '10px' : '12px', color: '#6b7280' }}>
               ✓ PCI-DSS Compliant • ✓ SSL Encrypted • ✓ Powered by Stripe
             </p>
           </div>
         }
         type="info"
         className="mb-6"
+        style={{ fontSize: isMobile ? '12px' : '14px' }}
       />
       
       <Button
         type="primary"
         htmlType="submit"
-        size="large"
+        size={isMobile ? 'middle' : 'large'}
         block
         loading={processing || verifying}
         disabled={!stripe || processing || verifying}
         icon={<DollarOutlined />}
-        className="h-12 text-lg font-semibold"
         style={{
+          height: isMobile ? '44px' : '48px',
+          fontSize: isMobile ? '15px' : '16px',
+          fontWeight: 600,
           background: processing || verifying ? undefined : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
           border: 'none'
         }}
       >
-        {processing ? '⏳ Processing Payment...' : 
-         verifying ? '🔓 Unlocking Portal...' :
-         `Pay Deposit $${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+        {processing ? '⏳ Processing...' : 
+         verifying ? '🔓 Unlocking...' :
+         `Pay $${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
       </Button>
 
-      <p className="text-center text-gray-500 text-xs mt-4 mb-0">
+      <p className="text-center text-gray-500 mt-4 mb-0" style={{ fontSize: isMobile ? '11px' : '12px' }}>
         By completing this payment, you confirm your acceptance of the proposal terms and initiate your project.
       </p>
     </form>
@@ -230,6 +251,7 @@ const PaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
 const ProposalAcceptance = () => {
   const { proposalId } = useParams();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   
   const [loading, setLoading] = useState(true);
   const [proposal, setProposal] = useState(null);
@@ -249,7 +271,7 @@ const ProposalAcceptance = () => {
     fetchProposal(signal);
   }, [proposalId]);
 
-  const fetchProposal = async (signalsignal) => {
+  const fetchProposal = async (signal) => {
     try {
       setLoading(true);
       const response = await customerPortalAPI.getProposal(proposalId, { signal });
@@ -462,38 +484,44 @@ const ProposalAcceptance = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Spin size="large" />
+      <div className="flex items-center justify-center min-h-screen" style={{ padding: isMobile ? '20px' : '0' }}>
+        <Spin size="large" tip={isMobile ? "Loading..." : undefined} />
       </div>
     );
   }
 
   if (error) {
     return (
-      <Result
-        status="error"
-        title="Error Loading Proposal"
-        subTitle={error}
-      />
+      <div style={{ padding: isMobile ? '16px' : '24px' }}>
+        <Result
+          status="error"
+          title={<span style={{ fontSize: isMobile ? '18px' : '24px' }}>Error Loading Proposal</span>}
+          subTitle={<span style={{ fontSize: isMobile ? '13px' : '14px' }}>{error}</span>}
+        />
+      </div>
     );
   }
 
   if (success) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
-        <Card className="max-w-md w-full text-center shadow-xl">
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-green-50 to-blue-50" style={{ padding: isMobile ? '16px' : '24px' }}>
+        <Card className="w-full text-center shadow-xl" style={{ maxWidth: isMobile ? '100%' : '500px' }}>
           <Result
             status="success"
             title={
               <div>
-                <div className="text-3xl mb-2">🎉</div>
-                <div>Deposit Payment Successful!</div>
+                <div style={{ fontSize: isMobile ? '32px' : '48px', marginBottom: '8px' }}>🎉</div>
+                <div style={{ fontSize: isMobile ? '18px' : '24px' }}>Deposit Payment Successful!</div>
               </div>
             }
             subTitle={
               <div className="space-y-2">
-                <p>Your payment has been verified and your portal is now unlocked!</p>
-                <p className="text-gray-600">Redirecting to product selection...</p>
+                <p style={{ fontSize: isMobile ? '13px' : '14px' }}>
+                  Your payment has been verified and your portal is now unlocked!
+                </p>
+                <p className="text-gray-600" style={{ fontSize: isMobile ? '12px' : '14px' }}>
+                  Redirecting to product selection...
+                </p>
                 <Progress 
                   percent={100}
                   status="success"
@@ -513,16 +541,16 @@ const ProposalAcceptance = () => {
   // Show verifying payment overlay
   if (verifyingPayment) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-green-50">
-        <Card className="max-w-md w-full text-center shadow-xl">
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-green-50" style={{ padding: isMobile ? '16px' : '24px' }}>
+        <Card className="w-full text-center shadow-xl" style={{ maxWidth: isMobile ? '100%' : '500px' }}>
           <div className="mb-6">
             <Spin size="large" />
           </div>
           <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-3">
+            <h2 className="font-semibold text-gray-800 mb-3" style={{ fontSize: isMobile ? '18px' : '24px' }}>
               🔓 Unlocking Your Portal
             </h2>
-            <p className="text-gray-600 mb-4">
+            <p className="text-gray-600 mb-4" style={{ fontSize: isMobile ? '13px' : '14px' }}>
               Please wait while we verify your payment and unlock access to the product selection portal...
             </p>
             <Progress 
@@ -534,11 +562,11 @@ const ProposalAcceptance = () => {
               }}
               className="mb-4"
             />
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
-              <p className="text-sm text-blue-800 mb-2">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg mt-4" style={{ padding: isMobile ? '12px' : '16px' }}>
+              <p className="text-blue-800 mb-2" style={{ fontSize: isMobile ? '12px' : '14px' }}>
                 ⏳ This usually takes just a few moments
               </p>
-              <p className="text-xs text-blue-600">
+              <p className="text-blue-600" style={{ fontSize: isMobile ? '11px' : '12px' }}>
                 Please don't close this window or press the back button
               </p>
             </div>
@@ -550,30 +578,35 @@ const ProposalAcceptance = () => {
 
   if (paymentStep) {
     return (
-      <div className="max-w-2xl mx-auto p-6">
+      <div className="mx-auto" style={{ maxWidth: isMobile ? '100%' : '800px', padding: isMobile ? '12px' : '24px' }}>
         <Spin spinning={verifyingPayment} tip="Verifying payment and unlocking portal..." size="large">
           <Card 
             title={
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2" style={{ fontSize: isMobile ? '15px' : '16px' }}>
                 <DollarOutlined className="text-green-600" />
                 <span>Complete Your Deposit Payment</span>
               </div>
             }
+            style={{ borderRadius: isMobile ? '8px' : '12px' }}
           >
             <Alert
               message="Almost There!"
               description={
                 <div>
-                  <p className="mb-2">Complete your deposit payment to unlock the full interactive portal.</p>
-                  <div className="mt-3 p-3 bg-green-50 rounded">
-                    <div className="flex justify-between items-center">
-                      <span className="font-semibold text-gray-700">Deposit Amount:</span>
-                      <span className="text-2xl font-bold text-green-600">
+                  <p className="mb-2" style={{ fontSize: isMobile ? '12px' : '14px' }}>
+                    Complete your deposit payment to unlock the full interactive portal.
+                  </p>
+                  <div className="mt-3 bg-green-50 rounded" style={{ padding: isMobile ? '10px' : '12px' }}>
+                    <div className="flex justify-between items-center" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? '8px' : '0' }}>
+                      <span className="font-semibold text-gray-700" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+                        Deposit Amount:
+                      </span>
+                      <span className="font-bold text-green-600" style={{ fontSize: isMobile ? '20px' : '24px' }}>
                         ${depositAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                   </div>
-                  <div className="mt-3 text-sm text-gray-600">
+                  <div className="mt-3 text-gray-600" style={{ fontSize: isMobile ? '11px' : '13px' }}>
                     <p className="mb-1">✓ Confirms your project acceptance</p>
                     <p className="mb-1">✓ Unlocks product selection portal</p>
                     <p className="mb-0">✓ Starts your selection period</p>
@@ -583,6 +616,7 @@ const ProposalAcceptance = () => {
               type="info"
               showIcon
               className="mb-6"
+              style={{ fontSize: isMobile ? '12px' : '14px' }}
             />
             
             {clientSecret ? (
@@ -595,18 +629,20 @@ const ProposalAcceptance = () => {
                 />
               </Elements>
             ) : (
-              <div className="text-center py-8">
+              <div className="text-center" style={{ padding: isMobile ? '32px 0' : '48px 0' }}>
                 <Spin size="large" tip="Loading secure payment form..." />
               </div>
             )}
             
-            <Divider />
+            <Divider style={{ margin: isMobile ? '16px 0' : '24px 0' }} />
             
             <div className="text-center">
               <Button
                 type="link"
                 onClick={() => setPaymentStep(false)}
                 disabled={verifyingPayment}
+                size={isMobile ? 'small' : 'default'}
+                style={{ fontSize: isMobile ? '13px' : '14px' }}
               >
                 ← Back to Proposal
               </Button>
@@ -639,18 +675,37 @@ const ProposalAcceptance = () => {
     return proposal.depositAmount || 0;
   };
 
+  // Add null check for proposal
+  if (!proposal) {
+    return (
+      <div className="flex items-center justify-center min-h-screen" style={{ padding: isMobile ? '20px' : '0' }}>
+        <Spin size="large" tip={isMobile ? "Loading..." : undefined} />
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <Card title={`Proposal #${proposal.quoteNumber}`}>
+    <div className="mx-auto" style={{ maxWidth: isMobile ? '100%' : '1200px', padding: isMobile ? '12px' : '24px' }}>
+      <Card 
+        title={<span style={{ fontSize: isMobile ? '16px' : '18px' }}>Proposal #{proposal.quoteNumber}</span>}
+        style={{ borderRadius: isMobile ? '8px' : '12px' }}
+      >
         <Alert
           message="Review Your Proposal"
           description="Please review the proposal details below and select a pricing tier if applicable."
           type="info"
           showIcon
           className="mb-6"
+          style={{ fontSize: isMobile ? '12px' : '14px' }}
         />
 
-        <Descriptions bordered column={1}>
+        <Descriptions 
+          bordered 
+          column={1}
+          size={isMobile ? 'small' : 'default'}
+          labelStyle={{ fontSize: isMobile ? '12px' : '14px', fontWeight: 600 }}
+          contentStyle={{ fontSize: isMobile ? '12px' : '14px' }}
+        >
           <Descriptions.Item label="Customer Name">{proposal.customerName}</Descriptions.Item>
           <Descriptions.Item label="Project Address">
             {[proposal.street, proposal.city, proposal.state, proposal.zipCode].filter(Boolean).join(', ')}
@@ -665,13 +720,15 @@ const ProposalAcceptance = () => {
 
         {proposal.productStrategy === 'GBB' && (
           <div className="mt-6">
-            <Divider>Select Your Pricing Tier</Divider>
+            <Divider style={{ fontSize: isMobile ? '14px' : '16px', margin: isMobile ? '16px 0' : '24px 0' }}>
+              Select Your Pricing Tier
+            </Divider>
             <Radio.Group
               value={selectedTier}
               onChange={(e) => setSelectedTier(e.target.value)}
               className="w-full"
             >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid gap-4" style={{ gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)' }}>
                 {['good', 'better', 'best'].map((tier) => (
                   <Card
                     key={tier}
@@ -679,17 +736,25 @@ const ProposalAcceptance = () => {
                       selectedTier === tier ? 'border-blue-500 shadow-lg' : ''
                     }`}
                     onClick={() => setSelectedTier(tier)}
+                    style={{ 
+                      borderWidth: selectedTier === tier ? '2px' : '1px',
+                      padding: isMobile ? '12px' : '16px'
+                    }}
                   >
                     <Radio value={tier} className="mb-3">
-                      <span className="text-lg font-semibold capitalize">{tier}</span>
+                      <span className="font-semibold capitalize" style={{ fontSize: isMobile ? '15px' : '18px' }}>
+                        {tier}
+                      </span>
                     </Radio>
-                    <div className="text-lg text-gray-700 mb-1">
-                      Total: <span className="text-2xl font-bold text-blue-600">${getTierPrice(tier)?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || 'N/A'}</span>
+                    <div className="text-gray-700 mb-1" style={{ fontSize: isMobile ? '14px' : '16px' }}>
+                      Total: <span className="font-bold text-blue-600" style={{ fontSize: isMobile ? '18px' : '24px' }}>
+                        ${getTierPrice(tier)?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || 'N/A'}
+                      </span>
                     </div>
-                    <div className="text-sm text-gray-700 mb-2">
+                    <div className="text-gray-700 mb-2" style={{ fontSize: isMobile ? '12px' : '14px' }}>
                       Deposit: <strong>${getTierDeposit(tier)?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
                     </div>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-gray-600" style={{ fontSize: isMobile ? '11px' : '13px' }}>
                       {proposal.tiers?.[tier]?.description ||
                         (tier === 'good' && 'Quality products at a great value') ||
                         (tier === 'better' && 'Premium products for enhanced durability') ||
@@ -704,17 +769,21 @@ const ProposalAcceptance = () => {
 
         {proposal.productStrategy !== 'GBB' && (
           <div className="mt-6">
-            <Divider>Total Investment</Divider>
+            <Divider style={{ fontSize: isMobile ? '14px' : '16px', margin: isMobile ? '16px 0' : '24px 0' }}>
+              Total Investment
+            </Divider>
             <div className="text-center">
-              <div className="text-4xl font-bold text-blue-600">
+              <div className="font-bold text-blue-600" style={{ fontSize: isMobile ? '28px' : '36px' }}>
                 ${proposal.total?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </div>
-              <p className="text-gray-600 mt-2">Total Project Cost</p>
+              <p className="text-gray-600 mt-2" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+                Total Project Cost
+              </p>
             </div>
           </div>
         )}
 
-        <Divider />
+        <Divider style={{ margin: isMobile ? '16px 0' : '24px 0' }} />
 
         {proposal.status === 'accepted' && !proposal.depositVerified && (
           <Alert
@@ -723,6 +792,7 @@ const ProposalAcceptance = () => {
             type="warning"
             showIcon
             className="mb-4"
+            style={{ fontSize: isMobile ? '12px' : '14px' }}
           />
         )}
 
@@ -733,25 +803,30 @@ const ProposalAcceptance = () => {
             type="success"
             showIcon
             className="mb-4"
+            style={{ fontSize: isMobile ? '12px' : '14px' }}
           />
         )}
 
-        <div className="flex gap-4 justify-center">
+        <div className="flex justify-center" style={{ gap: isMobile ? '8px' : '16px', flexWrap: 'wrap' }}>
           {proposal.depositVerified ? (
             <>
               {proposal.selectionsComplete && proposal.job?.id ? (
                 <Button
                   type="primary"
-                  size="large"
+                  size={isMobile ? 'middle' : 'large'}
+                  block={isMobile}
                   onClick={() => navigate(`/portal/job/${proposal.job.id}`)}
+                  style={{ fontSize: isMobile ? '14px' : '16px' }}
                 >
                   Track Job
                 </Button>
               ) : (
                 <Button
                   type="primary"
-                  size="large"
+                  size={isMobile ? 'middle' : 'large'}
+                  block={isMobile}
                   onClick={() => navigate(`/portal/proposals/${proposalId}/selections`)}
+                  style={{ fontSize: isMobile ? '14px' : '16px' }}
                 >
                   Proceed to Selections
                 </Button>
@@ -761,22 +836,26 @@ const ProposalAcceptance = () => {
             <>
               <Button
                 type="primary"
-                size="large"
+                size={isMobile ? 'middle' : 'large'}
                 icon={<CheckCircleOutlined />}
                 onClick={handleAccept}
                 loading={accepting}
+                block={isMobile}
+                style={{ fontSize: isMobile ? '13px' : '15px', minWidth: isMobile ? '100%' : '200px' }}
               >
                 {proposal.status === 'accepted' && !proposal.depositVerified
                   ? 'Resume Payment'
-                  : 'Accept Proposal & Pay Deposit'}
+                  : isMobile ? 'Accept & Pay' : 'Accept Proposal & Pay Deposit'}
               </Button>
               <Button
                 danger
-                size="large"
+                size={isMobile ? 'middle' : 'large'}
                 icon={<CloseCircleOutlined />}
                 onClick={() => setShowRejectModal(true)}
                 loading={rejecting}
                 disabled={proposal.status === 'accepted'}
+                block={isMobile}
+                style={{ fontSize: isMobile ? '13px' : '15px', minWidth: isMobile ? '100%' : '150px' }}
               >
                 Reject Proposal
               </Button>
@@ -786,24 +865,40 @@ const ProposalAcceptance = () => {
       </Card>
 
       <Modal
-        title="Reject Proposal"
+        title={<span style={{ fontSize: isMobile ? '15px' : '16px' }}>Reject Proposal</span>}
         open={showRejectModal}
         onOk={handleReject}
         onCancel={() => setShowRejectModal(false)}
         confirmLoading={rejecting}
+        width={isMobile ? '90%' : 520}
+        centered={isMobile}
+        okButtonProps={{ size: isMobile ? 'middle' : 'default' }}
+        cancelButtonProps={{ size: isMobile ? 'middle' : 'default' }}
       >
-        <p className="mb-4">Please let us know why you're rejecting this proposal:</p>
+        <p className="mb-4" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+          Please let us know why you're rejecting this proposal:
+        </p>
         <Radio.Group
           value={rejectReason}
           onChange={(e) => setRejectReason(e.target.value)}
           className="w-full"
         >
           <div className="space-y-2">
-            <Radio value="price_too_high">Price is too high</Radio>
-            <Radio value="timeline_issue">Timeline doesn't work</Radio>
-            <Radio value="scope_change">Need to change project scope</Radio>
-            <Radio value="found_alternative">Found another contractor</Radio>
-            <Radio value="other">Other reason</Radio>
+            <Radio value="price_too_high" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+              Price is too high
+            </Radio>
+            <Radio value="timeline_issue" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+              Timeline doesn't work
+            </Radio>
+            <Radio value="scope_change" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+              Need to change project scope
+            </Radio>
+            <Radio value="found_alternative" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+              Found another contractor
+            </Radio>
+            <Radio value="other" style={{ fontSize: isMobile ? '13px' : '14px' }}>
+              Other reason
+            </Radio>
           </div>
         </Radio.Group>
       </Modal>

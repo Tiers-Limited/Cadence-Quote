@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { Card, Steps, message, Progress, Button, Modal } from 'antd';
+import { Card, Steps, message, Progress, Button, Modal, Grid } from 'antd';
 import {
   UserOutlined,
   HomeOutlined,
@@ -9,6 +9,8 @@ import {
   FileTextOutlined,
   ReloadOutlined
 } from '@ant-design/icons';
+
+const { useBreakpoint } = Grid;
 import CustomerInfoStep from '../components/QuoteBuilder/CustomerInfoStep';
 import JobTypeStep from '../components/QuoteBuilder/JobTypeStep';
 import AreasStepEnhanced from '../components/QuoteBuilder/AreasStepEnhanced';
@@ -61,6 +63,9 @@ const getSteps = (isTurnkey, gbbEnabled = false) => {
 };
   
 function QuoteBuilderPage() {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({
     // Customer Info (Step 1)
@@ -1634,12 +1639,12 @@ function QuoteBuilderPage() {
   };
 
   return (
-    <div className="p-4 md:p-6">
+    <div className={`${isMobile ? 'p-2' : 'p-4 md:p-6'}`}>
       <div className="max-w-5xl mx-auto">
         {/* Progress Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl md:text-3xl font-bold">
+        <div className={`${isMobile ? 'mb-4' : 'mb-8'}`}>
+          <div className={`flex ${isMobile ? 'flex-col gap-2' : 'items-center justify-between'} mb-4`}>
+            <h2 className={`${isMobile ? 'text-xl' : 'text-2xl md:text-3xl'} font-bold`}>
               {isEditMode ? 'Edit Quote' : 'Create New Quote'}
             </h2>
             <div className="flex items-center gap-3">
@@ -1650,10 +1655,11 @@ function QuoteBuilderPage() {
                   message.success('Settings refreshed');
                 }}
                 title="Refresh contractor settings"
+                size={isMobile ? 'small' : 'middle'}
               >
-                Refresh Settings
+                {!isMobile && 'Refresh Settings'}
               </Button>
-              <span className="text-sm text-gray-500">
+              <span className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>
                 Step {currentStep + 1} of {steps.length}
               </span>
             </div>
@@ -1662,21 +1668,23 @@ function QuoteBuilderPage() {
           <Progress percent={progress} showInfo={false} className="mb-6" />
           
           {/* Step Indicators */}
-          <Steps current={currentStep} className="hidden md:flex">
-            {steps.map((step) => (
-              <Steps.Step
-                key={step.id}
-                title={step.title}
-                icon={<step.icon />}
-              />
-            ))}
-          </Steps>
+          {!isMobile && (
+            <Steps current={currentStep} className="hidden md:flex">
+              {steps.map((step) => (
+                <Steps.Step
+                  key={step.id}
+                  title={step.title}
+                  icon={<step.icon />}
+                />
+              ))}
+            </Steps>
+          )}
         </div>
 
         {/* Step Content */}
         <Card>
-          <div className="mb-6">
-            <h3 className="text-xl font-semibold flex items-center gap-2">
+          <div className={`${isMobile ? 'mb-4' : 'mb-6'}`}>
+            <h3 className={`${isMobile ? 'text-lg' : 'text-xl'} font-semibold flex items-center gap-2`}>
               {(() => {
                 const StepIcon = steps[currentStep].icon;
                 return <StepIcon className="text-blue-500" />;
@@ -1689,7 +1697,7 @@ function QuoteBuilderPage() {
         </Card>
 
         {/* Auto-save indicator */}
-        <div className="text-center text-xs text-gray-500 mt-4">
+        <div className={`text-center ${isMobile ? 'text-xs' : 'text-xs'} text-gray-500 mt-4`}>
           Auto-saving every 30 seconds
           {formData.quoteId && ` • Draft ID: ${formData.quoteId}`}
           {autoSaveVersion > 1 && ` • Version: ${autoSaveVersion}`}

@@ -1,6 +1,8 @@
 import React from 'react';
-import { Card, Row, Col, Badge, Button, Statistic, Divider } from 'antd';
+import { Card, Row, Col, Badge, Button, Statistic, Divider, Grid } from 'antd';
 import { CheckCircleOutlined, StarOutlined, TrophyOutlined } from '@ant-design/icons';
+
+const { useBreakpoint } = Grid;
 
 /**
  * Tier Selection Step Component
@@ -8,6 +10,9 @@ import { CheckCircleOutlined, StarOutlined, TrophyOutlined } from '@ant-design/i
  * Displays Good-Better-Best pricing tiers and allows selection.
  */
 const TierSelectionStep = ({ tierPricing, selectedTier, onSelectTier, pricingScheme }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  
   if (!tierPricing || !tierPricing.gbbEnabled) {
     return null; // Don't show if GBB is not enabled
   }
@@ -57,14 +62,14 @@ const TierSelectionStep = ({ tierPricing, selectedTier, onSelectTier, pricingSch
 
   return (
     <div className="tier-selection-step">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2">Select Your Pricing Tier</h2>
-        <p className="text-gray-600">
+      <div className={`${isMobile ? 'mb-4' : 'mb-6'}`}>
+        <h2 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold mb-2`}>Select Your Pricing Tier</h2>
+        <p className={`text-gray-600 ${isMobile ? 'text-sm' : ''}`}>
           Choose the quality level that best fits your needs and budget
         </p>
       </div>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[isMobile ? 12 : 16, isMobile ? 12 : 16]}>
         {tiers.map((tier) => {
           const pricing = getTierPricing(tier.key);
           const isSelected = selectedTier === tier.key;
@@ -82,23 +87,23 @@ const TierSelectionStep = ({ tierPricing, selectedTier, onSelectTier, pricingSch
                 }}
                 onClick={() => onSelectTier(tier.key)}
               >
-                <div className="text-center mb-4">
+                <div className={`text-center ${isMobile ? 'mb-3' : 'mb-4'}`}>
                   {tier.recommended && (
                     <Badge.Ribbon text="Recommended" color="green">
                       <div style={{ height: 20 }} />
                     </Badge.Ribbon>
                   )}
-                  <div style={{ fontSize: 48, color: tier.color, marginBottom: 8 }}>
+                  <div style={{ fontSize: isMobile ? 36 : 48, color: tier.color, marginBottom: 8 }}>
                     {tier.icon}
                   </div>
-                  <h3 className="text-xl font-bold" style={{ color: tier.color }}>
+                  <h3 className={`${isMobile ? 'text-lg' : 'text-xl'} font-bold`} style={{ color: tier.color }}>
                     {tier.label} Tier
                   </h3>
                 </div>
 
-                <Divider />
+                <Divider style={{ margin: isMobile ? '12px 0' : '16px 0' }} />
 
-                <div className="text-center mb-4">
+                <div className={`text-center ${isMobile ? 'mb-3' : 'mb-4'}`}>
                   <Statistic
                     title="Total Price"
                     value={pricing.total || 0}
@@ -106,31 +111,31 @@ const TierSelectionStep = ({ tierPricing, selectedTier, onSelectTier, pricingSch
                     prefix="$"
                     valueStyle={{ 
                       color: tier.color, 
-                      fontSize: 32,
+                      fontSize: isMobile ? 24 : 32,
                       fontWeight: 'bold'
                     }}
                   />
                 </div>
 
-                <div className="mb-4">
-                  <p className="text-gray-600 text-sm text-center">
+                <div className={`${isMobile ? 'mb-3' : 'mb-4'}`}>
+                  <p className={`text-gray-600 ${isMobile ? 'text-xs' : 'text-sm'} text-center`}>
                     {tier.description}
                   </p>
                 </div>
 
-                <Divider />
+                <Divider style={{ margin: isMobile ? '12px 0' : '16px 0' }} />
 
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between text-sm">
+                <div className={`space-y-2 ${isMobile ? 'mb-3' : 'mb-4'}`}>
+                  <div className={`flex justify-between ${isMobile ? 'text-xs' : 'text-sm'}`}>
                     <span className="text-gray-600">Labor Cost:</span>
                     <span className="font-semibold">{formatCurrency(pricing.laborCost)}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className={`flex justify-between ${isMobile ? 'text-xs' : 'text-sm'}`}>
                     <span className="text-gray-600">Material Cost:</span>
                     <span className="font-semibold">{formatCurrency(pricing.materialCost)}</span>
                   </div>
                   {pricing.productCost > 0 && (
-                    <div className="flex justify-between text-sm">
+                    <div className={`flex justify-between ${isMobile ? 'text-xs' : 'text-sm'}`}>
                       <span className="text-gray-600">Product Cost:</span>
                       <span className="font-semibold">{formatCurrency(pricing.productCost)}</span>
                     </div>
@@ -139,7 +144,7 @@ const TierSelectionStep = ({ tierPricing, selectedTier, onSelectTier, pricingSch
 
                 <Button
                   type={isSelected ? 'primary' : 'default'}
-                  size="large"
+                  size={isMobile ? 'middle' : 'large'}
                   block
                   icon={isSelected ? <CheckCircleOutlined /> : null}
                   style={{
@@ -160,8 +165,8 @@ const TierSelectionStep = ({ tierPricing, selectedTier, onSelectTier, pricingSch
       </Row>
 
       {selectedTier && (
-        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded">
-          <p className="text-sm text-gray-700">
+        <div className={`${isMobile ? 'mt-4' : 'mt-6'} p-4 bg-blue-50 border border-blue-200 rounded`}>
+          <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-700`}>
             <strong>Selected:</strong> {tiers.find(t => t.key === selectedTier)?.label} Tier - {formatCurrency(getTierPricing(selectedTier).total)}
           </p>
         </div>

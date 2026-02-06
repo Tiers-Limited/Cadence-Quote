@@ -18,7 +18,8 @@ import {
   Select,
   Row,
   Col,
-  Progress
+  Progress,
+  Grid
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -35,10 +36,12 @@ import dayjs from 'dayjs'
 import JobProgressTracker from '../components/JobProgressTracker'
 
 const { Title, Text, Paragraph } = Typography
+const { useBreakpoint } = Grid
 
 function JobDetailPage () {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const screens = useBreakpoint()
   const [loading, setLoading] = useState(true)
   const [job, setJob] = useState(null)
   const [schedulingModalVisible, setSchedulingModalVisible] = useState(false)
@@ -52,6 +55,9 @@ function JobDetailPage () {
   const [schedulingJob, setSchedulingJob] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [approvingSelections, setApprovingSelections] = useState(false)
+
+  const isMobile = !screens.md
+  const isTablet = screens.md && !screens.lg
 
   useEffect(() => {
     if (jobId) {
@@ -312,31 +318,29 @@ function JobDetailPage () {
   }
 
   return (
-    <div className='p-6'>
+    <div style={{ padding: isMobile ? '12px' : '24px' }}>
       {/* Header */}
-      <div className='mb-6'>
+      <div style={{ marginBottom: isMobile ? '12px' : '24px' }}>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => navigate('/jobs')}
-          className='mb-4'
-          size='large'
+          style={{ marginBottom: isMobile ? '8px' : '16px' }}
+          size={isMobile ? 'middle' : 'large'}
         >
-          Back to Jobs
+          {isMobile ? 'Back' : 'Back to Jobs'}
         </Button>
         <Card className='shadow-sm'>
-          <div className='flex justify-between items-start'>
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '12px' : '0' }}>
             <div>
-              <Title level={2} style={{ marginBottom: 8 }}>{job.jobNumber}</Title>
-              {job.quote && <Text type='secondary' style={{ fontSize: 16 }}>{job.quote.projectName}</Text>}
+              <Title level={isMobile ? 3 : 2} style={{ marginBottom: 8 }}>{job.jobNumber}</Title>
+              {job.quote && <Text type='secondary' style={{ fontSize: isMobile ? 14 : 16 }}>{job.quote.projectName}</Text>}
             </div>
-            <Space>
-              <Tag
-                color={jobsService.getStatusColor(job.status)}
-                style={{ fontSize: 16, padding: '8px 16px', borderRadius: 8 }}
-              >
-                {jobsService.getStatusLabel(job.status)}
-              </Tag>
-            </Space>
+            <Tag
+              color={jobsService.getStatusColor(job.status)}
+              style={{ fontSize: isMobile ? 14 : 16, padding: isMobile ? '6px 12px' : '8px 16px', borderRadius: 8 }}
+            >
+              {jobsService.getStatusLabel(job.status)}
+            </Tag>
           </div>
         </Card>
       </div>
@@ -345,46 +349,52 @@ function JobDetailPage () {
         {/* Left Column */}
         <Col xs={24} lg={16}>
           {/* Job Details */}
-          <Card title='Job Details' className='mb-4'>
-            <Descriptions column={{ xs: 1, sm: 2 }} bordered>
-              <Descriptions.Item label='Customer' span={2}>
+          <Card title='Job Details' style={{ marginBottom: 16 }}>
+            <Descriptions column={{ xs: 1, sm: 1, md: 2 }} bordered size={isMobile ? 'small' : 'default'}>
+              <Descriptions.Item label='Customer' span={isMobile ? 1 : 2}>
                 <Space direction='vertical' size={0}>
                   <Text strong>{job.customerName || job.client?.name}</Text>
-                  <Text type='secondary'>
+                  <Text type='secondary' style={{ fontSize: isMobile ? 12 : 14 }}>
                     {job.customerEmail || job.client?.email}
                   </Text>
                   {(job.customerPhone || job.client?.phone) && (
-                    <Text type='secondary'>
+                    <Text type='secondary' style={{ fontSize: isMobile ? 12 : 14 }}>
                       {job.customerPhone || job.client?.phone}
                     </Text>
                   )}
                 </Space>
               </Descriptions.Item>
 
-              <Descriptions.Item label='Job Address' span={2}>
-                {job.jobAddress ||
-                  (job.client
-                    ? [
-                        job.client.street,
-                        job.client.city,
-                        job.client.state,
-                        job.client.zip
-                      ]
-                        .filter(Boolean)
-                        .join(', ')
-                    : job.quote?.projectAddress || (
-                        <Text type='secondary'>No address specified</Text>
-                      ))}
+              <Descriptions.Item label='Job Address' span={isMobile ? 1 : 2}>
+                <Text style={{ fontSize: isMobile ? 12 : 14 }}>
+                  {job.jobAddress ||
+                    (job.client
+                      ? [
+                          job.client.street,
+                          job.client.city,
+                          job.client.state,
+                          job.client.zip
+                        ]
+                          .filter(Boolean)
+                          .join(', ')
+                      : job.quote?.projectAddress || (
+                          <Text type='secondary'>No address specified</Text>
+                        ))}
+                </Text>
               </Descriptions.Item>
 
               <Descriptions.Item label='Created'>
-                {new Date(job.createdAt).toLocaleDateString("en-US",{
-        month: 'short', day: 'numeric', year: 'numeric'
-      })}
+                <Text style={{ fontSize: isMobile ? 12 : 14 }}>
+                  {new Date(job.createdAt).toLocaleDateString("en-US",{
+          month: 'short', day: 'numeric', year: 'numeric'
+        })}
+                </Text>
               </Descriptions.Item>
 
               <Descriptions.Item label='Quote Number'>
-                {job.quote?.quoteNumber}
+                <Text style={{ fontSize: isMobile ? 12 : 14 }}>
+                  {job.quote?.quoteNumber}
+                </Text>
               </Descriptions.Item>
             </Descriptions>
           </Card>
@@ -392,64 +402,65 @@ function JobDetailPage () {
           {/* Scheduling */}
           <Card
             title={
-              <>
-                <CalendarOutlined /> Schedule
-              </>
+              <Space size="small">
+                <CalendarOutlined />
+                <span>Schedule</span>
+              </Space>
             }
             extra={
               <Button
                 type='primary'
                 icon={<EditOutlined />}
                 onClick={handleScheduleJob}
-                size='small'
+                size={isMobile ? 'small' : 'middle'}
               >
-                Edit Schedule
+                {isMobile ? 'Edit' : 'Edit Schedule'}
               </Button>
             }
-            className='mb-4'
+            style={{ marginBottom: 16 }}
           >
-            <Descriptions column={{ xs: 1, sm: 2 }} bordered>
+            <Descriptions column={{ xs: 1, sm: 1, md: 2 }} bordered size={isMobile ? 'small' : 'default'}>
               <Descriptions.Item label='Start Date'>
                 {job.scheduledStartDate ? (
-                  <Text strong>
+                  <Text strong style={{ fontSize: isMobile ? 12 : 14 }}>
                     {new Date(job.scheduledStartDate).toLocaleDateString("en-US",{
-        month: 'short', day: 'numeric', year: 'numeric'
-      })}
+          month: 'short', day: 'numeric', year: 'numeric'
+        })}
                   </Text>
                 ) : (
-                  <Text type='secondary'>Not scheduled</Text>
+                  <Text type='secondary' style={{ fontSize: isMobile ? 12 : 14 }}>Not scheduled</Text>
                 )}
               </Descriptions.Item>
 
               <Descriptions.Item label='End Date'>
                 {job.scheduledEndDate ? (
-                  <Text strong>
+                  <Text strong style={{ fontSize: isMobile ? 12 : 14 }}>
                     {new Date(job.scheduledEndDate).toLocaleDateString("en-US",{
-        month: 'short', day: 'numeric', year: 'numeric'
-      })}
+          month: 'short', day: 'numeric', year: 'numeric'
+        })}
                   </Text>
                 ) : (
-                  <Text type='secondary'>Not scheduled</Text>
+                  <Text type='secondary' style={{ fontSize: isMobile ? 12 : 14 }}>Not scheduled</Text>
                 )}
               </Descriptions.Item>
 
               <Descriptions.Item label='Duration'>
                 {job.estimatedDuration ? (
-                  <Text>{job.estimatedDuration} days</Text>
+                  <Text style={{ fontSize: isMobile ? 12 : 14 }}>{job.estimatedDuration} days</Text>
                 ) : (
-                  <Text type='secondary'>Not specified</Text>
+                  <Text type='secondary' style={{ fontSize: isMobile ? 12 : 14 }}>Not specified</Text>
                 )}
               </Descriptions.Item>
 
               <Descriptions.Item label='Actual Start'>
                 {job.actualStartDate ? (
-                  <Text>
+                  <Text style={{ fontSize: isMobile ? 12 : 14 }}>
                     {new Date(job.actualStartDate).toLocaleDateString("en-US",{
-        month: 'short', day: 'numeric', year: 'numeric'
-      })}
+          month: 'short', day: 'numeric', year: 'numeric'
+        })}
                   </Text>
                 ) : (
-                  <Text type='secondary'>Not started</Text>
+                  <Text type='secondary' style={{ fontSize: isMobile ? 12 : 14 }}>Not started</Text>
                 )}
               </Descriptions.Item>
             </Descriptions>
@@ -457,7 +468,7 @@ function JobDetailPage () {
 
           {/* Job Progress Tracker - Only show if job is scheduled */}
           {job.scheduledStartDate && (
-            <Card title='Job Progress by Area' className='mb-4'>
+            <Card title='Job Progress by Area' style={{ marginBottom: 16 }}>
               <JobProgressTracker
                 jobId={jobId}
                 job={job}
@@ -467,7 +478,7 @@ function JobDetailPage () {
           )}
           
           {!job.scheduledStartDate && (
-            <Card title='Job Progress by Area' className='mb-4'>
+            <Card title='Job Progress by Area' style={{ marginBottom: 16 }}>
               <Alert
                 message="Job Not Scheduled"
                 description="Schedule the job to start tracking progress by area."
@@ -481,11 +492,11 @@ function JobDetailPage () {
         {/* Right Column */}
         <Col xs={24} lg={8}>
           {/* Quick Actions */}
-          <Card title='Quick Actions' className='mb-4'>
+          <Card title='Quick Actions' style={{ marginBottom: 16 }}>
             <Space direction='vertical' style={{ width: '100%' }} size='middle'>
               <Button
                 block
-                size='large'
+                size={isMobile ? 'middle' : 'large'}
                 icon={updatingStatus ? <LoadingOutlined /> : <EditOutlined />}
                 onClick={handleStatusUpdate}
                 loading={updatingStatus}
@@ -495,7 +506,7 @@ function JobDetailPage () {
               </Button>
               <Button
                 block
-                size='large'
+                size={isMobile ? 'middle' : 'large'}
                 icon={schedulingJob ? <LoadingOutlined /> : <CalendarOutlined />}
                 onClick={handleScheduleJob}
                 loading={schedulingJob}
@@ -506,7 +517,7 @@ function JobDetailPage () {
               {job.customerSelectionsComplete && (
                 <Button
                   block
-                  size='large'
+                  size={isMobile ? 'middle' : 'large'}
                   type='primary'
                   icon={approvingSelections ? <LoadingOutlined /> : <CheckCircleOutlined />}
                   loading={approvingSelections}
@@ -543,15 +554,15 @@ function JobDetailPage () {
           </Card>
 
           {/* Customer Selections */}
-          <Card title='Customer Selections' className='mb-4'>
+          <Card title='Customer Selections' style={{ marginBottom: 16 }}>
             {selectionsLoading ? (
               <div style={{ textAlign: 'center', padding: '20px' }}>
                 <Spin tip="Loading selections..." />
               </div>
             ) : (
               <Space direction='vertical' style={{ width: '100%' }} size="middle">
-                <div className='flex justify-between items-center'>
-                  <Text>Selections Status:</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <Text style={{ fontSize: isMobile ? 12 : 14 }}>Selections Status:</Text>
                   {job.customerSelectionsComplete ? (
                     <Tag color='success' icon={<CheckCircleOutlined />}>
                       Complete
@@ -561,7 +572,7 @@ function JobDetailPage () {
                   )}
                 </div>
                 {job.customerSelectionsSubmittedAt && (
-                  <Text type='secondary' style={{ fontSize: 12 }}>
+                  <Text type='secondary' style={{ fontSize: isMobile ? 11 : 12 }}>
                     Submitted:{' '}
                     {new Date(
                       job.customerSelectionsSubmittedAt
@@ -574,24 +585,24 @@ function JobDetailPage () {
                 {/* Show customer selections if available */}
                 {job.customerSelectionsComplete && customerSelections && customerSelections.length > 0 && (
                   <div style={{ marginTop: 12, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
-                    <Text strong style={{ display: 'block', marginBottom: 8 }}>Selected Products:</Text>
+                    <Text strong style={{ display: 'block', marginBottom: 8, fontSize: isMobile ? 13 : 14 }}>Selected Products:</Text>
                     <Space direction='vertical' style={{ width: '100%' }} size="small">
                       {customerSelections.map((selection, index) => (
-                        <div key={index} style={{ padding: '8px', background: '#fafafa', borderRadius: 4 }}>
-                          <Text strong style={{ fontSize: 13 }}>{selection.areaName}</Text>
+                        <div key={index} style={{ padding: isMobile ? '6px' : '8px', background: '#fafafa', borderRadius: 4 }}>
+                          <Text strong style={{ fontSize: isMobile ? 12 : 13 }}>{selection.areaName}</Text>
                           <div style={{ marginTop: 4 }}>
-                            <Text type='secondary' style={{ fontSize: 12 }}>
+                            <Text type='secondary' style={{ fontSize: isMobile ? 11 : 12 }}>
                               {selection.productName || 'Product not specified'}
                             </Text>
                           </div>
                           {selection.colorName && (
                             <div>
-                              <Text style={{ fontSize: 12 }}>Color: {selection.colorName}</Text>
+                              <Text style={{ fontSize: isMobile ? 11 : 12 }}>Color: {selection.colorName}</Text>
                             </div>
                           )}
                           {selection.sheen && (
                             <div>
-                              <Text style={{ fontSize: 12 }}>Sheen: {selection.sheen}</Text>
+                              <Text style={{ fontSize: isMobile ? 11 : 12 }}>Sheen: {selection.sheen}</Text>
                             </div>
                           )}
                         </div>
@@ -616,12 +627,12 @@ function JobDetailPage () {
           {/* Job Documents */}
           <Card 
             title={
-              <Space>
+              <Space size="small">
                 <FileTextOutlined />
-                <span>Job Documents</span>
+                <span style={{ fontSize: isMobile ? 14 : 16 }}>Job Documents</span>
               </Space>
             } 
-            className='mb-4'
+            style={{ marginBottom: 16 }}
             extra={
               job?.depositPaid && (
                 <Space>
@@ -632,7 +643,7 @@ function JobDetailPage () {
                       onClick={handleGenerateDocuments}
                       loading={documentsLoading}
                     >
-                      Generate Documents
+                      {isMobile ? 'Generate' : 'Generate Documents'}
                     </Button>
                   ) : (
                     <Button 
@@ -674,17 +685,19 @@ function JobDetailPage () {
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      padding: '8px 0',
-                      borderBottom: '1px solid #f0f0f0'
+                      padding: isMobile ? '6px 0' : '8px 0',
+                      borderBottom: '1px solid #f0f0f0',
+                      flexWrap: isMobile ? 'wrap' : 'nowrap',
+                      gap: isMobile ? '8px' : '0'
                     }}
                   >
-                    <Space>
-                      <FileTextOutlined style={{ fontSize: 16, color: '#1890ff' }} />
+                    <Space size="small">
+                      <FileTextOutlined style={{ fontSize: isMobile ? 14 : 16, color: '#1890ff' }} />
                       <div>
-                        <Text strong>{doc.title}</Text>
+                        <Text strong style={{ fontSize: isMobile ? 12 : 14 }}>{doc.title}</Text>
                         {doc.generatedAt && (
                           <div>
-                            <Text type='secondary' style={{ fontSize: 12 }}>
+                            <Text type='secondary' style={{ fontSize: isMobile ? 11 : 12 }}>
                               Generated: {new Date(doc.generatedAt).toLocaleDateString()}
                             </Text>
                           </div>
@@ -698,7 +711,7 @@ function JobDetailPage () {
                       onClick={() => handleDownloadDocument(doc.type)}
                       loading={downloadingDoc === doc.type}
                     >
-                      Download
+                      {isMobile ? '' : 'Download'}
                     </Button>
                   </div>
                 ))}
@@ -711,9 +724,9 @@ function JobDetailPage () {
       {/* Schedule Modal */}
       <Modal
         title={
-          <Space>
+          <Space size="small">
             <CalendarOutlined />
-            <span>{job.scheduledStartDate ? 'Update Job Schedule' : 'Schedule Job'}</span>
+            <span style={{ fontSize: isMobile ? 14 : 16 }}>{job.scheduledStartDate ? 'Update Job Schedule' : 'Schedule Job'}</span>
           </Space>
         }
         open={schedulingModalVisible}
@@ -724,7 +737,7 @@ function JobDetailPage () {
           }
         }}
         footer={null}
-        width={600}
+        width={isMobile ? '95%' : 600}
         maskClosable={!schedulingJob}
         closable={!schedulingJob}
       >
@@ -735,7 +748,7 @@ function JobDetailPage () {
               description="Set the start date, end date, and the duration will be calculated automatically. All dates must be today or in the future."
               type="info"
               showIcon
-              className="mb-4"
+              style={{ marginBottom: 16 }}
             />
             
             <Form.Item
@@ -756,7 +769,7 @@ function JobDetailPage () {
             >
               <DatePicker 
                 style={{ width: '100%' }} 
-                size='large'
+                size={isMobile ? 'middle' : 'large'}
                 format='MMM DD, YYYY'
                 disabled={schedulingJob}
                 disabledDate={disabledStartDate}
@@ -786,7 +799,7 @@ function JobDetailPage () {
             >
               <DatePicker 
                 style={{ width: '100%' }} 
-                size='large'
+                size={isMobile ? 'middle' : 'large'}
                 format='MMM DD, YYYY'
                 disabled={schedulingJob}
                 disabledDate={disabledEndDate}
@@ -803,16 +816,16 @@ function JobDetailPage () {
               <InputNumber 
                 min={1} 
                 style={{ width: '100%' }} 
-                size='large'
+                size={isMobile ? 'middle' : 'large'}
                 placeholder='e.g., 5 (auto-calculated if end date is set)'
                 disabled={schedulingJob}
               />
             </Form.Item>
 
             {schedulingJob && (
-              <div className="mb-4">
+              <div style={{ marginBottom: 16 }}>
                 <Progress percent={66} status="active" showInfo={false} />
-                <p className="text-center text-gray-600 text-sm mt-2">Updating schedule...</p>
+                <p style={{ textAlign: 'center', color: '#666', fontSize: isMobile ? 12 : 14, marginTop: 8 }}>Updating schedule...</p>
               </div>
             )}
 
@@ -824,6 +837,7 @@ function JobDetailPage () {
                     form.resetFields()
                   }}
                   disabled={schedulingJob}
+                  size={isMobile ? 'middle' : 'large'}
                 >
                   Cancel
                 </Button>
@@ -832,7 +846,7 @@ function JobDetailPage () {
                   htmlType='submit'
                   loading={schedulingJob}
                   disabled={schedulingJob}
-                  size='large'
+                  size={isMobile ? 'middle' : 'large'}
                 >
                   {schedulingJob ? 'Scheduling...' : 'Save Schedule'}
                 </Button>
@@ -845,9 +859,9 @@ function JobDetailPage () {
       {/* Status Update Modal */}
       <Modal
         title={
-          <Space>
+          <Space size="small">
             <EditOutlined />
-            <span>Update Job Status</span>
+            <span style={{ fontSize: isMobile ? 14 : 16 }}>Update Job Status</span>
           </Space>
         }
         open={statusModalVisible}
@@ -857,6 +871,7 @@ function JobDetailPage () {
           }
         }}
         footer={null}
+        width={isMobile ? '95%' : 'auto'}
         maskClosable={!updatingStatus}
         closable={!updatingStatus}
       >
@@ -874,7 +889,7 @@ function JobDetailPage () {
               }
               type="info"
               showIcon
-              className="mb-4"
+              style={{ marginBottom: 16 }}
             />
             
             <Form.Item
@@ -883,7 +898,7 @@ function JobDetailPage () {
               rules={[{ required: true, message: 'Please select a status' }]}
             >
               <Select 
-                size='large'
+                size={isMobile ? 'middle' : 'large'}
                 placeholder='Choose a status...'
                 disabled={updatingStatus}
               >
@@ -900,9 +915,9 @@ function JobDetailPage () {
             </Form.Item>
 
             {updatingStatus && (
-              <div className="mb-4">
+              <div style={{ marginBottom: 16 }}>
                 <Progress percent={66} status="active" showInfo={false} />
-                <p className="text-center text-gray-600 text-sm mt-2">Updating job status...</p>
+                <p style={{ textAlign: 'center', color: '#666', fontSize: isMobile ? 12 : 14, marginTop: 8 }}>Updating job status...</p>
               </div>
             )}
 
@@ -911,6 +926,7 @@ function JobDetailPage () {
                 <Button 
                   onClick={() => setStatusModalVisible(false)}
                   disabled={updatingStatus}
+                  size={isMobile ? 'middle' : 'large'}
                 >
                   Cancel
                 </Button>
@@ -919,7 +935,7 @@ function JobDetailPage () {
                   htmlType='submit'
                   loading={updatingStatus}
                   disabled={updatingStatus}
-                  size='large'
+                  size={isMobile ? 'middle' : 'large'}
                 >
                   {updatingStatus ? 'Updating...' : 'Update Status'}
                 </Button>

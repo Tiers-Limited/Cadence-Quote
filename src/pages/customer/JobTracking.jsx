@@ -15,7 +15,8 @@ import {
   Alert,
   Divider,
   message,
-  Progress
+  Progress,
+  Grid
 } from 'antd'
 import {
   ClockCircleOutlined,
@@ -34,10 +35,11 @@ import { customerPortalAPI } from '../../services/customerPortalAPI'
 import BrandedPortalHeader from '../../components/CustomerPortal/BrandedPortalHeader'
 import JobProgressView from '../../components/CustomerPortal/JobProgressView'
 
+const { useBreakpoint } = Grid
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
 // Final Payment Form Component
-const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
+const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError, isMobile }) => {
   const stripe = useStripe()
   const elements = useElements()
   const [processing, setProcessing] = useState(false)
@@ -152,12 +154,14 @@ const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
           showIcon
           icon={<Spin />}
           className="mb-4"
+          style={{ fontSize: isMobile ? '12px' : '14px' }}
         />
       )}
       
       <div 
-        className='p-4 rounded-lg mb-4'
+        className='rounded-lg mb-4'
         style={{
+          padding: isMobile ? '12px' : '16px',
           border: processing ? '2px solid #1890ff' : '1px solid #d9d9d9',
           backgroundColor: processing ? '#f0f5ff' : '#fafafa',
           transition: 'all 0.3s ease',
@@ -168,11 +172,12 @@ const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
           options={{
             style: {
               base: {
-                fontSize: '16px',
+                fontSize: isMobile ? '14px' : '16px',
                 color: '#424770',
                 '::placeholder': { color: '#aab7c4' },
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                fontSmoothing: 'antialiased'
+                fontSmoothing: 'antialiased',
+                padding: isMobile ? '10px 0' : '12px 0'
               },
               invalid: { 
                 color: '#9e2146',
@@ -198,7 +203,7 @@ const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
               '100%': '#87d068',
             }}
           />
-          <p className="text-center text-gray-600 text-sm mt-2">
+          <p className="text-center text-gray-600 mt-2" style={{ fontSize: isMobile ? '11px' : '13px' }}>
             {verifying ? 'Verifying payment...' : 'Processing payment...'}
           </p>
         </div>
@@ -210,24 +215,29 @@ const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
         type="info"
         showIcon
         className="mb-4"
+        style={{ fontSize: isMobile ? '12px' : '14px' }}
       />
       
       <Button
         type='primary'
         htmlType='submit'
-        size='large'
+        size={isMobile ? 'middle' : 'large'}
         block
         loading={processing || verifying}
         disabled={!stripe || processing || verifying || !(Number(amount) > 0)}
         icon={<DollarOutlined />}
-        className="h-12 text-lg font-semibold"
+        style={{
+          height: isMobile ? '44px' : '48px',
+          fontSize: isMobile ? '14px' : '16px',
+          fontWeight: 600
+        }}
       >
         {processing ? 'Processing Payment...' : 
          verifying ? 'Verifying...' :
          `Pay Final Balance $${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
       </Button>
 
-      <p className="text-center text-gray-500 text-xs mt-3">
+      <p className="text-center text-gray-500 mt-3 mb-0" style={{ fontSize: isMobile ? '10px' : '11px' }}>
         By clicking "Pay Final Balance", you authorize the final payment for your completed project.
       </p>
     </form>
@@ -237,6 +247,8 @@ const FinalPaymentForm = ({ clientSecret, amount, onSuccess, onError }) => {
 const JobTracking = () => {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const screens = useBreakpoint()
+  const isMobile = !screens.md
 
   const [loading, setLoading] = useState(true)
   const [job, setJob] = useState(null)
@@ -390,15 +402,15 @@ const JobTracking = () => {
 
   if (loading) {
     return (
-      <div className='flex items-center justify-center min-h-screen'>
-        <Spin size='large' />
+      <div className='flex items-center justify-center min-h-screen' style={{ padding: isMobile ? '20px' : '0' }}>
+        <Spin size='large' tip={isMobile ? "Loading..." : "Loading job details..."} />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className='max-w-2xl mx-auto p-6'>
+      <div style={{ maxWidth: isMobile ? '100%' : '800px', margin: '0 auto', padding: isMobile ? '16px' : '24px' }}>
         <Result
           status='error'
           title='Error Loading Job'
@@ -407,6 +419,7 @@ const JobTracking = () => {
             <Button
               type='primary'
               onClick={() => navigate('/portal/dashboard')}
+              block={isMobile}
             >
               Back to Dashboard
             </Button>
@@ -418,11 +431,11 @@ const JobTracking = () => {
 
   if (showPayment) {
     return (
-      <div className='max-w-2xl mx-auto p-6'>
+      <div style={{ maxWidth: isMobile ? '100%' : '800px', margin: '0 auto', padding: isMobile ? '12px' : '24px' }}>
         <Spin spinning={confirmingPayment} tip="Confirming payment and updating job status..." size="large">
           <Card 
             title={
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2" style={{ fontSize: isMobile ? '15px' : '16px' }}>
                 <DollarOutlined className="text-green-600" />
                 <span>Complete Final Payment</span>
               </div>
@@ -432,11 +445,11 @@ const JobTracking = () => {
               message='Final Payment Required'
               description={
                 <div>
-                  <p>Your project is complete! Please submit the final payment to close out the job.</p>
-                  <div className="mt-3 p-3 bg-blue-50 rounded">
-                    <div className="flex justify-between items-center">
-                      <span className="font-semibold">Amount Due:</span>
-                      <span className="text-2xl font-bold text-green-600">
+                  <p style={{ fontSize: isMobile ? '13px' : '14px' }}>Your project is complete! Please submit the final payment to close out the job.</p>
+                  <div className="mt-3 bg-blue-50 rounded" style={{ padding: isMobile ? '10px' : '12px' }}>
+                    <div className="flex justify-between items-center" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? '8px' : '0' }}>
+                      <span className="font-semibold" style={{ fontSize: isMobile ? '13px' : '14px' }}>Amount Due:</span>
+                      <span className="font-bold text-green-600" style={{ fontSize: isMobile ? '20px' : '24px' }}>
                         ${Number(job?.balanceRemaining || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
@@ -446,6 +459,7 @@ const JobTracking = () => {
               type='info'
               showIcon
               className='mb-6'
+              style={{ fontSize: isMobile ? '12px' : '14px' }}
             />
 
             {clientSecret ? (
@@ -455,6 +469,7 @@ const JobTracking = () => {
                   amount={job.balanceRemaining}
                   onSuccess={handlePaymentSuccess}
                   onError={handlePaymentError}
+                  isMobile={isMobile}
                 />
               </Elements>
             ) : (
@@ -468,6 +483,7 @@ const JobTracking = () => {
               onClick={() => setShowPayment(false)}
               className='mt-4 block text-center w-full'
               disabled={confirmingPayment}
+              style={{ fontSize: isMobile ? '13px' : '14px' }}
             >
               ← Back to Job Details
             </Button>
@@ -478,14 +494,15 @@ const JobTracking = () => {
   }
 
   return (
-    <div className=' mx-auto p-6'>
+    <div style={{ maxWidth: '1400px', margin: '0 auto', padding: isMobile ? '12px' : '24px' }}>
       <Card
         title={
-          <div className='flex items-center justify-between'>
-            <span>Job #{job.jobNumber}</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? '8px' : '0' }}>
+            <span style={{ fontSize: isMobile ? '16px' : '18px' }}>Job #{job.jobNumber}</span>
             <Tag
               color={getStatusColor(job.status)}
               icon={getStatusIcon(job.status)}
+              style={{ fontSize: isMobile ? '11px' : '14px', padding: isMobile ? '2px 8px' : '4px 12px' }}
             >
               {job.status.replace('_', ' ').toUpperCase()}
             </Tag>
@@ -493,7 +510,7 @@ const JobTracking = () => {
         }
       >
         {/* Job Details */}
-        <Descriptions bordered column={1}>
+        <Descriptions bordered column={1} size={isMobile ? 'small' : 'default'} labelStyle={{ fontSize: isMobile ? '12px' : '14px', fontWeight: 600 }} contentStyle={{ fontSize: isMobile ? '12px' : '14px' }}>
           <Descriptions.Item label='Job Title'>
             {job.jobTitle}
           </Descriptions.Item>
@@ -513,9 +530,9 @@ const JobTracking = () => {
               icon={<CalendarOutlined />}
             >
               {new Date(job.scheduledStartDate).toLocaleDateString('en-US', {
-                weekday: 'long',
+                weekday: isMobile ? undefined : 'long',
                 year: 'numeric',
-                month: 'long',
+                month: isMobile ? 'short' : 'long',
                 day: 'numeric'
               })}
             </Descriptions.Item>
@@ -523,9 +540,9 @@ const JobTracking = () => {
           {job.scheduledEndDate && (
             <Descriptions.Item label='Scheduled End'>
               {new Date(job.scheduledEndDate).toLocaleDateString('en-US', {
-                weekday: 'long',
+                weekday: isMobile ? undefined : 'long',
                 year: 'numeric',
-                month: 'long',
+                month: isMobile ? 'short' : 'long',
                 day: 'numeric'
               })}
             </Descriptions.Item>
@@ -537,13 +554,13 @@ const JobTracking = () => {
           )}
         </Descriptions>
 
-        <Divider>Payment Information</Divider>
+        <Divider style={{ fontSize: isMobile ? '14px' : '16px' }}>Payment Information</Divider>
 
-        <div className='grid grid-cols-1 md:grid-cols-3 gap-4 mb-6'>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? '12px' : '16px', marginBottom: isMobile ? '16px' : '24px' }}>
           <Card>
             <div className='text-center'>
-              <p className='text-gray-600 mb-2'>Total</p>
-              <p className='text-2xl font-bold text-blue-600'>
+              <p className='text-gray-600 mb-2' style={{ fontSize: isMobile ? '12px' : '14px' }}>Total</p>
+              <p className='font-bold text-blue-600' style={{ fontSize: isMobile ? '18px' : '24px', margin: 0 }}>
                 $
                 {Number(job.total || 0).toLocaleString('en-US', {
                   minimumFractionDigits: 2
@@ -553,8 +570,8 @@ const JobTracking = () => {
           </Card>
           <Card>
             <div className='text-center'>
-              <p className='text-gray-600 mb-2'>Deposit Paid</p>
-              <p className='text-2xl font-bold text-green-600'>
+              <p className='text-gray-600 mb-2' style={{ fontSize: isMobile ? '12px' : '14px' }}>Deposit Paid</p>
+              <p className='font-bold text-green-600' style={{ fontSize: isMobile ? '18px' : '24px', margin: 0 }}>
                 $
                 {Number(job.depositAmount || 0).toLocaleString('en-US', {
                   minimumFractionDigits: 2
@@ -564,8 +581,8 @@ const JobTracking = () => {
           </Card>
           <Card>
             <div className='text-center'>
-              <p className='text-gray-600 mb-2'>Remaining Balance</p>
-              <p className='text-2xl font-bold text-orange-600'>
+              <p className='text-gray-600 mb-2' style={{ fontSize: isMobile ? '12px' : '14px' }}>Remaining Balance</p>
+              <p className='font-bold text-orange-600' style={{ fontSize: isMobile ? '18px' : '24px', margin: 0 }}>
                 $
                 {Number(job.balanceRemaining || 0).toLocaleString('en-US', {
                   minimumFractionDigits: 2
@@ -578,8 +595,8 @@ const JobTracking = () => {
         {/* Job Progress Section */}
         {(job.status === 'in_progress' || job.status === 'completed' || job.status === 'scheduled') && (
           <>
-            <Divider>Project Progress</Divider>
-            <div className='mb-6'>
+            <Divider style={{ fontSize: isMobile ? '14px' : '16px' }}>Project Progress</Divider>
+            <div style={{ marginBottom: isMobile ? '16px' : '24px' }}>
               <JobProgressView job={job} />
             </div>
           </>
@@ -597,16 +614,18 @@ const JobTracking = () => {
               action={
                 <Button
                   type='primary'
-                  size='large'
+                  size={isMobile ? 'middle' : 'large'}
                   onClick={handleInitiatePayment}
                   icon={<DollarOutlined />}
                   loading={initiatingPayment}
                   disabled={initiatingPayment}
+                  block={isMobile}
+                  style={{ fontSize: isMobile ? '13px' : '14px' }}
                 >
                   {initiatingPayment ? 'Preparing...' : 'Pay Now'}
                 </Button>
               }
-              className='mb-6'
+              style={{ marginBottom: isMobile ? '16px' : '24px', fontSize: isMobile ? '12px' : '14px' }}
             />
           )}
 
@@ -617,11 +636,11 @@ const JobTracking = () => {
             type='success'
             showIcon
             icon={<CheckCircleOutlined />}
-            className='mb-6'
+            style={{ marginBottom: isMobile ? '16px' : '24px', fontSize: isMobile ? '12px' : '14px' }}
           />
         )}
 
-        <Divider>Job Timeline</Divider>
+        <Divider style={{ fontSize: isMobile ? '14px' : '16px' }}>Job Timeline</Divider>
 
         <Timeline
           items={[
@@ -629,8 +648,8 @@ const JobTracking = () => {
               color: 'green',
               children: (
                 <div>
-                  <p className='font-semibold'>Job Created</p>
-                  <p className='text-gray-600 text-sm'>
+                  <p className='font-semibold' style={{ fontSize: isMobile ? '13px' : '14px', marginBottom: '4px' }}>Job Created</p>
+                  <p className='text-gray-600' style={{ fontSize: isMobile ? '11px' : '13px', margin: 0 }}>
                     Your selections were submitted and locked
                   </p>
                 </div>
@@ -645,8 +664,8 @@ const JobTracking = () => {
                   : 'gray',
               children: (
                 <div>
-                  <p className='font-semibold'>Scheduled</p>
-                  <p className='text-gray-600 text-sm'>
+                  <p className='font-semibold' style={{ fontSize: isMobile ? '13px' : '14px', marginBottom: '4px' }}>Scheduled</p>
+                  <p className='text-gray-600' style={{ fontSize: isMobile ? '11px' : '13px', margin: 0 }}>
                     Start date:{' '}
                     {new Date(job.scheduledStartDate).toLocaleDateString(
                       'en-US',
@@ -665,8 +684,8 @@ const JobTracking = () => {
                   color: 'green',
                   children: (
                     <div>
-                      <p className='font-semibold'>Work In Progress</p>
-                      <p className='text-gray-600 text-sm'>
+                      <p className='font-semibold' style={{ fontSize: isMobile ? '13px' : '14px', marginBottom: '4px' }}>Work In Progress</p>
+                      <p className='text-gray-600' style={{ fontSize: isMobile ? '11px' : '13px', margin: 0 }}>
                         Our team is working on your project
                       </p>
                     </div>
@@ -678,8 +697,8 @@ const JobTracking = () => {
               icon: <CheckCircleOutlined />,
               children: (
                 <div>
-                  <p className='font-semibold'>Project Completed</p>
-                  <p className='text-gray-600 text-sm'>
+                  <p className='font-semibold' style={{ fontSize: isMobile ? '13px' : '14px', marginBottom: '4px' }}>Project Completed</p>
+                  <p className='text-gray-600' style={{ fontSize: isMobile ? '11px' : '13px', margin: 0 }}>
                     Work has been finished
                   </p>
                 </div>
@@ -690,8 +709,8 @@ const JobTracking = () => {
               icon: <CheckCircleOutlined />,
               children: (
                 <div>
-                  <p className='font-semibold'>Final Payment Received</p>
-                  <p className='text-gray-600 text-sm'>
+                  <p className='font-semibold' style={{ fontSize: isMobile ? '13px' : '14px', marginBottom: '4px' }}>Final Payment Received</p>
+                  <p className='text-gray-600' style={{ fontSize: isMobile ? '11px' : '13px', margin: 0 }}>
                     Paid on{' '}
                     {new Date(job.finalPaymentDate).toLocaleDateString(
                       'en-US',

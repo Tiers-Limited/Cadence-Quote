@@ -543,9 +543,9 @@ function MainLayout ({ children }) {
               {
                 user?.tenant?.companyLogoUrl ? (
                   <Avatar 
-                    style={{ backgroundColor: '#4a8bff' }}
+                    style={{ backgroundColor: '#fff',objectFit:"cover", border:"1px solid #ccc" }}
                     src={user.tenant.companyLogoUrl}
-                    size={32}
+                    size={48}
                   />
                 ) :
                 <Avatar 

@@ -1,12 +1,13 @@
 // src/components/QuoteBuilder/ProductsStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Select, Radio, Checkbox, Space, Modal, Divider, Tag, Collapse, Empty } from 'antd';
+import { Card, Button, Alert, Row, Col, Typography, Select, Radio, Checkbox, Space, Modal, Divider, Tag, Collapse, Empty, Grid } from 'antd';
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons';
 import PropTypes from 'prop-types';
 import { apiService } from '../../services/apiService';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { useBreakpoint } = Grid;
 
 // Flat rate item definitions with labels
 const FLAT_RATE_ITEMS = {
@@ -31,6 +32,9 @@ const FLAT_RATE_ITEMS = {
 };
 
 const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }) => {
+    const screens = useBreakpoint();
+    const isMobile = !screens.md;
+
     const [productStrategy, setProductStrategy] = useState(formData.productStrategy || 'GBB');
     const [allowCustomerChoice, setAllowCustomerChoice] = useState(formData.allowCustomerProductChoice || false);
     const [productSets, setProductSets] = useState(formData.productSets || []);
@@ -69,7 +73,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                 const transformedProducts = (response.data || []).map(config => {
                     // Support both custom and global products
                     let brandName, productName, category, description;
-                    
+
                     if (config.isCustom && config.customProduct) {
                         // Custom product
                         brandName = config.customProduct.brandName || 'Custom';
@@ -89,7 +93,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                         category = '';
                         description = '';
                     }
-                    
+
                     return {
                         id: config.id,
                         configId: config.id,
@@ -405,7 +409,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
             if (areasWithSurfaces.length > 0) {
                 // Build a map of existing productSet IDs
                 const existingSetIds = new Set(productSets.map(s => s.id));
-                
+
                 // Create productSets for any missing area+surface combinations
                 const newSets = [];
                 areasWithSurfaces.forEach(area => {
@@ -430,7 +434,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                         }
                     });
                 });
-                
+
                 // Add new sets to existing ones
                 if (newSets.length > 0) {
                     console.log(`📦 Adding ${newSets.length} new productSets to existing ${productSets.length}`);
@@ -493,7 +497,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                 description="Choose products for each surface type. You can offer Good-Better-Best options or a single product recommendation."
                 type="info"
                 showIcon
-                style={{ marginBottom: 24 }}
+                style={{ marginBottom: isMobile ? 16 : 24 }}
             />
 
             {/* Show special message for turnkey pricing with no areas */}
@@ -503,7 +507,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                     description="With turnkey pricing, you can select general products for the entire home without specifying individual room products. These will be used for material cost estimation based on your home's total square footage."
                     type="warning"
                     showIcon
-                    style={{ marginBottom: 24 }}
+                    style={{ marginBottom: isMobile ? 16 : 24 }}
                 />
             )}
 
@@ -514,7 +518,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                     description="With flat rate pricing, you can select products that will be used across all your flat rate items. Products are optional since pricing is based on fixed unit rates."
                     type="info"
                     showIcon
-                    style={{ marginBottom: 24 }}
+                    style={{ marginBottom: isMobile ? 16 : 24 }}
                 />
             )}
 
@@ -526,7 +530,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                     description="Please go back to the Areas step and add rooms/areas before selecting products."
                     type="warning"
                     showIcon
-                    style={{ marginBottom: 24 }}
+                    style={{ marginBottom: isMobile ? 16 : 24 }}
                     action={
                         <Button size="small" onClick={onPrevious}>
                             Go Back to Areas
@@ -535,7 +539,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                 />
             )}
 
-            <Card title="Product Strategy" style={{ marginBottom: 24 }}>
+            <Card title="Product Strategy" style={{ marginBottom: isMobile ? 16 : 24 }}>
                 <Radio.Group
                     value={productStrategy}
                     onChange={(e) => handleStrategyChange(e.target.value)}
@@ -563,13 +567,13 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
 
             {/* Turnkey Simplified Product Selection */}
             {isTurnkey && (
-                <div style={{ marginTop: 24 }}>
+                <div style={{ marginTop: isMobile ? 16 : 24 }}>
                     <Card
                         title={`General ${formData.jobType === 'interior' ? 'Interior' : 'Exterior'} Products`}
                         style={{ marginBottom: 16 }}
                     >
                         {productStrategy === 'GBB' ? (
-                            <Row gutter={[16, 16]}>
+                            <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
                                 {/* Good Tier */}
                                 <Col xs={24} md={8}>
                                     <div style={{ padding: 12, background: '#f0f0f0', borderRadius: 4, height: '100%' }}>
@@ -775,8 +779,8 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
             )}
 
             {isFlatRate && (
-                <div style={{ marginTop: 24 }}>
-                    <Title level={4}>Select Products by Item Type</Title>
+                <div style={{ marginTop: isMobile ? 16 : 24 }}>
+                    <Title level={4} style={{ fontSize: isMobile ? 18 : 20 }}>Select Products by Item Type</Title>
                     <Alert
                         message="Optional Product Selection"
                         description="Select products for each item type included in your quote."
@@ -793,28 +797,37 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                                 key={set.id}
                                 size="small"
                                 title={
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span>{set.label}</span>
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        flexWrap: isMobile ? 'wrap' : 'nowrap',
+                                        gap: 8
+                                    }}>
+                                        <span style={{ fontSize: isMobile ? 13 : 14 }}>{set.label}</span>
                                         {/* Optional: Add Copy Button if we want to copy to all similar categories */}
                                     </div>
                                 }
                                 style={{ marginBottom: 12 }}
                             >
                                 {productStrategy === 'GBB' ? (
-                                    <Row gutter={16}>
+                                    <Row gutter={isMobile ? 8 : 16}>
                                         {['good', 'better', 'best'].map(tier => (
-                                            <Col span={8} key={tier}>
-                                                <div style={{ padding: 10, background: tier === 'good' ? '#f0f0f0' : tier === 'better' ? '#e6f7ff' : '#f6ffed', borderRadius: 4 }}>
-                                                    <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                                                        <Tag color={tier === 'good' ? 'blue' : tier === 'better' ? 'cyan' : 'green'}>{tier.toUpperCase()}</Tag>
+                                            <Col xs={24} sm={8} key={tier}>
+                                                <div style={{ padding: 10, background: tier === 'good' ? '#f0f0f0' : tier === 'better' ? '#e6f7ff' : '#f6ffed', borderRadius: 4, marginBottom: isMobile ? 12 : 0 }}>
+                                                    <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                                        <Tag color={tier === 'good' ? 'blue' : tier === 'better' ? 'cyan' : 'green'} style={{ fontSize: isMobile ? 11 : 12 }}>
+                                                            {tier.toUpperCase()}
+                                                        </Tag>
                                                         {set.products[tier] && (
                                                             <Button
                                                                 size="small"
                                                                 type="link"
                                                                 icon={<CopyOutlined />}
                                                                 onClick={() => copyProductToAllFlatRateItems(tier, set.products[tier])}
+                                                                style={{ padding: 0, height: 'auto', fontSize: isMobile ? 11 : 12 }}
                                                             >
-                                                                Copy All
+                                                                {isMobile ? 'Copy' : 'Copy All'}
                                                             </Button>
                                                         )}
                                                     </div>
@@ -837,8 +850,8 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                                         ))}
                                     </Row>
                                 ) : (
-                                    <Row gutter={16} align="middle">
-                                        <Col span={16}>
+                                    <Row gutter={isMobile ? 8 : 16} align="middle">
+                                        <Col xs={24} sm={16}>
                                             <Select
                                                 style={{ width: '100%' }}
                                                 placeholder="Select Product"
@@ -854,13 +867,14 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                                                 ))}
                                             </Select>
                                         </Col>
-                                        <Col span={8}>
+                                        <Col xs={24} sm={8} style={{ marginTop: isMobile ? 8 : 0 }}>
                                             {set.products.single && (
                                                 <Button
                                                     size="small"
                                                     type="link"
                                                     icon={<CopyOutlined />}
                                                     onClick={() => copyProductToAllFlatRateItems('single', set.products.single)}
+                                                    block={isMobile}
                                                 >
                                                     Copy to All
                                                 </Button>
@@ -876,8 +890,8 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
 
             {/* Area-Wise Product Selection with Surfaces (Production/Rate Based Pricing) */}
             {(isProductionBased || isRateBased) && productSets.length > 0 && (
-                <div style={{ marginTop: 24 }}>
-                    <Title level={4}>Select Products by Area</Title>
+                <div style={{ marginTop: isMobile ? 16 : 24 }}>
+                    <Title level={4} style={{ fontSize: isMobile ? 18 : 20 }}>Select Products by Area</Title>
 
                     {(() => {
                         const areasWithSurfaces = getAreasWithSurfaces();
@@ -914,11 +928,20 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                             return {
                                 key: area.id,
                                 label: (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                        <span>{area.name}</span>
-                                        {allSurfacesHaveProducts && (
-                                            <Tag color="green" style={{ marginRight: 8 }}>Complete</Tag>
-                                        )}
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        width: '100%',
+                                        flexWrap: isMobile ? 'wrap' : 'nowrap',
+                                        gap: 8
+                                    }}>
+                                        <span style={{ fontSize: isMobile ? 14 : 15, fontWeight: 500 }}>{area.name}</span>
+                                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                            {allSurfacesHaveProducts && (
+                                                <Tag color="green" style={{ margin: 0, fontSize: isMobile ? 11 : 12 }}>Complete</Tag>
+                                            )}
+                                        </div>
                                     </div>
                                 ),
                                 children: (
@@ -926,7 +949,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                                         {area.surfaces.length === 0 ? (
                                             <Text type="secondary">No surfaces selected for this area</Text>
                                         ) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 16 }}>
                                                 {area.surfaces.map((surface, surfaceIdx) => {
                                                     // Find the product set for this specific area and surface
                                                     let set = productSets.find(ps =>
@@ -954,35 +977,46 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                                                             key={surface.id || surfaceIdx}
                                                             size="small"
                                                             title={
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                    <span>{surface.name || surface.id}</span>
-                                                                    {set.overridden && (
-                                                                        <Tag color="orange" style={{ marginRight: 8 }}>Overridden</Tag>
-                                                                    )}
-                                                                    {surface.quantity && (
-                                                                        <Tag color="blue">
-                                                                            {surface.quantity} {surface.unit || surface.sqft ? 'sqft' : ''}
-                                                                        </Tag>
-                                                                    )}
+                                                                <div style={{
+                                                                    display: 'flex',
+                                                                    justifyContent: 'space-between',
+                                                                    alignItems: 'center',
+                                                                    flexWrap: isMobile ? 'wrap' : 'nowrap',
+                                                                    gap: 8
+                                                                }}>
+                                                                    <span style={{ fontSize: isMobile ? 13 : 14 }}>{surface.name || surface.id}</span>
+                                                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                                        {set.overridden && (
+                                                                            <Tag color="orange" style={{ margin: 0, fontSize: isMobile ? 11 : 12 }}>Overridden</Tag>
+                                                                        )}
+                                                                        {surface.quantity && (
+                                                                            <Tag color="blue" style={{ margin: 0, fontSize: isMobile ? 11 : 12 }}>
+                                                                                {surface.quantity} {surface.unit || surface.sqft ? 'sqft' : ''}
+                                                                            </Tag>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             }
                                                             style={{ marginBottom: 12 }}
                                                         >
                                                             {productStrategy === 'GBB' ? (
-                                                                <Row gutter={16}>
+                                                                <Row gutter={isMobile ? 8 : 16}>
                                                                     {['good', 'better', 'best'].map(tier => (
-                                                                        <Col span={8} key={tier}>
-                                                                            <div style={{ padding: 10, background: tier === 'good' ? '#f0f0f0' : tier === 'better' ? '#e6f7ff' : '#f6ffed', borderRadius: 4 }}>
-                                                                                <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <Tag color={tier === 'good' ? 'blue' : tier === 'better' ? 'cyan' : 'green'}>{tier.toUpperCase()}</Tag>
+                                                                        <Col xs={24} sm={8} key={tier}>
+                                                                            <div style={{ padding: 10, background: tier === 'good' ? '#f0f0f0' : tier === 'better' ? '#e6f7ff' : '#f6ffed', borderRadius: 4, marginBottom: isMobile ? 12 : 0 }}>
+                                                                                <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                                                                    <Tag color={tier === 'good' ? 'blue' : tier === 'better' ? 'cyan' : 'green'} style={{ fontSize: isMobile ? 11 : 12 }}>
+                                                                                        {tier.toUpperCase()}
+                                                                                    </Tag>
                                                                                     {set.products[tier] && (
                                                                                         <Button
                                                                                             size="small"
                                                                                             type="link"
                                                                                             icon={<CopyOutlined />}
                                                                                             onClick={() => copyProductToAllSurfaces(tier, set.products[tier])}
+                                                                                            style={{ padding: 0, height: 'auto', fontSize: isMobile ? 11 : 12 }}
                                                                                         >
-                                                                                            Copy All
+                                                                                            {isMobile ? 'Copy' : 'Copy All'}
                                                                                         </Button>
                                                                                     )}
                                                                                 </div>
@@ -1007,8 +1041,8 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                                                                     ))}
                                                                 </Row>
                                                             ) : (
-                                                                <Row gutter={16} align="middle">
-                                                                    <Col span={16}>
+                                                                <Row gutter={isMobile ? 8 : 16} align="middle">
+                                                                    <Col xs={24} sm={16}>
                                                                         <Select
                                                                             style={{ width: '100%' }}
                                                                             placeholder="Select Product"
@@ -1026,13 +1060,14 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                                                                             ))}
                                                                         </Select>
                                                                     </Col>
-                                                                    <Col span={8}>
+                                                                    <Col xs={24} sm={8} style={{ marginTop: isMobile ? 8 : 0 }}>
                                                                         {set.products.single && (
                                                                             <Button
                                                                                 size="small"
                                                                                 type="link"
                                                                                 icon={<CopyOutlined />}
                                                                                 onClick={() => copyProductToAllAreas('single', set.products.single)}
+                                                                                block={isMobile}
                                                                             >
                                                                                 Copy to All
                                                                             </Button>
@@ -1056,7 +1091,7 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                             <Collapse
                                 items={collapseItems}
                                 defaultActiveKey={areasWithSurfaces.length === 1 ? [areasWithSurfaces[0].id] : []}
-                                style={{ marginBottom: 24 }}
+                                style={{ marginBottom: isMobile ? 16 : 24 }}
                             />
                         );
                     })()}
@@ -1071,19 +1106,33 @@ const ProductsStep = ({ formData, onUpdate, onNext, onPrevious, pricingSchemes }
                         description="Please go back and select surfaces in the Areas step."
                         type="warning"
                         showIcon
-                        style={{ marginTop: 24 }}
+                        style={{ marginTop: isMobile ? 16 : 24 }}
                     />
                 )
             }
 
-            <div style={{ marginTop: 32, display: 'flex', justifyContent: 'space-between' }}>
-                <Button size="large" onClick={onPrevious}>
+            <div
+
+                style={{
+                    marginTop: isMobile ? 24 : 32,
+                    display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    justifyContent: 'space-between',
+                    gap: isMobile ? 12 : 0
+                }}
+            >
+                <Button
+                    size={isMobile ? 'middle' : 'large'}
+                    onClick={onPrevious}
+                    block={isMobile}
+                >
                     Previous
                 </Button>
                 <Button
                     type="primary"
-                    size="large"
+                    size={isMobile ? 'middle' : 'large'}
                     onClick={handleNext}
+                    block={isMobile}
                 >
                     Next: Review & Send
                 </Button>

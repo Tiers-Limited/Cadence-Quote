@@ -20,10 +20,11 @@
  * @param {Function} onPrevious - Callback to go back to previous step
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Row, Col, Typography, InputNumber, Space, Divider, Alert, message } from 'antd';
+import { Card, Button, Row, Col, Typography, InputNumber, Space, Divider, Alert, message, Grid } from 'antd';
 import { PlusOutlined, MinusOutlined, InfoCircleOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
 /**
  * Flat rate item definitions with default prices
@@ -51,6 +52,9 @@ const FLAT_RATE_ITEMS = {
 };
 
 const FlatRatePricingStep = ({ formData, onUpdate, onNext, onPrevious }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   const [itemCounts, setItemCounts] = useState(formData.flatRateItems || {
     interior: {},
     exterior: {}
@@ -294,10 +298,10 @@ const FlatRatePricingStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         type="info"
         icon={<InfoCircleOutlined />}
         showIcon
-        className="mb-4"
+        style={{ marginBottom: isMobile ? 16 : 24 }}
       />
 
-      <Row gutter={[24, 24]}>
+      <Row gutter={[isMobile ? 12 : 24, isMobile ? 12 : 24]}>
         {/* Show interior items for interior jobs or both */}
         {(jobType === 'interior' || jobType === 'both') && (
           <Col xs={24} lg={12}>
@@ -316,21 +320,20 @@ const FlatRatePricingStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       {/* Summary Card */}
       <Card 
         title="Quote Summary" 
-        className="mt-4"
-        style={{ backgroundColor: '#f0f9ff' }}
+        style={{ backgroundColor: '#f0f9ff', marginTop: isMobile ? 16 : 24 }}
       >
-        <Row justify="space-between" align="middle">
-          <Col>
+        <Row justify="space-between" align={isMobile ? 'top' : 'middle'} gutter={[16, 16]}>
+          <Col xs={24} sm={12}>
             <Space direction="vertical" size="small">
               <Text>Total Items: <Text strong>{totalItems}</Text></Text>
               <Text>Pricing Model: <Text strong>Flat Rate Unit Pricing</Text></Text>
             </Space>
           </Col>
-          <Col>
-            <div style={{ textAlign: 'right' }}>
+          <Col xs={24} sm={12}>
+            <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
               <Text type="secondary">Subtotal</Text>
               <br />
-              <Title level={3} style={{ margin: 0, color: '#1890ff' }}>
+              <Title level={isMobile ? 4 : 3} style={{ margin: 0, color: '#1890ff' }}>
                 ${subtotal.toFixed(2)}
               </Title>
             </div>
@@ -339,16 +342,29 @@ const FlatRatePricingStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       </Card>
 
       {/* Navigation */}
-      <div className="flex justify-between mt-6">
-        <Button onClick={onPrevious} size="large">
+      <div 
+        style={{ 
+          marginTop: isMobile ? 24 : 32, 
+          display: 'flex', 
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          gap: isMobile ? 12 : 0
+        }}
+      >
+        <Button 
+          onClick={onPrevious} 
+          size={isMobile ? 'middle' : 'large'}
+          block={isMobile}
+        >
           Previous
         </Button>
         
         <Button 
           type="primary" 
           onClick={handleNext} 
-          size="large"
+          size={isMobile ? 'middle' : 'large'}
           disabled={totalItems === 0}
+          block={isMobile}
         >
           Next: Products
         </Button>

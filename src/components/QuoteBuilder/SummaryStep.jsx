@@ -1,6 +1,6 @@
 // src/components/QuoteBuilder/SummaryStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Descriptions, Divider, Input, Modal, Table, Tag, Space, Statistic, Collapse } from 'antd';
+import { Card, Button, Alert, Row, Col, Typography, Descriptions, Divider, Input, Modal, Table, Tag, Space, Statistic, Collapse, Grid } from 'antd';
 import { EditOutlined, SendOutlined, SaveOutlined, CheckCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { quoteBuilderApi } from '../../services/quoteBuilderApi';
 import { apiService } from '../../services/apiService';
@@ -10,6 +10,7 @@ import { calculateGallonsNeeded } from '../../utils/paintUtils';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
 
 /**
  * Helper function to detect pricing scheme category
@@ -34,6 +35,9 @@ const getPricingSchemeCategory = (schemeType) => {
  * Displays simplified pricing for turnkey quotes (no detailed breakdown)
  */
 const TurnkeyPricingSummary = ({ formData, calculatedQuote, turnkeyProducts = [] }) => {
+    const screens = useBreakpoint();
+    const isMobile = !screens.md;
+
     const conditionMultipliers = {
         excellent: 1.00,
         good: 1.05,
@@ -46,12 +50,13 @@ const TurnkeyPricingSummary = ({ formData, calculatedQuote, turnkeyProducts = []
     
     return (
         <Card title="Turnkey Pricing Summary" style={{ marginBottom: 16 }}>
-            <Row gutter={16}>
+            <Row gutter={isMobile ? 8 : 16}>
                 <Col xs={24} sm={8}>
                     <Statistic
                         title="Home Size"
                         value={formData.homeSqft || 0}
                         suffix="sq ft"
+                        valueStyle={{ fontSize: isMobile ? 16 : 20 }}
                     />
                 </Col>
                 <Col xs={24} sm={8}>
@@ -61,20 +66,21 @@ const TurnkeyPricingSummary = ({ formData, calculatedQuote, turnkeyProducts = []
                         prefix="$"
                         suffix="/ sq ft"
                         precision={2}
+                        valueStyle={{ fontSize: isMobile ? 16 : 20 }}
                     />
                 </Col>
                 <Col xs={24} sm={8}>
                     <Statistic
                         title="Condition Multiplier"
                         value={`${multiplier}x`}
-                        valueStyle={{ fontSize: 20 }}
+                        valueStyle={{ fontSize: isMobile ? 16 : 20 }}
                     />
                 </Col>
             </Row>
             
             <Divider />
             
-            <Row gutter={16}>
+            <Row gutter={isMobile ? 8 : 16}>
                 <Col xs={24} sm={12}>
                     <Descriptions column={1} size="small">
                         <Descriptions.Item label="Job Type">
@@ -98,15 +104,15 @@ const TurnkeyPricingSummary = ({ formData, calculatedQuote, turnkeyProducts = []
                     </Descriptions>
                 </Col>
                 <Col xs={24} sm={12}>
-                    <div style={{ textAlign: 'right' }}>
+                    <div style={{ textAlign: isMobile ? 'left' : 'right', marginTop: isMobile ? 16 : 0 }}>
                         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                             Calculation:
                         </Text>
-                        <div style={{ fontSize: '16px', marginBottom: 8 }}>
+                        <div style={{ fontSize: isMobile ? '14px' : '16px', marginBottom: 8 }}>
                             {(formData.homeSqft || 0).toLocaleString()} sq ft × 
                             ${calculatedQuote.baseRate || formData.baseRate || 0} × {multiplier}
                         </div>
-                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1890ff' }}>
+                        <div style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 'bold', color: '#1890ff' }}>
                             = ${calculatedQuote.total?.toLocaleString('en-US', { 
                                 minimumFractionDigits: 2, 
                                 maximumFractionDigits: 2 
@@ -193,6 +199,9 @@ const TurnkeyPricingSummary = ({ formData, calculatedQuote, turnkeyProducts = []
 };
 
 const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, tierPricing, selectedTier }) => {
+    const screens = useBreakpoint();
+    const isMobile = !screens.md;
+
     // Get current pricing scheme and detect category
     const currentScheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
     const schemeCategory = getPricingSchemeCategory(currentScheme?.type);
@@ -1121,7 +1130,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                 type="success"
                 showIcon
                 icon={<CheckCircleOutlined />}
-                style={{ marginBottom: 24 }}
+                style={{ marginBottom: isMobile ? 16 : 24 }}
             />
 
             {/* Pricing Model Display Banner */}
@@ -1134,12 +1143,12 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                         borderWidth: 2
                     }}
                 >
-                    <div style={{ textAlign: 'center' }}>
-                        <Tag color="purple" style={{ fontSize: 16, padding: '8px 16px', marginBottom: 8 }}>
+                    <div style={{ textAlign: 'center', padding: isMobile ? '4px' : '8px' }}>
+                        <Tag color="purple" className='!whitespace-wrap' style={{ fontSize: isMobile ? 13 : 16, padding: isMobile ? '4px 10px' : '8px 16px', marginBottom: 8 }}>
                             {formData.pricingModelFriendlyName || currentScheme.name}
                         </Tag>
                         <div>
-                            <Text type="secondary" style={{ fontSize: 14 }}>
+                            <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>
                                 {currentScheme.description ||
                                     (currentScheme.type.includes('turnkey') ? 'All-inclusive pricing based on total square footage' :
                                         currentScheme.type.includes('production') ? 'Time & materials with estimated hours' :
@@ -1163,8 +1172,8 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                         borderWidth: 2
                     }}
                 >
-                    <Row gutter={16} align="middle">
-                        <Col xs={24} md={12}>
+                    <Row gutter={isMobile ? 8 : 16}>
+                        <Col xs={24} sm={isMobile ? 24 : 12}>
                             <Space direction="vertical" size="small">
                                 <div>
                                     <Text type="secondary" style={{ fontSize: 12 }}>Selected Tier:</Text>
@@ -1173,7 +1182,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                     <Tag 
                                         color={selectedTier === 'good' ? 'blue' : 
                                                selectedTier === 'better' ? 'green' : 'purple'}
-                                        style={{ fontSize: 18, padding: '8px 16px' }}
+                                        style={{ fontSize: isMobile ? 16 : 18, padding: isMobile ? '6px 12px' : '8px 16px' }}
                                     >
                                         {selectedTier.charAt(0).toUpperCase() + selectedTier.slice(1)} Tier
                                     </Tag>
@@ -1191,8 +1200,8 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 </div>
                             </Space>
                         </Col>
-                        <Col xs={24} md={12}>
-                            <div style={{ textAlign: 'right' }}>
+                        <Col xs={24} sm={isMobile ? 24 : 12}>
+                            <div style={{ textAlign: isMobile ? 'left' : 'right', marginTop: isMobile ? 16 : 0 }}>
                                 <Statistic
                                     title="Total Price"
                                     value={tierPricing[selectedTier]?.total || 0}
@@ -1201,7 +1210,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                     valueStyle={{ 
                                         color: selectedTier === 'good' ? '#1890ff' : 
                                                selectedTier === 'better' ? '#52c41a' : '#722ed1',
-                                        fontSize: 32,
+                                        fontSize: isMobile ? 24 : 32,
                                         fontWeight: 'bold'
                                     }}
                                 />
@@ -1210,6 +1219,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                     icon={<EditOutlined />}
                                     onClick={() => onEdit(gbbEnabled ? 4 : 3)}
                                     style={{ marginTop: 8 }}
+                                    size={isMobile ? 'small' : 'middle'}
                                 >
                                     Change Tier
                                 </Button>
@@ -1219,14 +1229,14 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                     
                     <Divider style={{ margin: '16px 0' }} />
                     
-                    <Row gutter={16}>
+                    <Row gutter={isMobile ? 8 : 16}>
                         <Col xs={8}>
                             <Statistic
                                 title="Labor Cost"
                                 value={tierPricing[selectedTier]?.laborCost || 0}
                                 precision={2}
                                 prefix="$"
-                                valueStyle={{ fontSize: 16 }}
+                                valueStyle={{ fontSize: isMobile ? 14 : 16 }}
                             />
                         </Col>
                         <Col xs={8}>
@@ -1235,7 +1245,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 value={tierPricing[selectedTier]?.materialCost || 0}
                                 precision={2}
                                 prefix="$"
-                                valueStyle={{ fontSize: 16 }}
+                                valueStyle={{ fontSize: isMobile ? 14 : 16 }}
                             />
                         </Col>
                         <Col xs={8}>
@@ -1244,7 +1254,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 value={tierPricing[selectedTier]?.productCost || 0}
                                 precision={2}
                                 prefix="$"
-                                valueStyle={{ fontSize: 16 }}
+                                valueStyle={{ fontSize: isMobile ? 14 : 16 }}
                             />
                         </Col>
                     </Row>
@@ -1258,7 +1268,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                     size="small"
                     style={{ marginBottom: 16 }}
                 >
-                    <Row gutter={16}>
+                    <Row gutter={isMobile ? 8 : 16}>
                         {['good', 'better', 'best'].map(tier => {
                             if (tier === selectedTier) return null;
                             
@@ -1311,29 +1321,66 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
             {/* Customer Information */}
             <Card
                 title={
-                    <Space>
-                        <span>Customer Information</span>
+                    <div style={{ 
+                        display: 'flex', 
+                        flexDirection: isMobile ? 'column' : 'row',
+                        justifyContent: 'space-between',
+                        alignItems: isMobile ? 'flex-start' : 'center',
+                        gap: isMobile ? 8 : 0
+                    }}>
+                        <span style={{ fontSize: isMobile ? 16 : 18 }}>Customer Information</span>
                         <Button
                             type="link"
                             icon={<EditOutlined />}
                             onClick={() => onEdit(0)}
+                            size={isMobile ? 'small' : 'middle'}
+                            style={{ padding: isMobile ? '0' : undefined }}
                         >
                             Edit
                         </Button>
-                    </Space>
+                    </div>
                 }
                 style={{ marginBottom: 16 }}
             >
-                <Descriptions column={2}>
+                <Descriptions 
+                    column={isMobile ? 1 : 2}
+                    size={isMobile ? 'small' : 'default'}
+                    labelStyle={{ 
+                        fontWeight: 600,
+                        fontSize: isMobile ? 13 : 14
+                    }}
+                    contentStyle={{
+                        fontSize: isMobile ? 13 : 14
+                    }}
+                >
                     <Descriptions.Item label="Name">{formData.customerName}</Descriptions.Item>
-                    <Descriptions.Item label="Email">{formData.customerEmail}</Descriptions.Item>
+                    <Descriptions.Item label="Email">
+                        <div style={{ 
+                            wordBreak: 'break-word',
+                            overflowWrap: 'break-word'
+                        }}>
+                            {formData.customerEmail}
+                        </div>
+                    </Descriptions.Item>
                     <Descriptions.Item label="Phone">{formData.customerPhone}</Descriptions.Item>
-                    <Descriptions.Item label="Address">
-                        {formData.street}, {formData.city}, {formData.state} {formData.zipCode}
+                    <Descriptions.Item label="Address" span={isMobile ? 1 : 1}>
+                        <div style={{ 
+                            wordBreak: 'break-word',
+                            overflowWrap: 'break-word'
+                        }}>
+                            {formData.street}, {formData.city}, {formData.state} {formData.zipCode}
+                        </div>
                     </Descriptions.Item>
                     {formData.pricingSchemeId && (
-                        <Descriptions.Item label="Pricing Scheme" span={2}>
-                            <Tag color="blue">
+                        <Descriptions.Item  label="Pricing Scheme" span={isMobile ? 1 : 2}>
+                            <Tag 
+                                color="blue"
+                                style={{ 
+                                    fontSize: isMobile ? 12 : 14,
+                                    padding: isMobile ? '2px 8px' : '4px 12px',
+                                    wordBreak: 'break-all'
+                                }}
+                            >
                                 {(() => {
                                     const scheme = pricingSchemes?.find(s => s.id === formData.pricingSchemeId);
                                     return scheme ? scheme.name : `Scheme ID: ${formData.pricingSchemeId}`;
@@ -1381,6 +1428,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 type="link"
                                 icon={<EditOutlined />}
                                 onClick={() => onEdit(2)}
+                                size={isMobile ? 'small' : 'middle'}
                             >
                                 Edit
                             </Button>
@@ -1388,7 +1436,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                     }
                     style={{ marginBottom: 16 }}
                 >
-                    <Descriptions column={2}>
+                    <Descriptions column={isMobile ? 1 : 2}>
                         <Descriptions.Item label="Home Square Footage">{parseFloat(formData.homeSqft).toLocaleString()} sq ft</Descriptions.Item>
                         <Descriptions.Item label="Job Type">
                             <Tag color={formData.jobType === 'interior' ? 'blue' : formData.jobType === 'exterior' ? 'green' : 'purple'}>
@@ -1426,6 +1474,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 type="link"
                                 icon={<EditOutlined />}
                                 onClick={() => onEdit(2)}
+                                size={isMobile ? 'small' : 'middle'}
                             >
                                 Edit
                             </Button>
@@ -1435,24 +1484,33 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                 >
                     {areaDetails.map(area => (
                         <div key={area.areaName} style={{ marginBottom: 16 }}>
-                            <Title level={5}>{area.areaName}</Title>
+                            <Title level={5} style={{ fontSize: isMobile ? 16 : 18 }}>{area.areaName}</Title>
                             <Table
                                 size="small"
                                 pagination={false}
                                 dataSource={area.items}
                                 rowKey={(record, index) => index}
+                                scroll={{ x: isMobile ? 800 : undefined }}
                                 columns={[
-                                    { title: 'Category', dataIndex: 'type', key: 'type' },
+                                    { 
+                                        title: 'Category', 
+                                        dataIndex: 'type', 
+                                        key: 'type',
+                                        width: isMobile ? 120 : undefined,
+                                        ellipsis: isMobile
+                                    },
                                     {
                                         title: 'Quantity',
                                         dataIndex: 'quantity',
                                         key: 'quantity',
+                                        width: isMobile ? 80 : undefined,
                                         render: (val) => val || 'N/A'
                                     },
                                     {
                                         title: 'Unit',
                                         dataIndex: 'unit',
                                         key: 'unit',
+                                        width: isMobile ? 70 : undefined,
                                         render: (val) => val === 'sqft' ? 'sq ft' : val === 'linear_foot' ? 'LF' : val === 'unit' ? 'units' : val === 'hour' ? 'hrs' : val || '-'
                                     },
                                     ...(!isFlatRate ? [
@@ -1460,12 +1518,14 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                             title: 'Coats',
                                             dataIndex: 'coats',
                                             key: 'coats',
+                                            width: isMobile ? 70 : undefined,
                                             render: (val) => val > 0 ? `${val} coat${val > 1 ? 's' : ''}` : '-'
                                         },
                                         {
                                             title: 'Gallons',
                                             dataIndex: 'gallons',
                                             key: 'gallons',
+                                            width: isMobile ? 80 : undefined,
                                             render: (val) => {
                                                 if (!val || val === 0) return '-';
                                                 return val < 1 ? `${val.toFixed(2)} gal` : `${Math.ceil(val)} gal`;
@@ -1476,6 +1536,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         title: 'Labor Rate',
                                         dataIndex: 'laborRate',
                                         key: 'laborRate',
+                                        width: isMobile ? 90 : undefined,
                                         render: (val, record) => {
                                             if (!val) return '-';
                                             if (isFlatRate) {
@@ -1486,19 +1547,26 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         }
                                     },
                                     ...(!isFlatRate ? [
-                                        { title: 'Dimensions', dataIndex: 'dimensions', key: 'dimensions', render: (val) => val || '-' }
+                                        { 
+                                            title: 'Dimensions', 
+                                            dataIndex: 'dimensions', 
+                                            key: 'dimensions', 
+                                            width: isMobile ? 100 : undefined,
+                                            ellipsis: isMobile,
+                                            render: (val) => val || '-' 
+                                        }
                                     ] : []),
                                 ]}
                             />
                             {!isFlatRate && (
-                                <Space style={{ marginTop: 8 }}>
-                                    {area.totalSqft > 0 && <Text type="secondary">Total Area: {area.totalSqft.toFixed(0)} sq ft</Text>}
-                                    {area.totalGallons > 0 && <Text type="secondary">• Total Gallons: {Math.ceil(area.totalGallons)} gal</Text>}
+                                <Space style={{ marginTop: 8 }} wrap>
+                                    {area.totalSqft > 0 && <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>Total Area: {area.totalSqft.toFixed(0)} sq ft</Text>}
+                                    {area.totalGallons > 0 && <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>• Total Gallons: {Math.ceil(area.totalGallons)} gal</Text>}
                                 </Space>
                             )}
                             {isFlatRate && (
                                 <Space style={{ marginTop: 8 }}>
-                                    <Text type="secondary">Total Items: {area.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}</Text>
+                                    <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>Total Items: {area.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}</Text>
                                 </Space>
                             )}
                         </div>
@@ -1516,6 +1584,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 type="link"
                                 icon={<EditOutlined />}
                                 onClick={() => onEdit(2)}
+                                size={isMobile ? 'small' : 'middle'}
                             >
                                 Edit
                             </Button>
@@ -1530,15 +1599,18 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                             pagination={false}
                             dataSource={calculatedQuote.breakdown}
                             rowKey={(record, index) => `${record.category}-${record.itemKey}-${index}`}
+                            scroll={{ x: isMobile ? 700 : undefined }}
                             columns={[
                                 { 
                                     title: 'Item Type', 
                                     dataIndex: 'itemName', 
                                     key: 'itemName',
+                                    width: isMobile ? 150 : undefined,
+                                    ellipsis: isMobile,
                                     render: (val, record) => (
-                                        <Space>
-                                            <Text>{val}</Text>
-                                            <Tag color={record.category === 'Interior' ? 'blue' : 'green'}>
+                                        <Space wrap>
+                                            <Text style={{ fontSize: isMobile ? 13 : 14 }}>{val}</Text>
+                                            <Tag color={record.category === 'Interior' ? 'blue' : 'green'} style={{ fontSize: isMobile ? 11 : 12 }}>
                                                 {record.category}
                                             </Tag>
                                         </Space>
@@ -1548,23 +1620,27 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                     title: 'Quantity',
                                     dataIndex: 'quantity',
                                     key: 'quantity',
+                                    width: isMobile ? 80 : undefined,
                                     render: (val) => val || 'N/A'
                                 },
                                 {
                                     title: 'Unit',
                                     key: 'unit',
+                                    width: isMobile ? 70 : undefined,
                                     render: () => 'each'
                                 },
                                 {
                                     title: 'Unit Price',
                                     dataIndex: 'unitPrice',
                                     key: 'unitPrice',
+                                    width: isMobile ? 90 : undefined,
                                     render: (val) => val ? `$${val.toFixed(2)}` : '-'
                                 },
                                 {
                                     title: 'Total',
                                     dataIndex: 'cost',
                                     key: 'cost',
+                                    width: isMobile ? 90 : undefined,
                                     render: (val) => val ? `$${val.toFixed(2)}` : '-',
                                     align: 'right'
                                 }
@@ -1575,15 +1651,15 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 return (
                                     <Table.Summary.Row style={{ backgroundColor: '#fafafa' }}>
                                         <Table.Summary.Cell index={0}>
-                                            <Text strong>Total</Text>
+                                            <Text strong style={{ fontSize: isMobile ? 13 : 14 }}>Total</Text>
                                         </Table.Summary.Cell>
                                         <Table.Summary.Cell index={1}>
-                                            <Text strong>{totalItems}</Text>
+                                            <Text strong style={{ fontSize: isMobile ? 13 : 14 }}>{totalItems}</Text>
                                         </Table.Summary.Cell>
                                         <Table.Summary.Cell index={2} />
                                         <Table.Summary.Cell index={3} />
                                         <Table.Summary.Cell index={4} align="right">
-                                            <Text strong style={{ color: '#1890ff' }}>
+                                            <Text strong style={{ color: '#1890ff', fontSize: isMobile ? 13 : 14 }}>
                                                 ${totalCost.toFixed(2)}
                                             </Text>
                                         </Table.Summary.Cell>
@@ -1595,36 +1671,46 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                         // Fallback to formData if calculation not available
                         areaDetails.map(area => (
                             <div key={area.areaName} style={{ marginBottom: 16 }}>
-                                <Title level={5}>{area.areaName}</Title>
+                                <Title level={5} style={{ fontSize: isMobile ? 16 : 18 }}>{area.areaName}</Title>
                                 <Table
                                     size="small"
                                     pagination={false}
                                     dataSource={area.items}
                                     rowKey={(record, index) => index}
+                                    scroll={{ x: isMobile ? 600 : undefined }}
                                     columns={[
-                                        { title: 'Item Type', dataIndex: 'type', key: 'type' },
+                                        { 
+                                            title: 'Item Type', 
+                                            dataIndex: 'type', 
+                                            key: 'type',
+                                            width: isMobile ? 150 : undefined,
+                                            ellipsis: isMobile
+                                        },
                                         {
                                             title: 'Quantity',
                                             dataIndex: 'quantity',
                                             key: 'quantity',
+                                            width: isMobile ? 80 : undefined,
                                             render: (val) => val || 'N/A'
                                         },
                                         {
                                             title: 'Unit',
                                             dataIndex: 'unit',
                                             key: 'unit',
+                                            width: isMobile ? 70 : undefined,
                                             render: (val) => val === 'each' ? 'each' : val || '-'
                                         },
                                         {
                                             title: 'Unit Price',
                                             dataIndex: 'laborRate',
                                             key: 'laborRate',
+                                            width: isMobile ? 90 : undefined,
                                             render: (val) => val ? `$${val.toFixed(2)}` : '-'
                                         }
                                     ]}
                                 />
                                 <Space style={{ marginTop: 8 }}>
-                                    <Text type="secondary">Total Items: {area.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}</Text>
+                                    <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>Total Items: {area.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}</Text>
                                 </Space>
                             </div>
                         ))
@@ -1674,12 +1760,12 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 {surfaceSummary.map((item, index) => (
                                     <Card key={index} size="small" style={{ backgroundColor: '#fafafa', borderRadius: '4px' }}>
-                                        <Row gutter={16} align="middle">
+                                        <Row gutter={isMobile ? 8 : 16} align="middle">
                                             <Col xs={24} md={6}>
-                                                <div>
-                                                    <Space>
-                                                        <Text strong style={{ fontSize: 16 }}>{item.itemType}</Text>
-                                                        <Tag color={item.category === 'Interior' ? 'blue' : 'green'}>
+                                                <div style={{ marginBottom: isMobile ? 12 : 0 }}>
+                                                    <Space wrap>
+                                                        <Text strong style={{ fontSize: isMobile ? 14 : 16 }}>{item.itemType}</Text>
+                                                        <Tag color={item.category === 'Interior' ? 'blue' : 'green'} style={{ fontSize: isMobile ? 11 : 12 }}>
                                                             {item.category}
                                                         </Tag>
                                                     </Space>
@@ -1807,16 +1893,26 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                             return {
                                 key: area.areaId,
                                 label: (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 16 }}>
-                                        <Space>
-                                            <Text strong style={{ fontSize: 15 }}>{area.areaName}</Text>
-                                            <Tag color="blue">{surfaceCount} surface{surfaceCount !== 1 ? 's' : ''}</Tag>
+                                    <div style={{ 
+                                        display: 'flex', 
+                                        justifyContent: 'space-between', 
+                                        alignItems: 'center', 
+                                        width: '100%', 
+                                        paddingRight: isMobile ? 8 : 16,
+                                        flexWrap: isMobile ? 'wrap' : 'nowrap',
+                                        gap: 8
+                                    }}>
+                                        <Space wrap>
+                                            <Text strong style={{ fontSize: isMobile ? 14 : 15 }}>{area.areaName}</Text>
+                                            <Tag color="blue" style={{ fontSize: isMobile ? 11 : 12, margin: 0 }}>
+                                                {surfaceCount} surface{surfaceCount !== 1 ? 's' : ''}
+                                            </Tag>
                                         </Space>
-                                        <Space>
-                                            <Text type="secondary" style={{ fontSize: 13 }}>
+                                        <Space wrap>
+                                            <Text type="secondary" style={{ fontSize: isMobile ? 12 : 13 }}>
                                                 {Math.ceil(areaTotalGallons)} gal
                                             </Text>
-                                            <Text strong style={{ fontSize: 14, color: '#1890ff' }}>
+                                            <Text strong style={{ fontSize: isMobile ? 13 : 14, color: '#1890ff' }}>
                                                 ${areaTotalCost.toFixed(2)}
                                             </Text>
                                         </Space>
@@ -1847,26 +1943,26 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         size="small"
                                         style={{ marginTop: 16, backgroundColor: '#f0f5ff', borderColor: '#adc6ff' }}
                                     >
-                                        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                        <Space direction="vertical" style={{ width: '100%' }} size={isMobile ? 'small' : 'middle'}>
                                             {Object.entries(productTotals).map(([productId, totals]) => (
-                                                <div key={productId} style={{ padding: '12px', background: '#fff', borderRadius: '4px', border: '1px solid #d9d9d9' }}>
-                                                    <Row gutter={16} align="middle">
-                                                        <Col flex="auto">
+                                                <div key={productId} style={{ padding: isMobile ? '10px' : '12px', background: '#fff', borderRadius: '4px', border: '1px solid #d9d9d9' }}>
+                                                    <Row gutter={isMobile ? 8 : 16} align="middle">
+                                                        <Col xs={24} sm="auto" flex={isMobile ? undefined : "auto"}>
                                                             <Space direction="vertical" size={2}>
-                                                                <Text strong style={{ fontSize: 14 }}>{totals.productName}</Text>
-                                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                <Text strong style={{ fontSize: isMobile ? 13 : 14 }}>{totals.productName}</Text>
+                                                                <Text type="secondary" style={{ fontSize: isMobile ? 11 : 12 }}>
                                                                     ${totals.pricePerGallon}/gallon • Used in {totals.usedIn.length} location{totals.usedIn.length !== 1 ? 's' : ''}
                                                                 </Text>
                                                             </Space>
                                                         </Col>
-                                                        <Col>
-                                                            <div style={{ textAlign: 'right' }}>
+                                                        <Col xs={24} sm="auto" style={{ marginTop: isMobile ? 8 : 0 }}>
+                                                            <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
                                                                 <div>
-                                                                    <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                                                                    <Text strong style={{ fontSize: isMobile ? 14 : 16, color: '#1890ff' }}>
                                                                         {Math.ceil(totals.totalGallons)} gallons
                                                                     </Text>
                                                                 </div>
-                                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                <Text type="secondary" style={{ fontSize: isMobile ? 11 : 12 }}>
                                                                     Total: ${totals.totalCost.toFixed(2)}
                                                                 </Text>
                                                             </div>
@@ -1886,10 +1982,10 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             {surfaceSummary.map(surface => (
                                 <Card key={surface.surfaceType} size="small" style={{ backgroundColor: '#fafafa', borderRadius: '4px' }}>
-                                    <Row gutter={16} align="middle">
+                                    <Row gutter={isMobile ? 8 : 16} align="middle">
                                         <Col xs={24} md={6}>
-                                            <div>
-                                                <Text strong style={{ fontSize: 16 }}>{surface.surfaceType}</Text>
+                                            <div style={{ marginBottom: isMobile ? 12 : 0 }}>
+                                                <Text strong style={{ fontSize: isMobile ? 14 : 16 }}>{surface.surfaceType}</Text>
                                                 <br />
                                                 <Text type="secondary" style={{ fontSize: 12 }}>
                                                     {Math.ceil(surface.totalGallons)} gallons needed
@@ -1953,39 +2049,43 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                 return (
                     <Card
                         title={
-                            <Space>
-                                <span>Selected Products Summary</span>
-                                <Tag color="blue">{totalProducts} unique product{totalProducts > 1 ? 's' : ''}</Tag>
-                            </Space>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                                <span style={{ fontSize: isMobile ? 14 : 16 }}>Selected Products Summary</span>
+                                <Tag color="blue" style={{ fontSize: isMobile ? 11 : 12 }}>
+                                    {totalProducts} unique product{totalProducts > 1 ? 's' : ''}
+                                </Tag>
+                            </div>
                         }
                         style={{ marginBottom: 16, borderColor: '#1890ff', borderWidth: 1 }}
                     >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 12 }}>
                             {Object.entries(runningTotals).map(([productId, info]) => (
                                 <div
                                     key={productId}
                                     style={{
                                         display: 'flex',
+                                        flexDirection: isMobile ? 'column' : 'row',
                                         justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        padding: '12px',
+                                        alignItems: isMobile ? 'flex-start' : 'center',
+                                        padding: isMobile ? '10px' : '12px',
                                         background: '#f5f7fa',
                                         borderRadius: '4px',
-                                        border: '1px solid #d9d9d9'
+                                        border: '1px solid #d9d9d9',
+                                        gap: isMobile ? 8 : 0
                                     }}
                                 >
                                     <div>
-                                        <Text strong style={{ fontSize: 14 }}>{info.productName}</Text>
+                                        <Text strong style={{ fontSize: isMobile ? 13 : 14 }}>{info.productName}</Text>
                                         <br />
-                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                        <Text type="secondary" style={{ fontSize: isMobile ? 11 : 12 }}>
                                             Used on: {Array.from(info.surfaceTypes).join(', ')}
                                         </Text>
                                     </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontSize: 18, fontWeight: 'bold', color: '#1890ff' }}>
+                                    <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+                                        <div style={{ fontSize: isMobile ? 15 : 18, fontWeight: 'bold', color: '#1890ff' }}>
                                             {Math.ceil(info.gallons)} gal
                                         </div>
-                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                        <Text type="secondary" style={{ fontSize: isMobile ? 11 : 12 }}>
                                             @ ${info.pricePerGallon}/gal
                                         </Text>
                                     </div>
@@ -1993,13 +2093,13 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                             ))}
                         </div>
 
-                        <Divider style={{ margin: '16px 0' }} />
+                        <Divider style={{ margin: isMobile ? '12px 0' : '16px 0' }} />
 
-                        <div style={{ textAlign: 'right' }}>
-                            <Text strong style={{ display: 'block', fontSize: 14 }}>
+                        <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
+                            <Text strong style={{ display: 'block', fontSize: isMobile ? 13 : 14 }}>
                                 Total Gallons: {Math.ceil(Object.values(runningTotals).reduce((sum, p) => sum + p.gallons, 0))} gal
                             </Text>
-                            <Text strong style={{ display: 'block', fontSize: 14, marginTop: 8, color: '#3f8600' }}>
+                            <Text strong style={{ display: 'block', fontSize: isMobile ? 13 : 14, marginTop: 8, color: '#3f8600' }}>
                                 Est. Material Cost: ${Object.values(runningTotals).reduce((sum, p) => sum + (p.gallons * p.pricePerGallon), 0).toFixed(2)}
                             </Text>
                         </div>
@@ -2016,21 +2116,21 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                         <Card
                             title={
                                 <Space>
-                                    <span style={{ fontSize: 18, fontWeight: 600, color: '#1890ff' }}>
+                                    <span style={{ fontSize: isMobile ? 16 : 18, fontWeight: 600, color: '#1890ff' }}>
                                         ⏱️ Production-Based Time Estimate
                                     </span>
                                 </Space>
                             }
                             style={{ marginBottom: 16, borderColor: '#1890ff', borderWidth: 2 }}
                         >
-                            <Row gutter={16}>
+                            <Row gutter={isMobile ? 8 : 16}>
                                 <Col xs={24} md={8}>
                                     <Statistic
                                         title="Total Estimated Hours"
                                         value={totalEstimatedHours}
                                         precision={1}
                                         suffix="hrs"
-                                        valueStyle={{ color: '#1890ff', fontSize: 32 }}
+                                        valueStyle={{ color: '#1890ff', fontSize: isMobile ? 24 : 32 }}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                         Based on production rates & crew size
@@ -2041,6 +2141,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         title="Crew Size"
                                         value={formData.contractorSettings?.other?.crewSize || 2}
                                         suffix="workers"
+                                        valueStyle={{ fontSize: isMobile ? 20 : 24 }}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                         Standard crew configuration
@@ -2051,6 +2152,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         title="Est. Days to Complete"
                                         value={(totalEstimatedHours / ((formData.contractorSettings?.other?.crewSize || 2) * 8)).toFixed(1)}
                                         suffix="days"
+                                        valueStyle={{ fontSize: isMobile ? 20 : 24 }}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                         Based on 8-hour work days
@@ -2058,7 +2160,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 </Col>
                             </Row>
                             <Divider style={{ margin: '16px 0' }} />
-                            <Row gutter={16}>
+                            <Row gutter={isMobile ? 8 : 16}>
                                 <Col xs={12} md={6}>
                                     <Statistic
                                         title="Billable Labor Rate"
@@ -2066,6 +2168,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         prefix="$"
                                         precision={2}
                                         suffix="/hr"
+                                        valueStyle={{ fontSize: isMobile ? 14 : 16 }}
                                     />
                                 </Col>
                                 <Col xs={12} md={6}>
@@ -2074,6 +2177,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         value={calculatedQuote.laborTotal || 0}
                                         prefix="$"
                                         precision={2}
+                                        valueStyle={{ fontSize: isMobile ? 14 : 16 }}
                                     />
                                 </Col>
                                 <Col xs={12} md={6}>
@@ -2082,6 +2186,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         value={calculatedQuote.materialTotal || 0}
                                         prefix="$"
                                         precision={2}
+                                        valueStyle={{ fontSize: isMobile ? 14 : 16 }}
                                     />
                                 </Col>
                                 <Col xs={12} md={6}>
@@ -2090,7 +2195,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         value={calculatedQuote.total || 0}
                                         prefix="$"
                                         precision={2}
-                                        valueStyle={{ color: '#3f8600', fontWeight: 'bold' }}
+                                        valueStyle={{ color: '#3f8600', fontWeight: 'bold', fontSize: isMobile ? 16 : 18 }}
                                     />
                                 </Col>
                             </Row>
@@ -2125,14 +2230,14 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 style={{ marginBottom: 16 }}
                             />
                             
-                            <Row gutter={16} style={{ marginBottom: 24 }}>
+                            <Row gutter={isMobile ? 8 : 16} style={{ marginBottom: isMobile ? 16 : 24 }}>
                                 <Col xs={24} sm={12}>
                                     <Statistic
                                         title="Base Total (All Items)"
                                         value={calculatedQuote.subtotal || 0}
                                         prefix="$"
                                         precision={2}
-                                        valueStyle={{ fontSize: '24px' }}
+                                        valueStyle={{ fontSize: isMobile ? '20px' : '24px' }}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                         Includes labor, materials, overhead & profit
@@ -2144,7 +2249,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         value={calculatedQuote.total || 0}
                                         prefix="$"
                                         precision={2}
-                                        valueStyle={{ color: '#3f8600', fontWeight: 'bold', fontSize: '28px' }}
+                                        valueStyle={{ color: '#3f8600', fontWeight: 'bold', fontSize: isMobile ? '24px' : '28px' }}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                         Tax ({calculatedQuote.taxPercent || 0}%): ${calculatedQuote.tax?.toFixed(2) || '0.00'}
@@ -2167,16 +2272,16 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
 
                             <Divider />
 
-                            <Descriptions column={2} bordered size="small">
-                                <Descriptions.Item label="Base Total (All Items)" span={2}>
+                            <Descriptions column={isMobile ? 1 : 2} bordered size="small">
+                                <Descriptions.Item label="Base Total (All Items)" span={isMobile ? 1 : 2}>
                                     <strong>${calculatedQuote.subtotal?.toFixed(2) || '0.00'}</strong>
                                 </Descriptions.Item>
 
-                                <Descriptions.Item label={`Sales Tax (${calculatedQuote.taxPercent || 0}%)`} span={2}>
+                                <Descriptions.Item label={`Sales Tax (${calculatedQuote.taxPercent || 0}%)`} span={isMobile ? 1 : 2}>
                                     +${calculatedQuote.tax?.toFixed(2) || '0.00'}
                                 </Descriptions.Item>
 
-                                <Descriptions.Item label={<strong>Grand Total</strong>} span={2}>
+                                <Descriptions.Item label={<strong>Grand Total</strong>} span={isMobile ? 1 : 2}>
                                     <div style={{ textAlign: 'right', width: '100%' }}>
                                         <strong style={{ fontSize: '18px', color: '#3f8600' }}>
                                             ${calculatedQuote.total?.toFixed(2) || '0.00'}
@@ -2204,13 +2309,14 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                     ) : (
                         // Non-Turnkey, Non-Flat-Rate: Show full cost breakdown
                         <Card title="Cost Breakdown" loading={loading} style={{ marginBottom: 16 }}>
-                    <Row gutter={16} style={{ marginBottom: 24 }}>
+                    <Row gutter={isMobile ? 8 : 16} style={{ marginBottom: isMobile ? 16 : 24 }}>
                         <Col xs={24} sm={isProductionBased ? 6 : 8}>
                             <Statistic
                                 title="Labor Total"
                                 value={calculatedQuote.laborTotal || 0}
                                 prefix="$"
                                 precision={2}
+                                valueStyle={{ fontSize: isMobile ? 16 : 20 }}
                             />
                         </Col>
                         <Col xs={24} sm={isProductionBased ? 6 : 8}>
@@ -2219,6 +2325,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 value={calculatedQuote.materialTotal || 0}
                                 prefix="$"
                                 precision={2}
+                                valueStyle={{ fontSize: isMobile ? 16 : 20 }}
                             />
                         </Col>
                         {isProductionBased && totalEstimatedHours > 0 && (
@@ -2228,7 +2335,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                     value={totalEstimatedHours}
                                     precision={1}
                                     suffix="hrs"
-                                    valueStyle={{ color: '#1890ff' }}
+                                    valueStyle={{ color: '#1890ff', fontSize: isMobile ? 16 : 20 }}
                                 />
                             </Col>
                         )}
@@ -2238,7 +2345,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 value={calculatedQuote.total || 0}
                                 prefix="$"
                                 precision={2}
-                                valueStyle={{ color: '#3f8600', fontWeight: 'bold', fontSize: '28px' }}
+                                valueStyle={{ color: '#3f8600', fontWeight: 'bold', fontSize: isMobile ? 20 : 28 }}
                             />
                         </Col>
                     </Row>
@@ -2298,7 +2405,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                         />
                     )}
 
-                    <Descriptions column={2} bordered size="small">
+                    <Descriptions column={isMobile ? 1 : 2} bordered size="small">
                         {/* Base Costs */}
                         <Descriptions.Item label="Labor Cost (Base)">
                             ${calculatedQuote.laborTotal?.toFixed(2) || '0.00'}
@@ -2315,40 +2422,40 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                         </Descriptions.Item>
 
                         {/* Subtotal with markups */}
-                        <Descriptions.Item label="Labor with Markup" span={2}>
+                        <Descriptions.Item label="Labor with Markup" span={isMobile ? 1 : 2}>
                             <strong>${calculatedQuote.laborCostWithMarkup?.toFixed(2) || '0.00'}</strong>
                         </Descriptions.Item>
-                        <Descriptions.Item label="Materials with Markup" span={2}>
+                        <Descriptions.Item label="Materials with Markup" span={isMobile ? 1 : 2}>
                             <strong>${calculatedQuote.materialCostWithMarkup?.toFixed(2) || '0.00'}</strong>
                         </Descriptions.Item>
 
                         {/* Overhead */}
-                        <Descriptions.Item label={`Overhead (${calculatedQuote.overheadPercent || 0}%)`} span={2}>
+                        <Descriptions.Item label={`Overhead (${calculatedQuote.overheadPercent || 0}%)`} span={isMobile ? 1 : 2}>
                             +${calculatedQuote.overhead?.toFixed(2) || '0.00'}
                         </Descriptions.Item>
 
                         {/* Subtotal before profit */}
-                        <Descriptions.Item label="Subtotal Before Profit" span={2}>
+                        <Descriptions.Item label="Subtotal Before Profit" span={isMobile ? 1 : 2}>
                             <strong>${calculatedQuote.subtotalBeforeProfit?.toFixed(2) || '0.00'}</strong>
                         </Descriptions.Item>
 
                         {/* Net Profit */}
-                        <Descriptions.Item label={`Net Profit (${calculatedQuote.profitMarginPercent || 0}%)`} span={2}>
+                        <Descriptions.Item label={`Net Profit (${calculatedQuote.profitMarginPercent || 0}%)`} span={isMobile ? 1 : 2}>
                             +${calculatedQuote.profitAmount?.toFixed(2) || '0.00'}
                         </Descriptions.Item>
 
                         {/* Subtotal before tax */}
-                        <Descriptions.Item label="Subtotal" span={2}>
+                        <Descriptions.Item label="Subtotal" span={isMobile ? 1 : 2}>
                             <strong>${calculatedQuote.subtotal?.toFixed(2) || '0.00'}</strong>
                         </Descriptions.Item>
 
                         {/* Tax */}
-                        <Descriptions.Item label={`Tax (${calculatedQuote.taxPercent || 0}%)`} span={2}>
+                        <Descriptions.Item label={`Tax (${calculatedQuote.taxPercent || 0}%)`} span={isMobile ? 1 : 2}>
                             +${calculatedQuote.tax?.toFixed(2) || '0.00'}
                         </Descriptions.Item>
 
                         {/* Grand Total */}
-                        <Descriptions.Item label={<strong>Grand Total</strong>} span={2}>
+                        <Descriptions.Item label={<strong>Grand Total</strong>} span={isMobile ? 1 : 2}>
                             <div style={{ textAlign: 'right', width: '100%' }}>
                                 <strong style={{ fontSize: '18px', color: '#3f8600' }}>
                                     ${calculatedQuote.total?.toFixed(2) || '0.00'}
@@ -2365,7 +2472,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 <Card
                                     key={index}
                                     size="small"
-                                    title={area.areaName}
+                                    title={<span style={{ fontSize: isMobile ? 14 : 16 }}>{area.areaName}</span>}
                                     style={{ marginBottom: 12 }}
                                     type="inner"
                                 >
@@ -2373,15 +2480,19 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                         size="small"
                                         pagination={false}
                                         dataSource={area.items || []}
+                                        scroll={{ x: isMobile ? 900 : undefined }}
                                         columns={[
                                             {
                                                 title: 'Surface/Category',
                                                 key: 'type',
+                                                width: isMobile ? 120 : undefined,
+                                                ellipsis: isMobile,
                                                 render: (_, record) => record.categoryName || record.type || '-'
                                             },
                                             {
                                                 title: 'Quantity',
                                                 key: 'quantity',
+                                                width: isMobile ? 80 : undefined,
                                                 render: (_, record) => {
                                                     const qty = record.quantity || record.sqft || 0;
                                                     return qty?.toFixed(0);
@@ -2390,6 +2501,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                             {
                                                 title: 'Unit',
                                                 key: 'unit',
+                                                width: isMobile ? 70 : undefined,
                                                 render: (_, record) => {
                                                     const unit = record.measurementUnit || 'sqft';
                                                     return unit === 'sqft' ? 'sq ft' :
@@ -2402,31 +2514,35 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                                 title: 'Coats',
                                                 dataIndex: 'numberOfCoats',
                                                 key: 'coats',
+                                                width: isMobile ? 70 : undefined,
                                                 render: (val) => val > 0 ? `${val}` : '-'
                                             },
                                             {
                                                 title: 'Gallons',
                                                 dataIndex: 'gallons',
                                                 key: 'gallons',
+                                                width: isMobile ? 80 : undefined,
                                                 render: (val) => val ? Math.ceil(val) : '-'
                                             },
                                             {
                                                 title: 'Labor Cost',
                                                 dataIndex: 'laborCost',
                                                 key: 'laborCost',
+                                                width: isMobile ? 90 : undefined,
                                                 render: (val) => `$${val?.toFixed(2) || '0.00'}`
                                             },
                                             {
                                                 title: 'Material Cost',
                                                 dataIndex: 'materialCost',
                                                 key: 'materialCost',
+                                                width: isMobile ? 100 : undefined,
                                                 render: (val) => `$${val?.toFixed(2) || '0.00'}`
                                             },
 
                                         ]}
                                     />
                                     <div style={{ marginTop: 8, textAlign: 'right' }}>
-                                        <Text strong>
+                                        <Text strong style={{ fontSize: isMobile ? 13 : 14 }}>
                                             Area Total: ${(area.items || []).reduce((sum, item) =>
                                                 sum + (item.laborCost || 0) + (item.materialCost || 0) + (item.prepCost || 0) + (item.addOnCost || 0), 0
                                             ).toFixed(2)}
@@ -2454,31 +2570,49 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
             </Card>
 
             {/* Actions */}
-            <div style={{ marginTop: 32, display: 'flex', justifyContent: 'space-between' }}>
-                <Button size="large" onClick={onPrevious}>
+            <div 
+                style={{ 
+                    marginTop: isMobile ? 24 : 32, 
+                    display: 'flex', 
+                    flexDirection: isMobile ? 'column' : 'row',
+                    justifyContent: 'space-between',
+                    gap: isMobile ? 12 : 0
+                }}
+            >
+                <Button 
+                    size={isMobile ? 'middle' : 'large'} 
+                    onClick={onPrevious}
+                    block={isMobile}
+                >
                     Previous
                 </Button>
-                <Space>
+                <Space 
+                    direction={isMobile ? 'vertical' : 'horizontal'}
+                    style={{ width: isMobile ? '100%' : 'auto' }}
+                >
                     <Button
-                        size="large"
+                        size={isMobile ? 'middle' : 'large'}
                         icon={<EyeOutlined />}
                         onClick={() => setShowProposalPreview(true)}
+                        block={isMobile}
                     >
                         Preview Proposal
                     </Button>
                     <Button
-                        size="large"
+                        size={isMobile ? 'middle' : 'large'}
                         icon={<SaveOutlined />}
                         onClick={handleSaveDraft}
+                        block={isMobile}
                     >
                         Save as Draft
                     </Button>
                     <Button
                         type="primary"
-                        size="large"
+                        size={isMobile ? 'middle' : 'large'}
                         icon={<SendOutlined />}
                         onClick={handleSendQuote}
                         loading={sending}
+                        block={isMobile}
                     >
                         Send Quote to Customer
                     </Button>

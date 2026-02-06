@@ -1,10 +1,11 @@
 // src/components/QuoteBuilder/CustomerInfoStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Select, Button, Alert, Modal, Card, Row, Col, Typography, Tag } from 'antd';
+import { Form, Input, Select, Button, Alert, Modal, Card, Row, Col, Typography, Tag, Grid } from 'antd';
 import { UserOutlined, PhoneOutlined, MailOutlined, HomeOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 
 // US States
 const US_STATES = [
@@ -46,6 +47,9 @@ const CustomerInfoStep = ({
   detectedClient,
   onClientDetectionResponse,
 }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  
   const [form] = Form.useForm();
   const [errors, setErrors] = useState({});
   const [showClientModal, setShowClientModal] = useState(false);
@@ -191,16 +195,16 @@ const CustomerInfoStep = ({
         description="All information will be saved to the client profile and used in proposals and job orders."
         type="info"
         showIcon
-        style={{ marginBottom: 24 }}
+        style={{ marginBottom: isMobile ? 16 : 24 }}
       />
 
       <Form
         form={form}
         layout="vertical"
-        size="large"
+        size={isMobile ? 'middle' : 'large'}
       >
-        <Card title="Contact Information" style={{ marginBottom: 24 }}>
-          <Row gutter={16}>
+        <Card title="Contact Information" style={{ marginBottom: isMobile ? 16 : 24 }}>
+          <Row gutter={isMobile ? 8 : 16}>
             <Col xs={24}>
               <Form.Item
                 label="Customer Name"
@@ -218,7 +222,7 @@ const CustomerInfoStep = ({
             </Col>
           </Row>
 
-          <Row gutter={16}>
+          <Row gutter={isMobile ? 8 : 16}>
             <Col xs={24} md={12}>
               <Form.Item
                 label="Email Address"
@@ -257,8 +261,8 @@ const CustomerInfoStep = ({
           </Row>
         </Card>
 
-        <Card title="Property Address" style={{ marginBottom: 24 }}>
-          <Row gutter={16}>
+        <Card title="Property Address" style={{ marginBottom: isMobile ? 16 : 24 }}>
+          <Row gutter={isMobile ? 8 : 16}>
             <Col xs={24}>
               <Form.Item
                 label="Street Address"
@@ -276,7 +280,7 @@ const CustomerInfoStep = ({
             </Col>
           </Row>
 
-          <Row gutter={16}>
+          <Row gutter={isMobile ? 8 : 16}>
             <Col xs={24} md={12}>
               <Form.Item
                 label="City"
@@ -330,7 +334,7 @@ const CustomerInfoStep = ({
           </Row>
         </Card>
 
-        <Card title="Pricing Configuration" style={{ marginBottom: 24 }}>
+        <Card title="Pricing Configuration" style={{ marginBottom: isMobile ? 16 : 24 }}>
           <Form.Item
             label="Pricing Scheme"
             name="pricingSchemeId"
@@ -348,20 +352,20 @@ const CustomerInfoStep = ({
                   key={scheme.id} 
                   value={scheme.id}
                   label={
-                    <span>
-                      {scheme.name} {scheme.isDefault && <Tag color="blue" style={{ marginLeft: 8 }}>Default</Tag>}
+                    <span style={{ fontSize: isMobile ? 13 : 14 }}>
+                      {scheme.name} {scheme.isDefault && <Tag color="blue" style={{ marginLeft: 8, fontSize: isMobile ? 10 : 11 }}>Default</Tag>}
                     </span>
                   }
                 >
                   <div style={{ padding: '4px 0' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                      <Text strong>{scheme.name}</Text>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 4 }}>
+                      <Text strong style={{ fontSize: isMobile ? 13 : 14 }}>{scheme.name}</Text>
                       {scheme.isDefault && (
-                        <Tag color="blue" style={{ marginLeft: 8, fontSize: 10 }}>Default</Tag>
+                        <Tag color="blue" style={{ fontSize: isMobile ? 9 : 10 }}>Default</Tag>
                       )}
                     </div>
                     {scheme.description && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
+                      <Text type="secondary" style={{ fontSize: isMobile ? 11 : 12 }}>
                         {scheme.description}
                       </Text>
                     )}
@@ -372,8 +376,13 @@ const CustomerInfoStep = ({
           </Form.Item>
         </Card>
 
-        <div style={{ textAlign: 'right' }}>
-          <Button type="primary" size="large" onClick={handleNext}>
+        <div style={{ textAlign: isMobile ? 'center' : 'right' }}>
+          <Button 
+            type="primary" 
+            size={isMobile ? 'middle' : 'large'} 
+            onClick={handleNext}
+            block={isMobile}
+          >
             Next: Job Type
           </Button>
         </div>
@@ -385,24 +394,25 @@ const CustomerInfoStep = ({
         open={showClientModal}
         onOk={() => handleClientModalResponse(true)}
         onCancel={() => handleClientModalResponse(false)}
-        okText="Use Existing Profile"
-        cancelText="Create New Client"
+        okText={isMobile ? "Use Existing" : "Use Existing Profile"}
+        cancelText={isMobile ? "Create New" : "Create New Client"}
+        width={isMobile ? '90%' : 520}
       >
-        <p>
+        <p style={{ fontSize: isMobile ? 14 : 16 }}>
           A client with this email or phone number already exists in your system:
         </p>
         {detectedClient?.client && (
-          <div style={{ padding: '16px', background: '#f5f5f5', borderRadius: '4px' }}>
-            <p><strong>Name:</strong> {detectedClient.client.name}</p>
-            <p><strong>Email:</strong> {detectedClient.client.email}</p>
-            <p><strong>Phone:</strong> {detectedClient.client.phone}</p>
-            <p><strong>Address:</strong> {detectedClient.client.street}, {detectedClient.client.city}, {detectedClient.client.state} {detectedClient.client.zip}</p>
+          <div style={{ padding: isMobile ? '12px' : '16px', background: '#f5f5f5', borderRadius: '4px' }}>
+            <p style={{ fontSize: isMobile ? 13 : 14, marginBottom: 8 }}><strong>Name:</strong> {detectedClient.client.name}</p>
+            <p style={{ fontSize: isMobile ? 13 : 14, marginBottom: 8 }}><strong>Email:</strong> {detectedClient.client.email}</p>
+            <p style={{ fontSize: isMobile ? 13 : 14, marginBottom: 8 }}><strong>Phone:</strong> {detectedClient.client.phone}</p>
+            <p style={{ fontSize: isMobile ? 13 : 14, marginBottom: 8 }}><strong>Address:</strong> {detectedClient.client.street}, {detectedClient.client.city}, {detectedClient.client.state} {detectedClient.client.zip}</p>
             {detectedClient.client.quotes?.length > 0 && (
-              <p><strong>Previous Quotes:</strong> {detectedClient.client.quotes.length}</p>
+              <p style={{ fontSize: isMobile ? 13 : 14, marginBottom: 0 }}><strong>Previous Quotes:</strong> {detectedClient.client.quotes.length}</p>
             )}
           </div>
         )}
-        <p style={{ marginTop: 16 }}>
+        <p style={{ marginTop: 16, fontSize: isMobile ? 14 : 16 }}>
           Would you like to load this existing profile or create a new client?
         </p>
       </Modal>

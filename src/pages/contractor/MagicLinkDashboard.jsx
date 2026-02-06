@@ -155,16 +155,20 @@ const MagicLinkDashboard = () => {
     {
       title: 'Customer',
       key: 'customer',
+      fixed: 'left',
+      width: 200,
       render: (_, record) => (
         <div>
-          <div className="font-semibold">{record.client?.name || 'N/A'}</div>
-          <div className="text-gray-500 text-sm">{record.client?.email || 'N/A'}</div>
+          <div className="font-semibold text-sm">{record.client?.name || 'N/A'}</div>
+          <div className="text-gray-500 text-xs truncate max-w-[180px]">{record.client?.email || 'N/A'}</div>
         </div>
       ),
     },
     {
       title: 'Quote',
       key: 'quote',
+      width: 120,
+      responsive: ['md'],
       render: (_, record) => {
         const quoteNumber = record.metadata?.quoteNumber || record.quote?.quoteNumber;
         return quoteNumber ? <Tag color="blue">{quoteNumber}</Tag> : <span className="text-gray-400">N/A</span>;
@@ -173,12 +177,15 @@ const MagicLinkDashboard = () => {
     {
       title: 'Status',
       key: 'status',
+      width: 160,
       render: (_, record) => getStatusTag(record),
     },
     {
       title: 'Created',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      width: 120,
+      responsive: ['lg'],
       render: (date) => new Date(date).toLocaleDateString("en-US",{
         month: 'short', day: 'numeric', year: 'numeric'
       }),
@@ -187,6 +194,8 @@ const MagicLinkDashboard = () => {
       title: 'Expires',
       dataIndex: 'expiresAt',
       key: 'expiresAt',
+      width: 120,
+      responsive: ['sm'],
       render: (date) => new Date(date).toLocaleDateString("en-US",{
         month: 'short', day: 'numeric', year: 'numeric'
       }),
@@ -195,6 +204,8 @@ const MagicLinkDashboard = () => {
       title: 'Last Access',
       dataIndex: 'lastAccessedAt',
       key: 'lastAccessedAt',
+      width: 120,
+      responsive: ['xl'],
       render: (date) => date ? new Date(date).toLocaleDateString("en-US",{
         month: 'short', day: 'numeric', year: 'numeric'
       }) : 'Never',
@@ -202,6 +213,8 @@ const MagicLinkDashboard = () => {
     {
       title: 'Actions',
       key: 'actions',
+      fixed: 'right',
+      width: 160,
       render: (_, record) => {
         const now = new Date();
         const expiresAt = new Date(record.expiresAt);
@@ -209,7 +222,7 @@ const MagicLinkDashboard = () => {
         const magicLink = `${window.location.origin}/portal/access/${record.token}`;
 
         return (
-          <Space>
+          <Space size="small">
             <Tooltip title="Copy Link">
               <Button
                 type="text"
@@ -264,47 +277,49 @@ const MagicLinkDashboard = () => {
   ];
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Cadence Pulse Management</h1>
+    <div className="p-3 sm:p-4 md:p-6">
+      <h1 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Cadence Pulse Management</h1>
 
       {/* Statistics */}
       {stats && (
-        <Row gutter={16} className="mb-6">
-          <Col xs={24} sm={12} md={6}>
-            <Card>
+        <Row gutter={[12, 12]} className="mb-4 sm:mb-6">
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small">
               <Statistic
                 title="Active"
                 value={stats.active}
                 prefix={<CheckCircleOutlined />}
-                valueStyle={{ color: '#3f8600' }}
+                valueStyle={{ color: '#3f8600', fontSize: '20px' }}
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small">
               <Statistic
                 title="Expiring Soon"
                 value={stats.expiringSoon}
                 prefix={<WarningOutlined />}
-                valueStyle={{ color: '#cf1322' }}
+                valueStyle={{ color: '#cf1322', fontSize: '20px' }}
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small">
               <Statistic
                 title="Expired"
                 value={stats.expired}
                 prefix={<ClockCircleOutlined />}
+                valueStyle={{ fontSize: '20px' }}
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small">
               <Statistic
                 title="Total Created"
                 value={stats.totalCreated}
                 prefix={<LinkOutlined />}
+                valueStyle={{ fontSize: '20px' }}
               />
             </Card>
           </Col>
@@ -312,20 +327,21 @@ const MagicLinkDashboard = () => {
       )}
 
       {/* Filters and Actions */}
-      <Card className="mb-4">
-        <div className="flex flex-wrap gap-4 items-center justify-between">
-          <div className="flex flex-wrap gap-4 items-center flex-1">
+      <Card className="mb-4" size="small">
+        <div className="flex flex-col gap-3 sm:gap-4">
+          {/* Search and Filter Row */}
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <Search
-              placeholder="Search by customer name or email..."
+              placeholder="Search customer..."
               allowClear
-              style={{ width: 300 }}
+              className="w-full sm:flex-1 sm:max-w-xs"
               onSearch={(value) => setFilters(prev => ({ ...prev, search: value }))}
             />
             
             <Select
               value={filters.status}
               onChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
-              style={{ width: 150 }}
+              className="w-full sm:w-40"
             >
               <Option value="all">All Status</Option>
               <Option value="active">Active</Option>
@@ -334,34 +350,41 @@ const MagicLinkDashboard = () => {
             </Select>
           </div>
           
-          <Space>
+          {/* Action Buttons Row */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             {stats && stats.expiringSoon > 0 && (
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
                 onClick={handleBulkExtend}
+                className="w-full sm:w-auto"
+                size="middle"
               >
-                Extend All Expiring ({stats.expiringSoon})
+                <span className="hidden sm:inline">Extend All Expiring ({stats.expiringSoon})</span>
+                <span className="sm:hidden">Extend ({stats.expiringSoon})</span>
               </Button>
             )}
             
             <Button
               icon={<ReloadOutlined />}
               onClick={fetchMagicLinks}
+              className="w-full sm:w-auto"
+              size="middle"
             >
               Refresh
             </Button>
-          </Space>
+          </div>
         </div>
       </Card>
 
       {/* Magic Links Table */}
-      <Card>
+      <Card size="small">
         <Table
           columns={columns}
           dataSource={magicLinks}
           loading={loading}
           rowKey="id"
+          scroll={{ x: 800 }}
           pagination={{
             current: pagination.current,
             pageSize: pagination.pageSize,
@@ -375,6 +398,8 @@ const MagicLinkDashboard = () => {
                 pageSize,
               }));
             },
+            responsive: true,
+            size: 'default',
           }}
         />
       </Card>

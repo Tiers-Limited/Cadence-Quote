@@ -1,6 +1,6 @@
 // src/components/QuoteBuilder/ExteriorAreasStep.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Alert, Row, Col, Typography, Input, InputNumber, Space, Modal, Select, Tag } from 'antd';
+import { Card, Button, Alert, Row, Col, Typography, Input, InputNumber, Space, Modal, Select, Tag, Grid } from 'antd';
 import { PlusOutlined, DeleteOutlined, CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { apiService } from '../../services/apiService';
 import DimensionCalculator from './DimensionCalculator';
@@ -9,6 +9,7 @@ import * as pricingUtils from '../../utils/pricingUtils';
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Option } = Select;
+const { useBreakpoint } = Grid;
 
 // Common exterior areas - Simplified for better UX
 // Contractors think in work scopes (Siding, Trim, Deck), not directional elevations
@@ -34,6 +35,9 @@ const EXTERIOR_LABOR_CATEGORIES = [
 const COVERAGE_RATE = 350; // sq ft per gallon
 
 const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  
   const [areas, setAreas] = useState(formData.areas || []);
   const [showCustomAreaModal, setShowCustomAreaModal] = useState(false);
   const [customAreaName, setCustomAreaName] = useState('');
@@ -480,23 +484,23 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         description={pricingUtils.getModelGuidanceMessage(mode)}
         type="info"
         showIcon
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: isMobile ? 12 : 16 }}
       />
 
       {/* Pricing Model Guidance Banner */}
       {formData.pricingSchemeId && (
         <Card 
           size="small" 
-          style={{ marginBottom: 16, backgroundColor: '#f0f5ff', borderColor: '#1890ff' }}
+          style={{ marginBottom: isMobile ? 12 : 16, backgroundColor: '#f0f5ff', borderColor: '#1890ff' }}
         >
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <InfoCircleOutlined style={{ color: '#1890ff', fontSize: 18 }} />
-              <Text strong style={{ color: '#1890ff' }}>
+              <InfoCircleOutlined style={{ color: '#1890ff', fontSize: isMobile ? 16 : 18 }} />
+              <Text strong style={{ color: '#1890ff', fontSize: isMobile ? 13 : 14 }}>
                 {formData.pricingModelFriendlyName || 'Rate-Based Pricing'}
               </Text>
             </div>
-            <Text type="secondary" style={{ fontSize: 13 }}>
+            <Text type="secondary" style={{ fontSize: isMobile ? 12 : 13 }}>
               {formData.pricingModelDescription || 'Enter detailed measurements for each surface to calculate labor and materials.'}
             </Text>
             <Alert
@@ -512,11 +516,11 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
       )}
 
       {/* Painters on Site and Labor Only Controls */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Row gutter={16} align="middle">
+      <Card size="small" style={{ marginBottom: isMobile ? 12 : 16 }}>
+        <Row gutter={isMobile ? 8 : 16} align="middle">
           <Col xs={24} sm={12} md={8}>
             <div>
-              <Text strong style={{ display: 'block', marginBottom: 4 }}>Painters on Site:</Text>
+              <Text strong style={{ display: 'block', marginBottom: 4, fontSize: isMobile ? 12 : 14 }}>Painters on Site:</Text>
               <Select
                 size="small"
                 style={{ width: '100%' }}
@@ -536,14 +540,14 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
           {(formData.pricingModelType === 'production_based' || formData.pricingModelType === 'rate_based_sqft') && (
             <Col xs={24} sm={12} md={8}>
               <div>
-                <Text strong style={{ display: 'block', marginBottom: 4 }}>Labor Only:</Text>
+                <Text strong style={{ display: 'block', marginBottom: 4, fontSize: isMobile ? 12 : 14 }}>Labor Only:</Text>
                 <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input
                     type="checkbox"
                     checked={formData.laborOnly || false}
                     onChange={(e) => onUpdate({ laborOnly: e.target.checked })}
                   />
-                  <Text>Customer supplies paint</Text>
+                  <Text style={{ fontSize: isMobile ? 12 : 14 }}>Customer supplies paint</Text>
                 </label>
               </div>
             </Col>
@@ -551,8 +555,8 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         </Row>
       </Card>
 
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Text strong>Select Exterior Areas:</Text>
+      <Card size="small" style={{ marginBottom: isMobile ? 12 : 16 }}>
+        <Text strong style={{ fontSize: isMobile ? 13 : 14 }}>Select Exterior Areas:</Text>
         <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
           {COMMON_EXTERIOR_AREAS.map(areaName => {
             const isSelected = areas.some(a => a.name === areaName);
@@ -580,6 +584,7 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
                   type={isSelected && !allowMultiple ? 'primary' : 'default'}
                   block
                   onClick={handleClick}
+                  style={{ fontSize: isMobile ? 11 : 13 }}
                 >
                   {areaName}
                 </Button>
@@ -593,6 +598,7 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
               block
               icon={<PlusOutlined />}
               onClick={() => setShowCustomAreaModal(true)}
+              style={{ fontSize: isMobile ? 11 : 13 }}
             >
               Custom
             </Button>
@@ -763,13 +769,19 @@ const ExteriorAreasStep = ({ formData, onUpdate, onNext, onPrevious }) => {
         />
       )}
 
-      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <Button onClick={onPrevious}>
+      <div style={{ marginTop: isMobile ? 12 : 16, display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', gap: isMobile ? 8 : 0 }}>
+        <Button 
+          onClick={onPrevious}
+          size={isMobile ? 'middle' : 'large'}
+          block={isMobile}
+        >
           Previous
         </Button>
         <Button 
           type="primary" 
           onClick={handleNext}
+          size={isMobile ? 'middle' : 'large'}
+          block={isMobile}
         >
           Next: Products & Pricing
         </Button>

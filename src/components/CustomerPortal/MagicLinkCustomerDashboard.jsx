@@ -56,6 +56,13 @@ function MagicLinkCustomerDashboard() {
   const [otpCode, setOtpCode] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [singleQuoteId, setSingleQuoteId] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     // Check for magic link session
@@ -424,16 +431,17 @@ function MagicLinkCustomerDashboard() {
       title: 'Quote Number',
       dataIndex: 'quoteNumber',
       key: 'quoteNumber',
-      width: 150,
-      render: (text) => <Text strong>{text}</Text>
+      width: isMobile ? 120 : 150,
+      render: (text) => <Text strong className={isMobile ? 'text-xs' : ''}>{text}</Text>,
+      responsive: ['xs', 'sm', 'md', 'lg']
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (status) => (
-        <Tag color={getStatusColor(status)}>
+        <Tag color={getStatusColor(status)} className={isMobile ? 'text-xs' : ''}>
           {getStatusText(status)}
         </Tag>
       )
@@ -443,15 +451,16 @@ function MagicLinkCustomerDashboard() {
       dataIndex: 'jobType',
       key: 'jobType',
       width: 120,
-      render: (type) => type || 'N/A'
+      render: (type) => type || 'N/A',
+      responsive: ['md', 'lg']
     },
     {
       title: 'Total Amount',
       dataIndex: 'total',
       key: 'total',
-      width: 150,
+      width: isMobile ? 120 : 150,
       render: (amount) => (
-        <Text strong style={{ color: '#1890ff' }}>
+        <Text strong style={{ color: '#1890ff', fontSize: isMobile ? '12px' : '14px' }}>
           ${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </Text>
       )
@@ -461,26 +470,33 @@ function MagicLinkCustomerDashboard() {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 150,
-      render: (date) => new Date(date).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      })
+      render: (date) => (
+        <span className={isMobile ? 'text-xs' : ''}>
+          {new Date(date).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          })}
+        </span>
+      ),
+      responsive: ['sm', 'md', 'lg']
     },
    
     {
       title: 'Actions',
       key: 'actions',
-      width: 320,
-      fixed: 'right',
+      width: isMobile ? 100 : 320,
+      fixed: isMobile ? undefined : 'right',
       render: (_, record) => {
         const primaryColor = branding?.primaryColor || '#1890ff';
         
         return (
-          <Space size="small" wrap>
+          <Space size="small" wrap direction={isMobile ? 'vertical' : 'horizontal'} className={isMobile ? 'w-full' : ''}>
             <Button
               type="link"
               icon={<FiEye />}
+              size={isMobile ? 'small' : 'default'}
+              block={isMobile}
               onClick={() => {
                 // Use new ProposalAcceptance route
                 if (record.status === 'sent' || record.status === 'pending' || record.status === "viewed") {
@@ -500,6 +516,8 @@ function MagicLinkCustomerDashboard() {
             <Button
               type="link"
               icon={<FiFileText />}
+              size={isMobile ? 'small' : 'default'}
+              block={isMobile}
               onClick={() => navigate(`/portal/documents/${record.id}`)}
               title="View Documents"
             >
@@ -512,10 +530,11 @@ function MagicLinkCustomerDashboard() {
                   type="primary"
                   size="small"
                   icon={<FiCheck />}
+                  block={isMobile}
                   style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
                   onClick={() => navigate(`/portal/proposals/${record.id}/accept`)}
                 >
-                  Review & Accept
+                  {isMobile ? 'Accept' : 'Review & Accept'}
                 </Button>
                 
                 <Popconfirm
@@ -523,7 +542,7 @@ function MagicLinkCustomerDashboard() {
                   onConfirm={() => handleQuickReject(record.id)}
                   okType="danger"
                 >
-                  <Button danger size="small" icon={<FiX />}>
+                  <Button danger size="small" icon={<FiX />} block={isMobile}>
                     Reject
                   </Button>
                 </Popconfirm>
@@ -535,6 +554,7 @@ function MagicLinkCustomerDashboard() {
                 type="primary"
                 size="small"
                 icon={<FiDollarSign />}
+                block={isMobile}
                 onClick={() => navigate(`/portal/proposals/${record.id}/accept?step=payment`)}
                 style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
               >
@@ -546,6 +566,7 @@ function MagicLinkCustomerDashboard() {
               <Button
                 type="primary"
                 size="small"
+                block={isMobile}
                 onClick={() => navigateToSelectionsGuarded(record, `/portal/proposals/${record.id}/selections`)}
                 style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
               >
@@ -557,6 +578,7 @@ function MagicLinkCustomerDashboard() {
               <Button
                 type="primary"
                 size="small"
+                block={isMobile}
                 onClick={() => navigate(`/portal/job/${record.jobId}`)}
                 style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
               >
@@ -574,28 +596,31 @@ function MagicLinkCustomerDashboard() {
       title: 'Job Number',
       dataIndex: 'jobNumber',
       key: 'jobNumber',
-      render: (text) => <Text strong>{text}</Text>
+      render: (text) => <Text strong className={isMobile ? 'text-xs' : ''}>{text}</Text>
     },
     {
       title: 'Progress',
       key: 'progress',
-      width: 160,
+      width: isMobile ? 140 : 160,
       render: (_, record) => {
         const txt = computeAreaProgressText(record);
-        return txt ? <Text>{txt}</Text> : null;
-      }
+        return txt ? <Text className={isMobile ? 'text-xs' : ''}>{txt}</Text> : null;
+      },
+      responsive: ['sm', 'md', 'lg']
     },
     {
       title: 'Job Name',
       dataIndex: 'jobName',
       key: 'jobName',
+      render: (text) => <span className={isMobile ? 'text-xs' : ''}>{text}</span>,
+      responsive: ['md', 'lg']
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
       render: (status) => (
-        <Tag color={getStatusColor(status)}>
+        <Tag color={getStatusColor(status)} className={isMobile ? 'text-xs' : ''}>
           {getStatusText(status)}
         </Tag>
       )
@@ -605,7 +630,7 @@ function MagicLinkCustomerDashboard() {
       dataIndex: 'totalAmount',
       key: 'totalAmount',
       render: (amount) => (
-        <Text strong style={{ color: '#1890ff' }}>
+        <Text strong style={{ color: '#1890ff', fontSize: isMobile ? '12px' : '14px' }}>
           ${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </Text>
       )
@@ -614,10 +639,11 @@ function MagicLinkCustomerDashboard() {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
-        <Space>
+        <Space direction={isMobile ? 'vertical' : 'horizontal'} className={isMobile ? 'w-full' : ''}>
           <Button
             type="primary"
             size="small"
+            block={isMobile}
             onClick={() => navigate(`/portal/job/${record.id}`)}
             style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
           >
@@ -626,6 +652,8 @@ function MagicLinkCustomerDashboard() {
           <Button
             type="link"
             icon={<FiEye />}
+            size={isMobile ? 'small' : 'default'}
+            block={isMobile}
             onClick={() => navigate(`/portal/jobs/${record.id}`)}
           >
             Details
@@ -641,13 +669,13 @@ function MagicLinkCustomerDashboard() {
 
   return (
     <>
-        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-          <Card style={{ marginBottom: '24px' }}>
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                    <Title level={2} style={{ margin: 0, color: primaryColor }}>
+        <div className="px-3 sm:px-6" style={{ maxWidth: '1400px', margin: '0 auto' }}>
+          <Card className="mb-4 sm:mb-6">
+            <Space direction="vertical" size={isMobile ? "middle" : "large"} style={{ width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: isMobile ? '12px' : '16px' }}>
+                <div className="flex-1 min-w-0">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                    <Title level={isMobile ? 3 : 2} style={{ margin: 0, color: primaryColor }}>
                       Welcome, {clientInfo?.name || 'Customer'}!
                     </Title>
                     {isVerified && (
@@ -655,8 +683,8 @@ function MagicLinkCustomerDashboard() {
                         icon={<FiShield />} 
                         color="success" 
                         style={{ 
-                          fontSize: '12px', 
-                          padding: '4px 8px',
+                          fontSize: isMobile ? '11px' : '12px', 
+                          padding: isMobile ? '2px 6px' : '4px 8px',
                           borderRadius: '12px'
                         }}
                       >
@@ -664,20 +692,22 @@ function MagicLinkCustomerDashboard() {
                       </Tag>
                     )}
                   </div>
-                  <Paragraph type="secondary" style={{ margin: '0' }}>
+                  <Paragraph type="secondary" style={{ margin: '0', fontSize: isMobile ? '13px' : '14px' }}>
                     {isVerified 
                       ? `You have full access to all your projects with ${branding?.companyName}.`
                       : 'View and manage your proposals and projects below.'
                     }
                   </Paragraph>
                 </div>
-                <Space>
+                <Space direction={isMobile ? 'vertical' : 'horizontal'} className={isMobile ? 'w-full' : ''}>
                   {!isVerified && (allowMultiJob || proposals.length > 0) && (
                     <Button
                       type="default"
                       icon={<FiUnlock />}
                       onClick={requestOTP}
                       loading={otpLoading}
+                      block={isMobile}
+                      size={isMobile ? 'middle' : 'default'}
                       style={{ 
                         borderColor: primaryColor,
                         color: primaryColor
@@ -690,7 +720,8 @@ function MagicLinkCustomerDashboard() {
                     type="primary"
                     icon={<FiCalendar />}
                     onClick={() => navigate('/portal/calendar')}
-                    size="large"
+                    size={isMobile ? 'middle' : 'large'}
+                    block={isMobile}
                     style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
                   >
                     View Calendar
@@ -707,7 +738,7 @@ function MagicLinkCustomerDashboard() {
                         You may have multiple projects with {branding?.companyName}. 
                         Verify your identity to access all of them and see your complete project history.
                       </Text>
-                      <Space>
+                      <Space className='flex flex-wrap'>
                         <Button
                           type="primary"
                           icon={<FiUnlock />}
@@ -775,13 +806,14 @@ function MagicLinkCustomerDashboard() {
             <Tabs
               activeKey={activeTab}
               onChange={setActiveTab}
+              size={isMobile ? 'small' : 'default'}
               items={[
                 {
                   key: 'proposals',
                   label: (
-                    <span>
+                    <span className={isMobile ? 'text-xs' : ''}>
                             <FiDollarSign style={{ marginRight: '8px' }} />
-                            Proposals {filteredQuotes.length > 0 && `(${filteredQuotes.length})`}
+                            {isMobile ? 'Proposals' : `Proposals ${filteredQuotes.length > 0 ? `(${filteredQuotes.length})` : ''}`}
                     </span>
                   ),
                   children: (
@@ -790,8 +822,8 @@ function MagicLinkCustomerDashboard() {
                         <Alert
                           message="Limited View"
                           description={
-                            <Space>
-                              <Text>You're seeing a limited view. Verify your identity to access all your projects.</Text>
+                            <Space className='flex flex-wrap'>
+                              <Text style={{ fontSize: isMobile ? '12px' : '14px' }}>You're seeing a limited view. Verify your identity to access all your projects.</Text>
                               <Button 
                                 type="link" 
                                 size="small" 
@@ -805,7 +837,7 @@ function MagicLinkCustomerDashboard() {
                           }
                           type="warning"
                           showIcon
-                          style={{ marginBottom: '16px' }}
+                          style={{ marginBottom: isMobile ? '12px' : '16px' }}
                         />
                       )}
                       <Table
@@ -813,21 +845,27 @@ function MagicLinkCustomerDashboard() {
                         dataSource={filteredQuotes}
                         loading={loading}
                         rowKey="id"
-                        pagination={{ pageSize: 10 }}
-                        scroll={{ x: 1200 }}
+                        pagination={{ 
+                          pageSize: isMobile ? 5 : 10,
+                          simple: isMobile,
+                          showSizeChanger: !isMobile
+                        }}
+                        scroll={{ x: isMobile ? 600 : 1200 }}
+                        size={isMobile ? 'small' : 'default'}
                         locale={{
                           emptyText: !isVerified && (allowMultiJob || proposals.length === 0) 
                             ? (
-                              <div style={{ padding: '40px', textAlign: 'center' }}>
-                                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
-                                <Title level={4} type="secondary">No Proposals Visible</Title>
-                                <Paragraph type="secondary">
+                              <div style={{ padding: isMobile ? '20px' : '40px', textAlign: 'center' }}>
+                                <div style={{ fontSize: isMobile ? '32px' : '48px', marginBottom: isMobile ? '12px' : '16px' }}>🔒</div>
+                                <Title level={isMobile ? 5 : 4} type="secondary">No Proposals Visible</Title>
+                                <Paragraph type="secondary" style={{ fontSize: isMobile ? '12px' : '14px' }}>
                                   You may have additional projects that require verification to view.
                                 </Paragraph>
                                 <Button 
                                   type="primary" 
                                   onClick={requestOTP}
                                   loading={otpLoading}
+                                  block={isMobile}
                                   style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
                                 >
                                   Verify to See All Projects
@@ -843,9 +881,9 @@ function MagicLinkCustomerDashboard() {
                 {
                   key: 'jobs',
                   label: (
-                    <span>
+                    <span className={isMobile ? 'text-xs' : ''}>
                       <FiClock style={{ marginRight: '8px' }} />
-                      Active Jobs {filteredJobs.length > 0 && `(${filteredJobs.length})`}
+                      {isMobile ? 'Jobs' : `Active Jobs ${filteredJobs.length > 0 ? `(${filteredJobs.length})` : ''}`}
                     </span>
                   ),
                   children: (
@@ -854,8 +892,8 @@ function MagicLinkCustomerDashboard() {
                         <Alert
                           message="Limited View"
                           description={
-                            <Space>
-                              <Text>You're seeing a limited view. Verify your identity to access all your jobs.</Text>
+                            <Space className='flex flex-wrap'>
+                              <Text style={{ fontSize: isMobile ? '12px' : '14px' }}>You're seeing a limited view. Verify your identity to access all your jobs.</Text>
                               <Button 
                                 type="link" 
                                 size="small" 
@@ -869,7 +907,7 @@ function MagicLinkCustomerDashboard() {
                           }
                           type="warning"
                           showIcon
-                          style={{ marginBottom: '16px' }}
+                          style={{ marginBottom: isMobile ? '12px' : '16px' }}
                         />
                       )}
                       <Table
@@ -877,20 +915,27 @@ function MagicLinkCustomerDashboard() {
                         dataSource={filteredJobs}
                         loading={loading}
                         rowKey="id"
-                        pagination={{ pageSize: 10 }}
+                        pagination={{ 
+                          pageSize: isMobile ? 5 : 10,
+                          simple: isMobile,
+                          showSizeChanger: !isMobile
+                        }}
+                        scroll={{ x: isMobile ? 500 : 'max-content' }}
+                        size={isMobile ? 'small' : 'default'}
                         locale={{
                           emptyText: !isVerified && (allowMultiJob || jobs.length === 0)
                             ? (
-                              <div style={{ padding: '40px', textAlign: 'center' }}>
-                                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
-                                <Title level={4} type="secondary">No Jobs Visible</Title>
-                                <Paragraph type="secondary">
+                              <div style={{ padding: isMobile ? '20px' : '40px', textAlign: 'center' }}>
+                                <div style={{ fontSize: isMobile ? '32px' : '48px', marginBottom: isMobile ? '12px' : '16px' }}>🔒</div>
+                                <Title level={isMobile ? 5 : 4} type="secondary">No Jobs Visible</Title>
+                                <Paragraph type="secondary" style={{ fontSize: isMobile ? '12px' : '14px' }}>
                                   You may have additional jobs that require verification to view.
                                 </Paragraph>
                                 <Button 
                                   type="primary" 
                                   onClick={requestOTP}
                                   loading={otpLoading}
+                                  block={isMobile}
                                   style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
                                 >
                                   Verify to See All Jobs
@@ -913,7 +958,7 @@ function MagicLinkCustomerDashboard() {
         title={
           <Space>
             <FiShield />
-            <span>Verify Your Identity</span>
+            <span style={{ fontSize: isMobile ? '14px' : '16px' }}>Verify Your Identity</span>
           </Space>
         }
         open={showOTPModal}
@@ -929,30 +974,34 @@ function MagicLinkCustomerDashboard() {
           style: { backgroundColor: primaryColor, borderColor: primaryColor },
           disabled: otpCode.length !== 6
         }}
-        width={500}
+        width={isMobile ? '90%' : 500}
+        centered={isMobile}
+        style={isMobile ? { top: 20 } : {}}
       >
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+        <Space direction="vertical" size={isMobile ? "middle" : "large"} style={{ width: '100%' }}>
+          <div style={{ textAlign: 'center', padding: isMobile ? '12px 0' : '20px 0' }}>
             <div style={{ 
-              fontSize: '48px', 
+              fontSize: isMobile ? '36px' : '48px', 
               color: primaryColor, 
-              marginBottom: '16px' 
+              marginBottom: isMobile ? '8px' : '16px' 
             }}>
               📧
             </div>
-            <Title level={4} style={{ margin: 0, color: primaryColor }}>
+            <Title level={isMobile ? 5 : 4} style={{ margin: 0, color: primaryColor }}>
               Check Your Email
             </Title>
           </div>
           
-          <Paragraph style={{ textAlign: 'center', fontSize: '16px' }}>
+          <Paragraph style={{ textAlign: 'center', fontSize: isMobile ? '13px' : '16px' }}>
             We sent a 6-digit verification code to:
             <br />
-            <Text strong style={{ fontSize: '18px' }}>{clientInfo?.email}</Text>
+            <Text strong style={{ fontSize: isMobile ? '14px' : '18px', wordBreak: 'break-word' }}>
+              {clientInfo?.email}
+            </Text>
           </Paragraph>
           
           <div style={{ textAlign: 'center' }}>
-            <Text type="secondary" style={{ marginBottom: '8px', display: 'block' }}>
+            <Text type="secondary" style={{ marginBottom: '8px', display: 'block', fontSize: isMobile ? '12px' : '14px' }}>
               Enter the code below:
             </Text>
             <Input
@@ -960,13 +1009,13 @@ function MagicLinkCustomerDashboard() {
               value={otpCode}
               onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               maxLength={6}
-              size="large"
+              size={isMobile ? 'middle' : 'large'}
               style={{ 
-                fontSize: '32px',
+                fontSize: isMobile ? '24px' : '32px',
                 textAlign: 'center',
-                letterSpacing: '8px',
+                letterSpacing: isMobile ? '4px' : '8px',
                 fontWeight: 'bold',
-                height: '60px',
+                height: isMobile ? '48px' : '60px',
                 borderRadius: '8px',
                 border: `2px solid ${primaryColor}20`,
                 backgroundColor: '#fafafa'
@@ -976,14 +1025,15 @@ function MagicLinkCustomerDashboard() {
           </div>
           
           <div style={{ textAlign: 'center' }}>
-            <Text type="secondary" style={{ fontSize: '14px', marginBottom: '12px', display: 'block' }}>
+            <Text type="secondary" style={{ fontSize: isMobile ? '12px' : '14px', marginBottom: '12px', display: 'block' }}>
               Code expires in 10 minutes
             </Text>
             <Button 
               type="link" 
               onClick={requestOTP} 
               loading={otpLoading}
-              style={{ padding: 0, height: 'auto' }}
+              size={isMobile ? 'small' : 'default'}
+              style={{ padding: 0, height: 'auto', fontSize: isMobile ? '12px' : '14px' }}
             >
               Didn't receive the code? Send again
             </Button>
@@ -994,7 +1044,7 @@ function MagicLinkCustomerDashboard() {
             description="Verification allows you to see all your projects with this contractor in one place, track job progress, and access your complete project history."
             type="info"
             showIcon
-            style={{ marginTop: '16px' }}
+            style={{ marginTop: isMobile ? '8px' : '16px', fontSize: isMobile ? '12px' : '14px' }}
           />
         </Space>
       </Modal>

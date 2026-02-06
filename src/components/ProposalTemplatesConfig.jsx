@@ -401,33 +401,37 @@ ${sampleData.payment.paymentTermsText}</div>
             <div className="space-y-4">
               <div>
                 <Text strong className="block mb-2">Display Options</Text>
-                <Space direction="vertical" className="w-full">
-                  <div className="flex justify-between items-center">
-                    <Text>Show Company Logo</Text>
+                <Space direction="vertical" className="w-full" size="middle">
+                  <div className="flex justify-between items-center py-1">
+                    <Text className="text-sm sm:text-base">Show Company Logo</Text>
                     <Switch
                       checked={templateSettings.showCompanyLogo}
                       onChange={(checked) => handleSettingChange('showCompanyLogo', checked)}
+                      size="default"
                     />
                   </div>
-                  <div className="flex justify-between items-center">
-                    <Text>Show Area Breakdown</Text>
+                  <div className="flex justify-between items-center py-1">
+                    <Text className="text-sm sm:text-base">Show Area Breakdown</Text>
                     <Switch
                       checked={templateSettings.showAreaBreakdown}
                       onChange={(checked) => handleSettingChange('showAreaBreakdown', checked)}
+                      size="default"
                     />
                   </div>
-                  <div className="flex justify-between items-center">
-                    <Text>Show Product Details</Text>
+                  <div className="flex justify-between items-center py-1">
+                    <Text className="text-sm sm:text-base">Show Product Details</Text>
                     <Switch
                       checked={templateSettings.showProductDetails}
                       onChange={(checked) => handleSettingChange('showProductDetails', checked)}
+                      size="default"
                     />
                   </div>
-                  <div className="flex justify-between items-center">
-                    <Text>Show Warranty Section</Text>
+                  <div className="flex justify-between items-center py-1">
+                    <Text className="text-sm sm:text-base">Show Warranty Section</Text>
                     <Switch
                       checked={templateSettings.showWarrantySection}
                       onChange={(checked) => handleSettingChange('showWarrantySection', checked)}
+                      size="default"
                     />
                   </div>
                 </Space>
