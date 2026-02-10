@@ -39,6 +39,7 @@ dependencies:
   cloudinary_public: ^0.23.1
   dropdown_textfield: ^1.2.0
   syncfusion_flutter_pdfviewer: ^28.2.4
+  cached_network_image: ^3.4.1
 
 dependency_overrides:
   # Required by arkit_plugin >=1.2.0 which uses Matrix4.scaleByVector3

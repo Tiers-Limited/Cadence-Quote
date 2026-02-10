@@ -9,6 +9,7 @@ import 'package:primechoice/core/utils/theme/widget_themes/button_theme.dart';
 import 'package:primechoice/core/services/profile_service.dart';
 import 'package:primechoice/core/widgets/profile_image_shimmer.dart';
 import 'package:primechoice/view_model/profile_controller.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -235,19 +236,14 @@ class AvatarWithCamera extends StatelessWidget {
               child: SizedBox(
                 width: 80,
                 height: 80,
-                child: Image.network(
-                  url,
+                child: CachedNetworkImage(
+                  imageUrl: url,
                   fit: BoxFit.cover,
-                  loadingBuilder: (ctx, child, progress) {
-                    if (progress == null) return child;
-                    return const ShimmerCircle(size: 80);
-                  },
-                  errorBuilder: (ctx, err, stack) {
-                    return const CircleAvatar(
-                      radius: 40,
-                      backgroundImage: AssetImage(MyImages.user),
-                    );
-                  },
+                  placeholder: (context, url) => const ShimmerCircle(size: 80),
+                  errorWidget: (context, url, error) => const CircleAvatar(
+                    radius: 40,
+                    backgroundImage: AssetImage(MyImages.user),
+                  ),
                 ),
               ),
             );
