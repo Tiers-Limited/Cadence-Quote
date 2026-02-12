@@ -68,8 +68,11 @@ const ContractorProductConfigManager = () => {
     const [savingLaborRate, setSavingLaborRate] = useState(false);
     const [deletingLaborRate, setDeletingLaborRate] = useState(null);
     const [loadingEditData, setLoadingEditData] = useState(false);
-    // Removed: customModalVisible state - no longer needed with unified modal
-    // Removed: customForm - no longer needed with unified modal
+    const [loadedTabs, setLoadedTabs] = useState({
+        labor: false,
+        products: false,
+        markup: false
+    });
 
     // API Error Handler Function
     const handleApiError = (error, defaultMessage = 'An error occurred') => {
@@ -126,24 +129,28 @@ const ContractorProductConfigManager = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Fetch initial data
+    // Fetch data based on active tab
     useEffect(() => {
-        // Cancel previous request if exists
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
+        const abortController = new AbortController();
+        const signal = abortController.signal;
+
+        if (activeTab === 'labor' && !loadedTabs.labor) {
+            fetchLaborTabData(signal);
+        } else if (activeTab === 'products' && !loadedTabs.products) {
+            fetchProductTabData(signal);
+        } else if (activeTab === 'markup' && !loadedTabs.markup) {
+            // If labor tab already loaded defaults, we're good
+            if (laborDefaults) {
+                setLoadedTabs(prev => ({ ...prev, markup: true }));
+            } else {
+                fetchMarkupTabData(signal);
+            }
         }
 
-        abortControllerRef.current = new AbortController();
-        const signal = abortControllerRef.current.signal;
-
-        fetchAllData(signal);
-
         return () => {
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
+            abortController.abort();
         };
-    }, []);
+    }, [activeTab]);
 
     // Populate markup form when laborDefaults loads
     useEffect(() => {
@@ -206,31 +213,88 @@ const ContractorProductConfigManager = () => {
         }
     }, [laborDefaults, markupForm]);
 
-    const fetchAllData = async (signal) => {
+    const fetchProductTabData = async (signal) => {
         setLoading(true);
         try {
-            const [brandsRes, configsRes, defaultsRes, schemesRes] = await Promise.all([
+            const [brandsRes, configsRes] = await Promise.all([
                 apiService.getAdminBrands({ signal }),
                 apiService.getProductConfigs({ signal }),
-                apiService.getProductConfigDefaults({ signal }),
-                apiService.getPricingSchemes({ signal }),
             ]);
 
             if (signal && signal.aborted) return;
 
             setBrands(brandsRes.data || []);
             setConfigs(configsRes?.data || []);
-            setLaborDefaults(defaultsRes.data || null);
-            setPricingSchemes(schemesRes.data || []);
+            setLoadedTabs(prev => ({ ...prev, products: true }));
         } catch (error) {
-            if (isAbortError(error)) {
-                console.log('Fetch all data aborted');
-                return;
-            }
-            handleApiError(error, 'Failed to load data');
+            if (isAbortError(error)) return;
+            handleApiError(error, 'Failed to load product data');
         } finally {
-            if (signal && !signal.aborted) {
+            if (!signal || !signal.aborted) {
                 setLoading(false);
+            }
+        }
+    };
+
+    const fetchLaborTabData = async (signal) => {
+        setLaborLoading(true);
+        setLoading(true); // Also set global loading for schemes
+        try {
+            const [schemesRes, defaultsRes, categoriesRes, ratesRes] = await Promise.all([
+                apiService.getPricingSchemes({ signal }),
+                apiService.getProductConfigDefaults({ signal }),
+                apiService.get('/labor-categories', null, { signal }),
+                apiService.get('/labor-categories/rates', null, { signal }),
+            ]);
+
+            if (signal && signal.aborted) return;
+
+            if (defaultsRes.success) setLaborDefaults(defaultsRes.data || null);
+            if (schemesRes.success) setPricingSchemes(schemesRes.data || []);
+
+            if (categoriesRes.success) {
+                const cats = categoriesRes.data || [];
+                setLaborCategories(cats);
+                const ratesObj = {};
+                const ratesMap = {};
+                if (ratesRes.success && Array.isArray(ratesRes.data)) {
+                    ratesRes.data.forEach((rateRecord) => {
+                        ratesMap[rateRecord.laborCategoryId] = parseFloat(rateRecord.rate) || 0;
+                    });
+                }
+                cats.forEach((cat) => {
+                    ratesObj[cat.id] = ratesMap[cat.id] || 0;
+                });
+                setLaborRates(ratesObj);
+            }
+
+            setLoadedTabs(prev => ({ ...prev, labor: true }));
+        } catch (error) {
+            if (isAbortError(error)) return;
+            handleApiError(error, 'Failed to load labor data');
+        } finally {
+            if (!signal || !signal.aborted) {
+                setLaborLoading(false);
+                setLoading(false);
+            }
+        }
+    };
+
+    const fetchMarkupTabData = async (signal) => {
+        setSavingSettings(true); // Using this as a loading indicator for markup
+        try {
+            const defaultsRes = await apiService.getProductConfigDefaults({ signal });
+
+            if (signal && signal.aborted) return;
+
+            if (defaultsRes.success) setLaborDefaults(defaultsRes.data || null);
+            setLoadedTabs(prev => ({ ...prev, markup: true }));
+        } catch (error) {
+            if (isAbortError(error)) return;
+            handleApiError(error, 'Failed to load markup settings');
+        } finally {
+            if (!signal || !signal.aborted) {
+                setSavingSettings(false);
             }
         }
     };
@@ -320,15 +384,7 @@ const ContractorProductConfigManager = () => {
         }
     }, [modalBrandFilter, modalCategoryFilter, modalSearchText, modalVisible, customMode, editingConfig]);
 
-    // Load labor categories + rates for Pricing Engine
-    useEffect(() => {
-        const abortController = new AbortController();
-        fetchLaborData(abortController.signal);
 
-        return () => {
-            abortController.abort();
-        };
-    }, []);
 
     const fetchLaborData = async (signal) => {
         try {
@@ -650,16 +706,30 @@ const ContractorProductConfigManager = () => {
                 payload.globalProductId = values.globalProductId;
             }
 
+            let response;
             if (editingConfig) {
-                await apiService.updateProductConfig(editingConfig.id, payload);
+                response = await apiService.updateProductConfig(editingConfig.id, payload);
                 message.success('Product updated successfully');
+
+                // Update local configs state optimistically
+                if (response && response.data) {
+                    setConfigs(prev => prev.map(c => (c.id === response.data.id ? response.data : c)));
+                }
             } else {
-                await apiService.createProductConfig(payload);
+                response = await apiService.createProductConfig(payload);
                 message.success('Product created successfully');
+
+                // Prepend created config to local list so UI updates immediately
+                if (response && response.data) {
+                    setConfigs(prev => [response.data, ...prev]);
+                }
             }
 
             setModalVisible(false);
             form.resetFields();
+
+            // Refresh from server to ensure consistency (cache invalidation should be fast)
+            // but do it after optimistically updating UI so user sees immediate result.
             fetchConfigs();
         } catch (error) {
             if (error.errorFields) {
@@ -1147,7 +1217,7 @@ const ContractorProductConfigManager = () => {
         if (loading) {
             return (
                 <div className="text-center py-8">
-                        
+
                     <div className="text-gray-500 mt-4">Loading pricing schemes...</div>
                 </div>
             );

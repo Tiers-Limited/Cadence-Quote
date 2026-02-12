@@ -43,3 +43,7 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: #1d4ed8;
 }
+.ant-switch{
+  height: auto;
+  min-height: auto;
+}
