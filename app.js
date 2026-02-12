@@ -14,8 +14,7 @@ const passport = require('passport');
 const dotenv = require('dotenv');
 dotenv.config();
 
-// Import optimization system
-const { optimizationSystem } = require('./optimization');
+
 
 // Import routes
 const indexRouter = require('./routes/index');
@@ -63,20 +62,20 @@ app.use(passport.initialize());
 // Middleware
 // Configure helmet but allow iframe embedding from the frontend dev origin for document previews.
 const helmetOptions = {
-  // Disable frameguard so we can control frame-ancestors via CSP (modern browsers prefer CSP over X-Frame-Options)
-  frameguard: false,
-  // Disable the default CSP to avoid conflicting policies; we'll set a permissive frame-ancestors header below for dev.
-  contentSecurityPolicy: false
+    // Disable frameguard so we can control frame-ancestors via CSP (modern browsers prefer CSP over X-Frame-Options)
+    frameguard: false,
+    // Disable the default CSP to avoid conflicting policies; we'll set a permissive frame-ancestors header below for dev.
+    contentSecurityPolicy: false
 };
 app.use(helmet(helmetOptions));  // Security headers with frameguard disabled
 app.use(cors());  // Enable CORS for frontend
 
 // Allow iframe embedding from the frontend dev server (adjust via CLIENT_ORIGIN env var in other environments)
 app.use((req, res, next) => {
-  const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
-  // Use CSP frame-ancestors to allow iframe embedding from the client origin and self
-  res.setHeader('Content-Security-Policy', `frame-ancestors 'self' ${clientOrigin}`);
-  next();
+    const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+    // Use CSP frame-ancestors to allow iframe embedding from the client origin and self
+    res.setHeader('Content-Security-Policy', `frame-ancestors 'self' ${clientOrigin}`);
+    next();
 });
 
 // Webhook routes MUST come before JSON parser (needs raw body)
@@ -90,25 +89,12 @@ app.use(express.urlencoded({ limit: bodyParserLimit, extended: true }));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 1000  // Limit each IP to 100 requests per windowMs
+    windowMs: 15 * 60 * 1000,  // 15 minutes
+    max: 1000  // Limit each IP to 100 requests per windowMs
 });
 app.use(limiter);
 
-// Initialize optimization system
-optimizationSystem.initialize().catch(error => {
-  console.error('Failed to initialize optimization system:', error);
-});
 
-// Add optimization middleware (after initialization)
-app.use((req, res, next) => {
-  // Add optimization utilities to request object
-  if (optimizationSystem.initialized) {
-    const utils = optimizationSystem.getUtils();
-    req.optimization = utils;
-  }
-  next();
-});
 
 
 // view engine setup
@@ -125,118 +111,14 @@ app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
 // Health check endpoint (before tenant resolution)
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Optimization system health endpoint
-app.get('/health/optimization', async (req, res) => {
-  try {
-    const health = await optimizationSystem.getSystemHealth();
-    res.json(health);
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to get optimization system health',
-      error: error.message
-    });
-  }
-});
 
-// Optimization metrics endpoint
-app.get('/metrics/optimization', async (req, res) => {
-  try {
-    if (!optimizationSystem.initialized) {
-      return res.status(503).json({
-        status: 'not_initialized',
-        message: 'Optimization system not initialized'
-      });
-    }
 
-    const utils = optimizationSystem.getUtils();
-    const metrics = {
-      performance: await utils.performanceMonitor.getMetrics(),
-      cache: utils.cache ? await utils.cache.getHealth() : { enabled: false },
-      database: utils.queryOptimizer ? await utils.queryOptimizer.getStats() : { enabled: false }
-    };
 
-    res.json({
-      status: 'success',
-      timestamp: new Date().toISOString(),
-      metrics
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to get optimization metrics',
-      error: error.message
-    });
-  }
-});
 
-// Database index report endpoint (development only)
-app.get('/metrics/indexes', async (req, res) => {
-  try {
-    if (process.env.NODE_ENV === 'production') {
-      return res.status(403).json({
-        status: 'forbidden',
-        message: 'Index metrics not available in production'
-      });
-    }
 
-    if (!optimizationSystem.initialized) {
-      return res.status(503).json({
-        status: 'not_initialized',
-        message: 'Optimization system not initialized'
-      });
-    }
-
-    const utils = optimizationSystem.getUtils();
-    const indexReport = await utils.performanceMonitor.getIndexReport?.() || { enabled: false };
-
-    res.json({
-      status: 'success',
-      timestamp: new Date().toISOString(),
-      indexReport
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to get index report',
-      error: error.message
-    });
-  }
-});
-
-// Initialize optimization system and apply middleware
-(async () => {
-  try {
-    await optimizationSystem.initialize();
-    console.log('✓ API Optimization System initialized');
-    
-    // Apply optimization middleware
-    const middleware = optimizationSystem.getMiddleware();
-    
-    // Apply performance monitoring middleware
-    if (middleware.performanceMonitoring) {
-      app.use(middleware.performanceMonitoring);
-    }
-    
-    // Apply compression middleware
-    if (middleware.compression) {
-      app.use(middleware.compression);
-    }
-    
-    // Apply cache middleware (if available)
-    if (middleware.cache) {
-      app.use(middleware.cache);
-    }
-    
-    console.log('✓ Optimization middleware applied');
-  } catch (error) {
-    console.error('⚠️  Failed to initialize optimization system:', error.message);
-    console.log('ℹ  Server will continue without optimizations');
-  }
-})();
 
 // Apply tenant resolution middleware (skips public routes)
 // app.use(resolveTenant);
@@ -274,92 +156,103 @@ app.use('/api/v1/admin/status', adminStatusRouter); // Admin Status Management (
 app.use('/api/v1', apiRouter);
 
 // catch 404 and forward to error handler
-app.use(function(req, res, next) {
-  next(createError(404));
+app.use(function (req, res, next) {
+    next(createError(404));
 });
 
 // error handler
-app.use(function(err, req, res, next) {
-  // set locals, only providing error in development
-  res.locals.message = err.message;
-  res.locals.error = req.app.get('env') === 'development' ? err : {};
+app.use(function (err, req, res, next) {
+    // set locals, only providing error in development
+    const error = req.app.get('env') === 'development' ? err : {};
+    const status = err.status || 500;
 
-  // render the error page
-  res.status(err.status || 500);
-  res.render('error');
+    // Log error
+    if (status >= 500) {
+        console.error(`[Error] ${req.method} ${req.url}:`, err.message);
+    }
+
+    // Return JSON for API requests
+    if (req.path.startsWith('/api') || req.headers.accept?.includes('application/json')) {
+        return res.status(status).json({
+            success: false,
+            message: err.message || 'Internal Server Error',
+            error: req.app.get('env') === 'development' ? err.stack : undefined
+        });
+    }
+
+    // render the error page for non-API requests
+    res.status(status);
+    res.render('error', { message: err.message, error });
 });
 
 // Sync DB on start (use migrations in prod)
 // Wrapped in async to handle errors gracefully
 (async () => {
-  try {
-    // Sync database with alter to update schema changes
-    const syncOptions = process.env.NODE_ENV === 'development' 
-      ? { alter: true } // Alter tables to match models
-      : { force: false };
-    
-    console.log('🔄 Syncing database with options:', syncOptions);
-    await sequelize.sync(syncOptions);
-    console.log('✓ Database sync completed successfully');
-    
-    // Check for existing users (this runs at startup, not after registration)
-    const userCount = await User.count();
-    console.log(`✓ Database connected. Current user count: ${userCount}`);
-    
-    if (userCount > 0) {
-      const users = await User.findAll({
-        attributes: ['id', 'fullName', 'email', 'authProvider', 'isActive'],
-        limit: 5
-      });
-      console.log('✓ Sample users:', JSON.stringify(users, null, 2));
-    } else {
-      console.log('ℹ No users in database yet. Users will be created during registration.');
-    }
+    try {
+        // Sync database with alter to update schema changes
+        const syncOptions = process.env.NODE_ENV === 'development'
+            ? { alter: true } // Alter tables to match models
+            : { force: false };
 
-    // Start Lead Reminder Job (check for uncontacted leads every 5 minutes)
-    if (process.env.ENABLE_LEAD_REMINDERS !== 'false') {
-      const leadReminderJob = require('./jobs/leadReminderJob');
-      leadReminderJob.start();
-      console.log('✓ Lead Reminder Job started');
-    } else {
-      console.log('ℹ Lead Reminder Job disabled (ENABLE_LEAD_REMINDERS=false)');
-    }
+        console.log('🔄 Syncing database with options:', syncOptions);
+        await sequelize.sync(syncOptions);
+        console.log('✓ Database sync completed successfully');
 
-      // Start Portal Lock Job (locks expired customer portals)
-      if (process.env.ENABLE_PORTAL_LOCK_JOB !== 'false') {
-        const portalLockJob = require('./jobs/portalLockJob');
-        portalLockJob.start();
-        console.log('✓ Portal Lock Job started');
-      } else {
-        console.log('ℹ Portal Lock Job disabled (ENABLE_PORTAL_LOCK_JOB=false)');
-      }
-      
-    // Setup graceful shutdown for optimization system
-    const gracefulShutdown = async (signal) => {
-      console.log(`\n🔄 Received ${signal}, starting graceful shutdown...`);
-      
-      try {
-        if (optimizationSystem.initialized) {
-          await optimizationSystem.shutdown();
+        // Check for existing users (this runs at startup, not after registration)
+        const userCount = await User.count();
+        console.log(`✓ Database connected. Current user count: ${userCount}`);
+
+        if (userCount > 0) {
+            const users = await User.findAll({
+                attributes: ['id', 'fullName', 'email', 'authProvider', 'isActive'],
+                limit: 5
+            });
+            console.log('✓ Sample users:', JSON.stringify(users, null, 2));
+        } else {
+            console.log('ℹ No users in database yet. Users will be created during registration.');
         }
-        
-        await sequelize.close();
-        console.log('✅ Graceful shutdown completed');
-        process.exit(0);
-      } catch (error) {
-        console.error('❌ Error during shutdown:', error);
-        process.exit(1);
-      }
-    };
-    
-    // Handle shutdown signals
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    
-  } catch (error) {
-    console.error('✗ Database sync failed:', error.message);
-   
-  }
+
+        // Start Lead Reminder Job (check for uncontacted leads every 5 minutes)
+        if (process.env.ENABLE_LEAD_REMINDERS !== 'false') {
+            const leadReminderJob = require('./jobs/leadReminderJob');
+            leadReminderJob.start();
+            console.log('✓ Lead Reminder Job started');
+        } else {
+            console.log('ℹ Lead Reminder Job disabled (ENABLE_LEAD_REMINDERS=false)');
+        }
+
+        // Start Portal Lock Job (locks expired customer portals)
+        if (process.env.ENABLE_PORTAL_LOCK_JOB !== 'false') {
+            const portalLockJob = require('./jobs/portalLockJob');
+            portalLockJob.start();
+            console.log('✓ Portal Lock Job started');
+        } else {
+            console.log('ℹ Portal Lock Job disabled (ENABLE_PORTAL_LOCK_JOB=false)');
+        }
+
+        // Setup graceful shutdown for optimization system
+        const gracefulShutdown = async (signal) => {
+            console.log(`\n🔄 Received ${signal}, starting graceful shutdown...`);
+
+            try {
+
+                await sequelize.close();
+                console.log('✅ Graceful shutdown completed');
+                process.exit(0);
+            } catch (error) {
+                console.error('❌ Error during shutdown:', error);
+                process.exit(1);
+            }
+        };
+
+        // Handle shutdown signals
+        process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+        process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+    } catch (error) {
+        console.error('✗ Database sync failed:', error.message);
+
+    }
 })();
 
 module.exports = app;
