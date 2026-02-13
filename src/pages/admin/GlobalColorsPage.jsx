@@ -41,9 +41,9 @@ const GlobalColorsPage = () => {
     fetchBrands();
   }, []);
 
-  useEffect(() => {
-    fetchColors();
-  }, [pagination.current, selectedBrandFilter]);
+  // useEffect(() => {
+  //   fetchColors();
+  // }, [pagination.current, selectedBrandFilter]);
 
   // Debounced search
   useEffect(() => {

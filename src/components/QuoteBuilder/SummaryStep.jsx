@@ -270,7 +270,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
     }, [isProductionBased, formData.areas, formData.contractorSettings]);
 
     useEffect(() => {
-        calculateQuote();
+        // calculateQuote();
         fetchProducts();
     }, []);
 
@@ -376,7 +376,10 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                     includeMaterials: formData.includeMaterials,
                     coverage: formData.coverage,
                     applicationMethod: formData.applicationMethod,
-                    coats: formData.coats
+                    coats: formData.coats,
+                    // Crew size and material toggle overrides
+                    paintersOnSite: formData.paintersOnSite,
+                    laborOnly: formData.laborOnly
                 }
             );
             console.log('Calculate Quote Response:', response);
@@ -2139,7 +2142,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 <Col xs={24} md={8}>
                                     <Statistic
                                         title="Crew Size"
-                                        value={formData.contractorSettings?.other?.crewSize || 2}
+                                        value={formData?.paintersOnSite || formData.contractorSettings?.other?.crewSize || 1}
                                         suffix="workers"
                                         valueStyle={{ fontSize: isMobile ? 20 : 24 }}
                                     />
@@ -2150,7 +2153,7 @@ const SummaryStep = ({ formData, onUpdate, onPrevious, onEdit, pricingSchemes, t
                                 <Col xs={24} md={8}>
                                     <Statistic
                                         title="Est. Days to Complete"
-                                        value={(totalEstimatedHours / ((formData.contractorSettings?.other?.crewSize || 2) * 8)).toFixed(1)}
+                                        value={Math.ceil(totalEstimatedHours / ((formData.contractorSettings?.other?.crewSize || 2) * 8)).toFixed(1)}
                                         suffix="days"
                                         valueStyle={{ fontSize: isMobile ? 20 : 24 }}
                                     />

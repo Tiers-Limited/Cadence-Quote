@@ -68,11 +68,8 @@ const ContractorProductConfigManager = () => {
     const [savingLaborRate, setSavingLaborRate] = useState(false);
     const [deletingLaborRate, setDeletingLaborRate] = useState(null);
     const [loadingEditData, setLoadingEditData] = useState(false);
-    const [loadedTabs, setLoadedTabs] = useState({
-        labor: false,
-        products: false,
-        markup: false
-    });
+    // Removed: customModalVisible state - no longer needed with unified modal
+    // Removed: customForm - no longer needed with unified modal
 
     // API Error Handler Function
     const handleApiError = (error, defaultMessage = 'An error occurred') => {
@@ -129,28 +126,24 @@ const ContractorProductConfigManager = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Fetch data based on active tab
+    // Fetch initial data
     useEffect(() => {
-        const abortController = new AbortController();
-        const signal = abortController.signal;
-
-        if (activeTab === 'labor' && !loadedTabs.labor) {
-            fetchLaborTabData(signal);
-        } else if (activeTab === 'products' && !loadedTabs.products) {
-            fetchProductTabData(signal);
-        } else if (activeTab === 'markup' && !loadedTabs.markup) {
-            // If labor tab already loaded defaults, we're good
-            if (laborDefaults) {
-                setLoadedTabs(prev => ({ ...prev, markup: true }));
-            } else {
-                fetchMarkupTabData(signal);
-            }
+        // Cancel previous request if exists
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
         }
 
+        abortControllerRef.current = new AbortController();
+        const signal = abortControllerRef.current.signal;
+
+        fetchAllData(signal);
+
         return () => {
-            abortController.abort();
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
         };
-    }, [activeTab]);
+    }, []);
 
     // Populate markup form when laborDefaults loads
     useEffect(() => {
@@ -213,88 +206,31 @@ const ContractorProductConfigManager = () => {
         }
     }, [laborDefaults, markupForm]);
 
-    const fetchProductTabData = async (signal) => {
+    const fetchAllData = async (signal) => {
         setLoading(true);
         try {
-            const [brandsRes, configsRes] = await Promise.all([
+            const [brandsRes, configsRes, defaultsRes, schemesRes] = await Promise.all([
                 apiService.getAdminBrands({ signal }),
                 apiService.getProductConfigs({ signal }),
+                apiService.getProductConfigDefaults({ signal }),
+                apiService.getPricingSchemes({ signal }),
             ]);
 
             if (signal && signal.aborted) return;
 
             setBrands(brandsRes.data || []);
             setConfigs(configsRes?.data || []);
-            setLoadedTabs(prev => ({ ...prev, products: true }));
+            setLaborDefaults(defaultsRes.data || null);
+            setPricingSchemes(schemesRes.data || []);
         } catch (error) {
-            if (isAbortError(error)) return;
-            handleApiError(error, 'Failed to load product data');
+            if (isAbortError(error)) {
+                console.log('Fetch all data aborted');
+                return;
+            }
+            handleApiError(error, 'Failed to load data');
         } finally {
-            if (!signal || !signal.aborted) {
+            if (signal && !signal.aborted) {
                 setLoading(false);
-            }
-        }
-    };
-
-    const fetchLaborTabData = async (signal) => {
-        setLaborLoading(true);
-        setLoading(true); // Also set global loading for schemes
-        try {
-            const [schemesRes, defaultsRes, categoriesRes, ratesRes] = await Promise.all([
-                apiService.getPricingSchemes({ signal }),
-                apiService.getProductConfigDefaults({ signal }),
-                apiService.get('/labor-categories', null, { signal }),
-                apiService.get('/labor-categories/rates', null, { signal }),
-            ]);
-
-            if (signal && signal.aborted) return;
-
-            if (defaultsRes.success) setLaborDefaults(defaultsRes.data || null);
-            if (schemesRes.success) setPricingSchemes(schemesRes.data || []);
-
-            if (categoriesRes.success) {
-                const cats = categoriesRes.data || [];
-                setLaborCategories(cats);
-                const ratesObj = {};
-                const ratesMap = {};
-                if (ratesRes.success && Array.isArray(ratesRes.data)) {
-                    ratesRes.data.forEach((rateRecord) => {
-                        ratesMap[rateRecord.laborCategoryId] = parseFloat(rateRecord.rate) || 0;
-                    });
-                }
-                cats.forEach((cat) => {
-                    ratesObj[cat.id] = ratesMap[cat.id] || 0;
-                });
-                setLaborRates(ratesObj);
-            }
-
-            setLoadedTabs(prev => ({ ...prev, labor: true }));
-        } catch (error) {
-            if (isAbortError(error)) return;
-            handleApiError(error, 'Failed to load labor data');
-        } finally {
-            if (!signal || !signal.aborted) {
-                setLaborLoading(false);
-                setLoading(false);
-            }
-        }
-    };
-
-    const fetchMarkupTabData = async (signal) => {
-        setSavingSettings(true); // Using this as a loading indicator for markup
-        try {
-            const defaultsRes = await apiService.getProductConfigDefaults({ signal });
-
-            if (signal && signal.aborted) return;
-
-            if (defaultsRes.success) setLaborDefaults(defaultsRes.data || null);
-            setLoadedTabs(prev => ({ ...prev, markup: true }));
-        } catch (error) {
-            if (isAbortError(error)) return;
-            handleApiError(error, 'Failed to load markup settings');
-        } finally {
-            if (!signal || !signal.aborted) {
-                setSavingSettings(false);
             }
         }
     };
@@ -384,7 +320,15 @@ const ContractorProductConfigManager = () => {
         }
     }, [modalBrandFilter, modalCategoryFilter, modalSearchText, modalVisible, customMode, editingConfig]);
 
+    // Load labor categories + rates for Pricing Engine
+    useEffect(() => {
+        const abortController = new AbortController();
+        fetchLaborData(abortController.signal);
 
+        return () => {
+            abortController.abort();
+        };
+    }, []);
 
     const fetchLaborData = async (signal) => {
         try {
@@ -1217,7 +1161,7 @@ const ContractorProductConfigManager = () => {
         if (loading) {
             return (
                 <div className="text-center py-8">
-
+                        
                     <div className="text-gray-500 mt-4">Loading pricing schemes...</div>
                 </div>
             );
@@ -1298,7 +1242,7 @@ const ContractorProductConfigManager = () => {
                                     <Form.Item name="laborHourRate" label="Billable Labor Rate" rules={[{ required: true }]} tooltip="Hourly rate charged to customer per painter (not painter's wage)">
                                         <InputNumber min={0} precision={2} addonBefore="$" addonAfter="/hr" style={{ width: 200 }} />
                                     </Form.Item>
-                                    <Form.Item name="crewSize" label="Default Crew Size" rules={[{ required: true }]} tooltip="Default number of painters in a crew (actual crew size is set per job in the quote)">
+                                    <Form.Item name="crewSize" label="Default Crew Size" rules={[{ required: true }]} tooltip="Default number of painters in a crew. Actual crew size is set per job in the quote builder.">
                                         <InputNumber min={1} max={10} precision={0} addonAfter="painters" style={{ width: 200 }} />
                                     </Form.Item>
                                 </div>

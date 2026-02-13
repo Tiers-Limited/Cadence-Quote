@@ -72,7 +72,7 @@ const quoteBuilderApi = {
         productSets,
         pricingSchemeId,
         jobType,
-        ...additionalData, // Includes homeSqft, jobScope, numberOfStories, conditionModifier
+        ...additionalData, // Includes homeSqft, jobScope, numberOfStories, conditionModifier, paintersOnSite, laborOnly
       });
       return response;
     },

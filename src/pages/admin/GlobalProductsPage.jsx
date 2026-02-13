@@ -48,17 +48,15 @@ const GlobalProductsPage = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  useEffect(() => {
-    fetchBrands();
-  }, []);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [pagination.current, selectedBrandFilter, selectedCategoryFilter, searchText]);
 
-  useEffect(() => {
-    fetchBrands();
-  }, [brandPagination.current, brandSearchText]);
+//   useEffect(() => {
+//     fetchProducts();
+//   }, [pagination.current, selectedBrandFilter, selectedCategoryFilter, searchText]);
+
+  // useEffect(() => {
+  //   fetchBrands();
+  // }, [brandPagination.current, brandSearchText]);
 
   // Debounced search for products
   useEffect(() => {
@@ -71,7 +69,7 @@ const GlobalProductsPage = () => {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchText]);
+  }, [pagination.current, selectedBrandFilter, selectedCategoryFilter, searchText]);
 
   // Debounced search for brands
   useEffect(() => {
