@@ -2,28 +2,29 @@
 const express = require('express');
 const router = express.Router();
 const passport = require('passport');
-const { 
-  register, 
-  login, 
-  getProfile, 
-  registerWithPayment,
-  handleGoogleCallback,
-  completeGoogleSignup,
-  linkGoogleAccount,
-  handleAppleCallback,
-  completeAppleSignup,
-  linkAppleAccount,
-  setPassword,
-  sendVerificationEmail,
-  verifyEmail,
-  resendVerificationEmail,
-  verifyTwoFactorCode,
-  enableTwoFactor,
-  disableTwoFactor,
-  get2FAStatus,
-  forgotPassword,
-  resetPassword,
-  verifyResetToken
+const {
+    register,
+    login,
+    getProfile,
+    registerWithPayment,
+    handleGoogleCallback,
+    completeGoogleSignup,
+    linkGoogleAccount,
+    handleAppleCallback,
+    completeAppleSignup,
+    linkAppleAccount,
+    setPassword,
+    changePassword,
+    sendVerificationEmail,
+    verifyEmail,
+    resendVerificationEmail,
+    verifyTwoFactorCode,
+    enableTwoFactor,
+    disableTwoFactor,
+    get2FAStatus,
+    forgotPassword,
+    resetPassword,
+    verifyResetToken
 } = require('../controllers/authController');
 const { auth, refreshAccessToken } = require('../middleware/auth');
 
@@ -94,9 +95,9 @@ router.get('/me', auth, getProfile);
  * @access  Public
  */
 router.get('/google/url', (req, res) => {
-  const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
-  const authUrl = `${BACKEND_URL}/api/v1/auth/google?${new URLSearchParams(req.query).toString()}`;
-  res.json({ url: authUrl });
+    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
+    const authUrl = `${BACKEND_URL}/api/v1/auth/google?${new URLSearchParams(req.query).toString()}`;
+    res.json({ url: authUrl });
 });
 
 /**
@@ -105,8 +106,8 @@ router.get('/google/url', (req, res) => {
  * @access  Public
  */
 router.get('/google', passport.authenticate('google', {
-  scope: ['profile', 'email'],
-  session: false
+    scope: ['profile', 'email'],
+    session: false
 }));
 
 /**
@@ -115,11 +116,11 @@ router.get('/google', passport.authenticate('google', {
  * @access  Public
  */
 router.get('/google/callback',
-  passport.authenticate('google', { 
-    session: false,
-    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=google_auth_failed`
-  }),
-  handleGoogleCallback
+    passport.authenticate('google', {
+        session: false,
+        failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=google_auth_failed`
+    }),
+    handleGoogleCallback
 );
 
 /**
@@ -142,9 +143,9 @@ router.post('/google/link', auth, linkGoogleAccount);
  * @access  Public
  */
 router.get('/apple/url', (req, res) => {
-  const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
-  const authUrl = `${BACKEND_URL}/api/v1/auth/apple?${new URLSearchParams(req.query).toString()}`;
-  res.json({ url: authUrl });
+    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4001';
+    const authUrl = `${BACKEND_URL}/api/v1/auth/apple?${new URLSearchParams(req.query).toString()}`;
+    res.json({ url: authUrl });
 });
 
 /**
@@ -153,8 +154,8 @@ router.get('/apple/url', (req, res) => {
  * @access  Public
  */
 router.get('/apple', passport.authenticate('apple', {
-  scope: ['name', 'email'],
-  session: false
+    scope: ['name', 'email'],
+    session: false
 }));
 
 /**
@@ -163,11 +164,11 @@ router.get('/apple', passport.authenticate('apple', {
  * @access  Public
  */
 router.post('/apple/callback',
-  passport.authenticate('apple', { 
-    session: false,
-    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=apple_auth_failed`
-  }),
-  handleAppleCallback
+    passport.authenticate('apple', {
+        session: false,
+        failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=apple_auth_failed`
+    }),
+    handleAppleCallback
 );
 
 /**
@@ -190,6 +191,14 @@ router.post('/apple/link', auth, linkAppleAccount);
  * @access  Private
  */
 router.post('/set-password', auth, setPassword);
+
+/**
+ * @route   POST /api/auth/change-password
+ * @desc    Change password for authenticated user
+ * @access  Private
+ */
+router.post('/change-password', auth, changePassword);
+
 
 /**
  * @route   POST /api/auth/send-verification

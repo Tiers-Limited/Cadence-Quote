@@ -7,69 +7,69 @@ const htmlPdf = require('html-pdf-node');
  * Switched from Puppeteer for better deployment compatibility
  */
 class PDFGenerator {
-  /**
-   * Generate quote PDF
-   * @param {Object} options - Quote data and settings
-   * @returns {Promise<Buffer>} PDF file as buffer
-   */
-  static async generateQuotePDF({ quote, calculation, contractor, settings }) {
-    try {
-      const html = this.getQuoteHTML({ quote, calculation, contractor, settings });
-      
-      // Configure html-pdf-node
-      const file = { content: html };
-      const options = {
-        format: 'Letter',
-        printBackground: true,
-        margin: {
-          top: '0.5in',
-          right: '0.5in',
-          bottom: '0.5in',
-          left: '0.5in'
-        },
-        preferCSSPageSize: false
-      };
+    /**
+     * Generate quote PDF
+     * @param {Object} options - Quote data and settings
+     * @returns {Promise<Buffer>} PDF file as buffer
+     */
+    static async generateQuotePDF({ quote, calculation, contractor, settings }) {
+        try {
+            const html = this.getQuoteHTML({ quote, calculation, contractor, settings });
 
-      const launchOptions = {
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--no-zygote',
-          '--single-process'
-        ]
-      };
+            // Configure html-pdf-node
+            const file = { content: html };
+            const options = {
+                format: 'Letter',
+                printBackground: true,
+                margin: {
+                    top: '0.5in',
+                    right: '0.5in',
+                    bottom: '0.5in',
+                    left: '0.5in'
+                },
+                preferCSSPageSize: false
+            };
 
-      // Generate PDF
-      const pdfBuffer = await htmlPdf.generatePdf(file, options, launchOptions);
-      
-      return pdfBuffer;
-      
-    } catch (error) {
-      console.error('PDF generation error:', error);
-      throw new Error(`Failed to generate PDF: ${error.message}`);
+            const launchOptions = {
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-zygote',
+                    '--single-process'
+                ]
+            };
+
+            // Generate PDF
+            const pdfBuffer = await htmlPdf.generatePdf(file, options, launchOptions);
+
+            return pdfBuffer;
+
+        } catch (error) {
+            console.error('PDF generation error:', error);
+            throw new Error(`Failed to generate PDF: ${error.message}`);
+        }
     }
-  }
 
-  /**
-   * Generate HTML for quote proposal
-   */
-  static getQuoteHTML({ quote, calculation, contractor, settings }) {
-    const today = new Date().toISOString().split('T')[0];
-    
-    const areasHTML = (quote.areas || []).map(area => {
-      const items = (area.laborItems || []).filter(i => i.selected);
-      if (items.length === 0) return '';
-      
-      const itemsHTML = items.map(item => `
+    /**
+     * Generate HTML for quote proposal
+     */
+    static getQuoteHTML({ quote, calculation, contractor, settings }) {
+        const today = new Date().toISOString().split('T')[0];
+
+        const areasHTML = (quote.areas || []).map(area => {
+            const items = (area.laborItems || []).filter(i => i.selected);
+            if (items.length === 0) return '';
+
+            const itemsHTML = items.map(item => `
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${item.categoryName}</td>
           <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: right;">${item.quantity} ${item.measurementUnit}</td>
         </tr>
       `).join('');
-      
-      return `
+
+            return `
         <div style="margin-bottom: 20px;">
           <h4 style="color: #1890ff; margin-bottom: 10px;">${area.name}</h4>
           <table style="width: 100%; border-collapse: collapse;">
@@ -85,9 +85,9 @@ class PDFGenerator {
           </table>
         </div>
       `;
-    }).join('');
+        }).join('');
 
-    return `
+        return `
       <!DOCTYPE html>
       <html>
       <head>
@@ -218,45 +218,45 @@ class PDFGenerator {
             <table width="100%" style="margin-bottom: 15px;">
               <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px 0;"><strong>Labor</strong></td>
-                <td align="right" style="padding: 8px 0;">$${calculation.laborTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td align="right" style="padding: 8px 0;">$${calculation.laborTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
               <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px 0; padding-left: 15px; color: #595959;">Materials (Raw Cost)</td>
-                <td align="right" style="padding: 8px 0; color: #595959;">$${calculation.materialCost.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td align="right" style="padding: 8px 0; color: #595959;">$${calculation.materialCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
               <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px 0; padding-left: 15px; color: #595959;">Material Markup (${calculation.materialMarkupPercent}%)</td>
-                <td align="right" style="padding: 8px 0; color: #595959;">+$${calculation.materialMarkupAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td align="right" style="padding: 8px 0; color: #595959;">+$${calculation.materialMarkupAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
               <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px 0;"><strong>Materials Total</strong></td>
-                <td align="right" style="padding: 8px 0;"><strong>$${calculation.materialTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
+                <td align="right" style="padding: 8px 0;"><strong>$${calculation.materialTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
               </tr>
               ${calculation.overhead && calculation.overhead > 0 ? `
               <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px 0;"><strong>Overhead (${calculation.overheadPercent}%)</strong><br>
                   <span style="font-size: 11px; color: #595959;">Transportation, equipment, insurance</span>
                 </td>
-                <td align="right" style="padding: 8px 0;">$${calculation.overhead.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td align="right" style="padding: 8px 0;">$${calculation.overhead.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
               ` : ''}
               <tr style="border-bottom: 2px solid #bfbfbf;">
                 <td style="padding: 8px 0; color: #595959;"><em>Subtotal before profit</em></td>
-                <td align="right" style="padding: 8px 0; color: #595959;"><em>$${calculation.subtotalBeforeProfit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</em></td>
+                <td align="right" style="padding: 8px 0; color: #595959;"><em>$${calculation.subtotalBeforeProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</em></td>
               </tr>
               ${calculation.profitAmount && calculation.profitAmount > 0 ? `
               <tr style="border-bottom: 2px solid #1890ff;">
                 <td style="padding: 8px 0;"><strong>Profit Margin (${calculation.profitMarginPercent}%)</strong></td>
-                <td align="right" style="padding: 8px 0;"><strong>$${calculation.profitAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
+                <td align="right" style="padding: 8px 0;"><strong>$${calculation.profitAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
               </tr>
               ` : ''}
               <tr style="border-bottom: 2px solid #1890ff;">
                 <td style="padding: 10px 0;"><strong style="font-size: 16px;">Subtotal</strong></td>
-                <td align="right" style="padding: 10px 0;"><strong style="font-size: 16px;">$${calculation.subtotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
+                <td align="right" style="padding: 10px 0;"><strong style="font-size: 16px;">$${calculation.subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
               </tr>
               <tr style="border-bottom: 2px solid #1890ff;">
                 <td style="padding: 8px 0;">Sales Tax (${calculation.taxPercent}%)</td>
-                <td align="right" style="padding: 8px 0;">$${calculation.tax.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td align="right" style="padding: 8px 0;">$${calculation.tax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
             </table>
             
@@ -265,7 +265,7 @@ class PDFGenerator {
                 <td><h2 style="margin: 0; color: #1890ff;">Total Investment</h2></td>
                 <td align="right">
                   <div style="font-size: 36px; color: #52c41a; font-weight: bold; margin: 0;">
-                    $${calculation.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    $${calculation.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                 </td>
               </tr>
@@ -275,12 +275,12 @@ class PDFGenerator {
               <p style="margin: 0 0 8px 0;"><strong>Payment Schedule:</strong></p>
               <table width="100%">
                 <tr>
-                  <td>Deposit (${calculation.depositPercent}%) - Due at signing:</td>
-                  <td align="right"><strong>$${calculation.deposit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
+                  <td>Deposit (${calculation.depositPercentage}%) - Due at signing:</td>
+                  <td align="right"><strong>$${calculation.deposit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                 </tr>
                 <tr>
                   <td>Balance - Due at completion:</td>
-                  <td align="right"><strong>$${calculation.balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
+                  <td align="right"><strong>$${calculation.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                 </tr>
               </table>
             </div>
@@ -335,7 +335,7 @@ class PDFGenerator {
       </body>
       </html>
     `;
-  }
+    }
 }
 
 module.exports = PDFGenerator;

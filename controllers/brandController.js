@@ -1,76 +1,160 @@
 const Brand = require('../models/Brand');
-const { Op } = require('sequelize');
+const { Op,fn, col } = require('sequelize');
 
 // Optimized: Get all brands with optional search and pagination
+// exports.getAllBrands = async (req, res) => {
+//     try {
+//         const {
+//             search,
+//             page,
+//             limit,
+//             sortBy = 'name',
+//             sortOrder = 'ASC'
+//         } = req.query;
+
+//         // Build Where Clause
+//         const where = { isActive: true };
+
+//         // Search functionality
+//         if (search && search.trim()) {
+//             where[Op.or] = [
+//                 { name: { [Op.iLike]: `%${search.trim()}%` } },
+//                 { description: { [Op.iLike]: `%${search.trim()}%` } },
+//             ];
+//         }
+
+//         const queryOptions = {
+//             where,
+//             attributes: ['id', 'name', 'description', 'createdAt'],
+//             order: [[sortBy, sortOrder.toUpperCase()]],
+//             raw: true,
+//         };
+
+//         // Pagination (optional - if not provided, return all)
+//         if (page && limit) {
+//             const offset = (parseInt(page) - 1) * parseInt(limit);
+//             queryOptions.limit = parseInt(limit);
+//             queryOptions.offset = offset;
+//             // distinct: true is not needed for raw queries unless there are includes, 
+//             // but findAndCountAll with raw: true behaves differently.
+//             // safely use findAndCountAll
+
+//             const { count, rows } = await Brand.findAndCountAll(queryOptions);
+
+//             return res.json({
+//                 success: true,
+//                 data: rows,
+//                 pagination: {
+//                     total: count,
+//                     page: parseInt(page),
+//                     limit: parseInt(limit),
+//                     pages: Math.ceil(count / parseInt(limit)),
+//                     hasMore: offset + rows.length < count,
+//                 },
+//             });
+//         }
+
+//         // No pagination - return all (for dropdowns)
+//         const brands = await Brand.findAll(queryOptions);
+
+//         return res.json({
+//             success: true,
+//             data: brands
+//         });
+//     } catch (error) {
+//         console.error('Get all brands error:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Failed to fetch brands',
+//             error: error.message
+//         });
+//     }
+// };
+
+
 exports.getAllBrands = async (req, res) => {
     try {
         const {
             search,
             page,
             limit,
-            sortBy = 'name',
+            sortBy   = 'name',
             sortOrder = 'ASC'
         } = req.query;
 
-        // Build Where Clause
+        // Early parsing + clamping (prevent abuse)
+        const pageNum  = Math.max(1, parseInt(page || '1', 10));
+        const limitNum = Math.min(200, Math.max(1, parseInt(limit || '20', 10))); // reasonable upper bound
+        const doPaginate = page && limit;
+
         const where = { isActive: true };
 
-        // Search functionality
-        if (search && search.trim()) {
+        if (search?.trim()) {
+            const term = `%${search.trim()}%`;
             where[Op.or] = [
-                { name: { [Op.iLike]: `%${search.trim()}%` } },
-                { description: { [Op.iLike]: `%${search.trim()}%` } },
+                { name:        { [Op.iLike]: term } },
+                { description: { [Op.iLike]: term } },
             ];
         }
+
+        // Whitelist sortable fields (security + prevent bad plans)
+        const allowedSortFields = ['name', 'createdAt', 'id'];
+        const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'name';
+        const safeOrder  = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
         const queryOptions = {
             where,
             attributes: ['id', 'name', 'description', 'createdAt'],
-            order: [[sortBy, sortOrder.toUpperCase()]],
+            order: [[safeSortBy, safeOrder]],
             raw: true,
+            nest: true,           // usually not needed with raw, but harmless
         };
 
-        // Pagination (optional - if not provided, return all)
-        if (page && limit) {
-            const offset = (parseInt(page) - 1) * parseInt(limit);
-            queryOptions.limit = parseInt(limit);
-            queryOptions.offset = offset;
-            // distinct: true is not needed for raw queries unless there are includes, 
-            // but findAndCountAll with raw: true behaves differently.
-            // safely use findAndCountAll
+        let responseData;
 
-            const { count, rows } = await Brand.findAndCountAll(queryOptions);
+        if (doPaginate) {
+            const offset = (pageNum - 1) * limitNum;
 
-            return res.json({
+            // findAndCountAll is convenient here (no includes, simple query)
+            const { count, rows } = await Brand.findAndCountAll({
+                ...queryOptions,
+                limit: limitNum,
+                offset,
+            });
+
+            responseData = {
                 success: true,
                 data: rows,
                 pagination: {
                     total: count,
-                    page: parseInt(page),
-                    limit: parseInt(limit),
-                    pages: Math.ceil(count / parseInt(limit)),
+                    page: pageNum,
+                    limit: limitNum,
+                    pages: Math.ceil(count / limitNum),
                     hasMore: offset + rows.length < count,
                 },
-            });
+            };
+        } else {
+            // Return all (for dropdowns etc.) – be careful with large tables!
+            const brands = await Brand.findAll(queryOptions);
+
+            responseData = {
+                success: true,
+                data: brands,
+                // Optional: you could add total here too if frontend expects consistency
+            };
         }
 
-        // No pagination - return all (for dropdowns)
-        const brands = await Brand.findAll(queryOptions);
+        return res.json(responseData);
 
-        return res.json({
-            success: true,
-            data: brands
-        });
     } catch (error) {
         console.error('Get all brands error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: 'Failed to fetch brands',
-            error: error.message
+            // In production → remove error.message or make it conditional (dev only)
         });
     }
 };
-
 exports.getBrandById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -123,9 +207,6 @@ exports.createBrand = async (req, res) => {
             description
         });
 
-        // Invalidate brands cache
-        await cache.invalidateByTags(['brands']);
-
         res.status(201).json({
             success: true,
             data: brand,
@@ -171,9 +252,6 @@ exports.updateBrand = async (req, res) => {
             isActive: isActive !== undefined ? isActive : brand.isActive
         });
 
-        // Invalidate brands cache
-        await cache.invalidateByTags(['brands']);
-
         res.json({
             success: true,
             data: brand,
@@ -203,9 +281,6 @@ exports.deleteBrand = async (req, res) => {
 
         // Soft delete by setting isActive to false
         await brand.update({ isActive: false });
-
-        // Invalidate brands cache
-        await cache.invalidateByTags(['brands']);
 
         res.json({
             success: true,

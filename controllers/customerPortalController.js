@@ -1114,12 +1114,6 @@ exports.acceptProposal = async (req, res) => {
             // Don't fail the request if email fails
         }
 
-        // OPTIMIZATION: Invalidate related caches
-        await Promise.all([
-            cache.invalidateByTags([`customer:${customerId}`, 'proposals', 'proposal-details']),
-            cache.invalidateByTags([`tenant:${proposal.tenantId}`])
-        ]);
-
         res.json({
             success: true,
             message: 'Proposal accepted successfully. Please proceed to deposit payment.',
@@ -1213,12 +1207,6 @@ exports.declineProposal = async (req, res) => {
         } catch (emailError) {
             console.error('Error sending proposal declined email:', emailError);
         }
-
-        // OPTIMIZATION: Invalidate related caches
-        await Promise.all([
-            cache.invalidateByTags([`customer:${customerId}`, 'proposals', 'proposal-details']),
-            cache.invalidateByTags([`tenant:${proposal.tenantId}`])
-        ]);
 
         res.json({
             success: true,

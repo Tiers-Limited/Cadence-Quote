@@ -215,7 +215,7 @@ async function calculateQuotePricing(quote, tenantId) {
                 'productionCabinets', 'defaultBillableLaborRate', 'crewSize',
                 'flatRateUnitPrices', 'laborMarkupPercent', 'materialMarkupPercent',
                 'overheadPercent', 'netProfitPercent', 'taxRatePercentage',
-                'depositPercent', 'quoteValidityDays'
+                'depositPercentage', 'quoteValidityDays'
             ],
             raw: true
         });
@@ -377,6 +377,8 @@ async function calculateQuotePricing(quote, tenantId) {
             homeSqft: quote.homeSqft || 0,
             jobScope: quote.jobType || 'interior',
             conditionModifier: quote.conditionModifier || 'average', // CRITICAL: Pass condition modifier for turnkey
+            paintersOnSite: quote.paintersOnSite, // NEW: Number of painters on site (overrides default crew size)
+            laborOnly: quote.laborOnly || false, // NEW: Labor only flag (customer supplies paint)
             analytics: {
                 tenantId: quote.tenantId,
                 userId: quote.userId,
@@ -396,7 +398,7 @@ async function calculateQuotePricing(quote, tenantId) {
             overheadPercent: parseFloat(settings?.overheadPercent) || 0,
             profitMarginPercent: parseFloat(settings?.netProfitPercent) || 0,
             taxRatePercentage: parseFloat(settings?.taxRatePercentage) || 0,
-            depositPercent: parseFloat(settings?.depositPercent) || 0,
+            depositPercentage: parseFloat(settings?.depositPercentage) || 0,
         });
 
         // Add quote validity and material calculation settings
@@ -427,7 +429,7 @@ async function calculateQuotePricingLegacy(quote, tenantId) {
             where: { tenantId },
             attributes: [
                 'laborMarkupPercent', 'materialMarkupPercent', 'overheadPercent',
-                'netProfitPercent', 'taxRatePercentage', 'quoteValidityDays', 'depositPercent'
+                'netProfitPercent', 'taxRatePercentage', 'quoteValidityDays', 'depositPercentage'
             ],
             raw: true
         });
@@ -439,7 +441,7 @@ async function calculateQuotePricingLegacy(quote, tenantId) {
         const netProfitPercent = parseFloat(settings?.netProfitPercent) || 0;
         const taxRate = parseFloat(settings?.taxRatePercentage) || 0;
         const quoteValidityDays = parseInt(settings?.quoteValidityDays) || 30;
-        const depositPercent = parseFloat(settings?.depositPercent) || 0;
+        const depositPercentage = parseFloat(settings?.depositPercentage) || 0;
 
         // Initialize pricing totals
         let laborTotal = 0;
@@ -544,7 +546,7 @@ async function calculateQuotePricingLegacy(quote, tenantId) {
         const total = subtotal + taxAmount;
 
         // Calculate deposit and balance
-        const deposit = total * (depositPercent / 100);
+        const deposit = total * (depositPercentage / 100);
         const balance = total - deposit;
 
         // Helper to safely format numbers
@@ -585,7 +587,7 @@ async function calculateQuotePricingLegacy(quote, tenantId) {
             total: safeFormat(total),
 
             // Payment terms
-            depositPercent: safeFormat(depositPercent),
+            depositPercentage: safeFormat(depositPercentage),
             deposit: safeFormat(deposit),
             balance: safeFormat(balance),
 
@@ -1062,7 +1064,7 @@ exports.saveDraft = async (req, res) => {
                 });
 
                 const quoteValidityDays = settings?.quoteValidityDays || 30;
-                const depositPercent = settings?.depositPercent || 50;
+                const depositPercent = settings?.depositPercentage || 50;
 
                 // Calculate validUntil date
                 const validUntil = new Date();
@@ -1334,6 +1336,8 @@ exports.calculateQuote = async (req, res) => {
             numberOfStories,
             conditionModifier,
             flatRateItems,  // CRITICAL: Flat rate items from frontend
+            paintersOnSite,  // NEW: Number of painters on site (overrides default crew size)
+            laborOnly,       // NEW: Labor only flag (customer supplies paint)
             // NEW: Material calculation options
             includeMaterials = true,
             coverage = 350,
@@ -1361,6 +1365,8 @@ exports.calculateQuote = async (req, res) => {
         console.log('  • Condition Modifier:', conditionModifier);
         console.log('  • Pricing Scheme ID:', pricingSchemeId);
         console.log('  • Selected Tier:', selectedTier);
+        console.log('  • Painters on Site:', paintersOnSite || 'Not specified (will use default crew size)');
+        console.log('  • Labor Only:', laborOnly ? 'Yes (customer supplies paint)' : 'No (materials included)');
         console.log('  • Include Materials:', includeMaterials);
         console.log('  • Coverage:', coverage, 'sq ft per gallon');
         console.log('  • Application Method:', applicationMethod);
@@ -1444,16 +1450,6 @@ exports.calculateQuote = async (req, res) => {
             console.log('  • Friendly Name:', getPricingModelFriendlyName(pricingScheme.type));
             console.log('  • Scheme ID:', pricingScheme.id);
             console.log('  • Is Default:', pricingScheme.isDefault);
-            console.log('\n  📋 Pricing Rules:');
-            const rules = pricingScheme.pricingRules || {};
-            console.log('    ├─ Turnkey Rate:', rules.turnkeyRate);
-            console.log('    ├─ Interior Rate:', rules.interiorRate);
-            console.log('    ├─ Exterior Rate:', rules.exteriorRate);
-            console.log('    ├─ Include Materials:', rules.includeMaterials);
-            console.log('    ├─ Coverage (sqft/gal):', rules.coverage);
-            console.log('    ├─ Application Method:', rules.applicationMethod);
-            console.log('    ├─ Coats:', rules.coats);
-            console.log('    └─ Cost Per Gallon:', rules.costPerGallon);
         } else {
             console.log('  ⚠️  No pricing scheme found - using defaults');
         }
@@ -1464,11 +1460,35 @@ exports.calculateQuote = async (req, res) => {
             where: { tenantId },
             attributes: [
                 'laborMarkupPercent', 'materialMarkupPercent', 'overheadPercent',
-                'netProfitPercent', 'taxRatePercentage', 'depositPercent',
-                'quoteValidityDays', 'turnkeyInteriorRate', 'turnkeyExteriorRate'
+                'netProfitPercent', 'taxRatePercentage', 'depositPercentage',
+                'quoteValidityDays', 'turnkeyInteriorRate', 'turnkeyExteriorRate',
+                'includeMaterials', 'coverage', 'applicationMethod', 'coats'
             ],
             raw: true
         });
+
+        // Log pricing configuration source (ContractorSettings for turnkey, scheme rules for others)
+        if (pricingScheme?.type === 'turnkey') {
+            console.log('  📋 Pricing Configuration (from ContractorSettings):');
+            console.log('    ├─ Interior Turnkey Rate:', settings?.turnkeyInteriorRate || 'Not set');
+            console.log('    ├─ Exterior Turnkey Rate:', settings?.turnkeyExteriorRate || 'Not set');
+            console.log('    ├─ Include Materials:', settings?.includeMaterials ?? true);
+            console.log('    ├─ Coverage (sqft/gal):', settings?.coverage || 350);
+            console.log('    ├─ Application Method:', settings?.applicationMethod || 'roll');
+            console.log('    └─ Coats:', settings?.coats || 2);
+        } else if (pricingScheme) {
+            console.log('  📋 Pricing Rules (from Scheme):');
+            const rules = pricingScheme.pricingRules || {};
+            console.log('    ├─ Turnkey Rate:', rules.turnkeyRate);
+            console.log('    ├─ Interior Rate:', rules.interiorRate);
+            console.log('    ├─ Exterior Rate:', rules.exteriorRate);
+            console.log('    ├─ Include Materials:', rules.includeMaterials);
+            console.log('    ├─ Coverage (sqft/gal):', rules.coverage);
+            console.log('    ├─ Application Method:', rules.applicationMethod);
+            console.log('    ├─ Coats:', rules.coats);
+            console.log('    └─ Cost Per Gallon:', rules.costPerGallon);
+        }
+        console.log('\n');
 
         // Fetch labor rates from database for rate-based pricing
         const LaborRate = require('../models/LaborRate');
@@ -1531,7 +1551,7 @@ exports.calculateQuote = async (req, res) => {
         console.log('  • Overhead %:', settings?.overheadPercent || 10);
         console.log('  • Net Profit %:', settings?.netProfitPercent || 15);
         console.log('  • Tax Rate %:', settings?.taxRatePercentage || 8.25);
-        console.log('  • Deposit %:', settings?.depositPercent || 50);
+        console.log('  • Deposit %:', settings?.depositPercentage || 50);
         console.log('  • Quote Validity Days:', settings?.quoteValidityDays || 30);
         console.log('\n');
 
@@ -1550,7 +1570,7 @@ exports.calculateQuote = async (req, res) => {
 
             // Determine turnkey rate based on job type with GBB tier support
             // Prefer contractor settings saved in ContractorSettings, then scheme rules, then fallback
-            let baseRate = 3.50;
+         
             if (jobType === 'interior') {
                 baseRate = parseFloat(settings?.turnkeyInteriorRate) || parseFloat(pricingRules.interiorRate) || parseFloat(pricingRules.turnkeyRate) || 3.50;
                 console.log('  • Using interior turnkey rate preference order: ContractorSettings -> Scheme -> Fallback');
@@ -1800,7 +1820,7 @@ exports.calculateQuote = async (req, res) => {
                 overheadPercent: parseFloat(settings?.overheadPercent) || 0,
                 profitMarginPercent: parseFloat(settings?.netProfitPercent) || 0,
                 taxRatePercentage: parseFloat(settings?.taxRatePercentage) || 0,
-                depositPercent: parseFloat(settings?.depositPercent) || 0,
+                depositPercent: parseFloat(settings?.depositPercentage) || 0,
             });
 
             console.log('  Final Pricing after Markups:', finalPricing);
@@ -3665,7 +3685,7 @@ exports.getDrafts = async (req, res) => {
                 {
                     model: Client,
                     as: 'client',
-                    attributes: ['id', 'firstName', 'lastName', 'email', 'phone']
+                    attributes: ['id', 'name', 'email', 'phone']
                 },
             ],
             order: [['updatedAt', 'DESC']],

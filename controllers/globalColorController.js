@@ -6,63 +6,148 @@ const XLSX = require('xlsx');
 const sequelize = require('../config/database');
 
 // Get all global colors (optimized with pagination and search)
+// exports.getAllGlobalColors = async (req, res) => {
+//     try {
+//         const {
+//             brandId,
+//             search,
+//             page = 1,
+//             limit = 20,
+//             sortBy = 'name',
+//             sortOrder = 'ASC'
+//         } = req.query;
+
+//         // Optimized search - search in name and code
+//         const where = { isActive: true };
+
+//         // Apply filters
+//         if (brandId && brandId !== 'all') {
+//             where.brandId = brandId;
+//         }
+
+//         if (search && search.trim()) {
+//             where[Op.or] = [
+//                 { name: { [Op.iLike]: `%${search.trim()}%` } },
+//                 { code: { [Op.iLike]: `%${search.trim()}%` } },
+//             ];
+//         }
+
+//         const offset = (parseInt(page) - 1) * parseInt(limit);
+
+//         // Separate count and data queries for better performance
+//         // Use Promise.all to run them in parallel
+//         const [count, rows] = await Promise.all([
+//             GlobalColor.count({ where }), // Fast count without joins
+//             GlobalColor.findAll({
+//                 where,
+//                 include: [{
+//                     model: Brand,
+//                     as: 'brand',
+//                     attributes: ['id', 'name'], // Only fetch needed fields
+//                     required: false
+//                 }],
+//                 attributes: [
+//                     'id',
+//                     'brandId',
+//                     'name',
+//                     'code',
+//                     'hexValue',
+//                     'red',
+//                     'green',
+//                     'blue',
+//                     'sampleImage',
+//                     'crossBrandMappings',
+//                     'createdAt'
+//                 ],
+//                 limit: parseInt(limit),
+//                 offset,
+//                 order: [[sortBy, sortOrder.toUpperCase()]],
+//                 subQuery: false, // Disable subquery for better performance
+//             })
+//         ]);
+
+//         res.json({
+//             success: true,
+//             data: rows,
+//             pagination: {
+//                 total: count,
+//                 page: parseInt(page),
+//                 limit: parseInt(limit),
+//                 pages: Math.ceil(count / parseInt(limit)),
+//                 hasMore: offset + rows.length < count,
+//             },
+//         });
+
+
+//     } catch (error) {
+//         console.error('Get global colors error:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Failed to fetch global colors',
+//             error: error.message,
+//         });
+//     }
+// };
+
+
 exports.getAllGlobalColors = async (req, res) => {
     try {
         const {
             brandId,
             search,
-            page = 1,
-            limit = 20,
-            sortBy = 'name',
+            page  = '1',
+            limit = '20',
+            sortBy   = 'name',
             sortOrder = 'ASC'
         } = req.query;
 
-        // Optimized search - search in name and code
+        // Early & safe parsing + bounds
+        const pageNum  = Math.max(1, parseInt(page, 10));
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10))); // prevent DOS via huge limit
+        const offset   = (pageNum - 1) * limitNum;
+
         const where = { isActive: true };
 
-        // Apply filters
         if (brandId && brandId !== 'all') {
             where.brandId = brandId;
         }
 
-        if (search && search.trim()) {
+        if (search?.trim()) {
+            const term = `%${search.trim()}%`;
             where[Op.or] = [
-                { name: { [Op.iLike]: `%${search.trim()}%` } },
-                { code: { [Op.iLike]: `%${search.trim()}%` } },
+                { name: { [Op.iLike]: term } },
+                { code: { [Op.iLike]: term } },
             ];
         }
 
-        const offset = (parseInt(page) - 1) * parseInt(limit);
+        // Whitelist sortBy → security & prevents terrible sort plans
+        const allowedSort = ['name', 'code', 'createdAt', 'id'];
+        const safeSortBy  = allowedSort.includes(sortBy) ? sortBy : 'name';
+        const safeOrder   = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
-        // Separate count and data queries for better performance
-        // Use Promise.all to run them in parallel
+        // ── Parallel execution (already good) ──────────────────────────────
         const [count, rows] = await Promise.all([
-            GlobalColor.count({ where }), // Fast count without joins
+            GlobalColor.count({ where }),  // fast with indexes
+
             GlobalColor.findAll({
                 where,
+                attributes: [
+                    'id', 'brandId', 'name', 'code',
+                    'hexValue', 'red', 'green', 'blue',
+                    'sampleImage', 'crossBrandMappings', 'createdAt'
+                ],
                 include: [{
                     model: Brand,
                     as: 'brand',
-                    attributes: ['id', 'name'], // Only fetch needed fields
+                    attributes: ['id', 'name'],
                     required: false
                 }],
-                attributes: [
-                    'id',
-                    'brandId',
-                    'name',
-                    'code',
-                    'hexValue',
-                    'red',
-                    'green',
-                    'blue',
-                    'sampleImage',
-                    'crossBrandMappings',
-                    'createdAt'
-                ],
-                limit: parseInt(limit),
+                order: [[safeSortBy, safeOrder]],
+                limit: limitNum,
                 offset,
-                order: [[sortBy, sortOrder.toUpperCase()]],
-                subQuery: false, // Disable subquery for better performance
+                raw: true,          // faster – skip instance creation if frontend doesn't need methods
+                nest: true,
+                subQuery: false     // already good
             })
         ]);
 
@@ -71,24 +156,22 @@ exports.getAllGlobalColors = async (req, res) => {
             data: rows,
             pagination: {
                 total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(count / parseInt(limit)),
+                page: pageNum,
+                limit: limitNum,
+                pages: Math.ceil(count / limitNum),
                 hasMore: offset + rows.length < count,
-            },
+            }
         });
-
 
     } catch (error) {
         console.error('Get global colors error:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to fetch global colors',
-            error: error.message,
+            // error: error.message    ← remove in prod or make env-based
         });
     }
 };
-
 // Get global color by ID
 exports.getGlobalColorById = async (req, res) => {
     try {

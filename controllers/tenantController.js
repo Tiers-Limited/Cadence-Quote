@@ -4,67 +4,138 @@ const TenantFeature = require('../models/TenantFeature');
 const FeatureFlag = require('../models/FeatureFlag');
 const { Op } = require('sequelize');
 const { createAuditLog } = require('./auditLogController');
+const sequelize = require('../config/database');
 
 // Get all tenants
+// exports.getAllTenants = async (req, res) => {
+//     try {
+//         const { status, search, page = 1, limit = 50 } = req.query;
+
+//         const where = {
+//             email: { [Op.ne]: 'admin@cadence.com' } // Exclude admin tenant
+//         };
+
+//         if (status) where.status = status;
+//         if (search) {
+//             where[Op.or] = [
+//                 { companyName: { [Op.iLike]: `%${search}%` } },
+//                 { email: { [Op.iLike]: `%${search}%` } },
+//             ];
+//         }
+
+//         const offset = (page - 1) * limit;
+
+//         const { count, rows } = await Tenant.findAndCountAll({
+//             where,
+//             attributes: [
+//                 'id', 'companyName', 'email', 'phoneNumber', 'tradeType',
+//                 'subscriptionPlan', 'status', 'isActive', 'seatLimit',
+//                 'paymentStatus',
+//             ],
+//             include: [
+//                 {
+//                     model: User,
+//                     foreignKey: 'tenantId',
+//                     attributes: ['id', 'fullName', 'email', 'role', 'isActive'],
+//                     limit: 5, // Only show first 5 users for performance
+//                 }
+//             ],
+//             limit: Number.parseInt(limit),
+//             offset,
+//             order: [['id', 'DESC']],
+//             subQuery: false
+//         });
+
+//         res.json({
+//             success: true,
+//             data: rows,
+//             pagination: {
+//                 total: count,
+//                 page: Number.parseInt(page),
+//                 limit: Number.parseInt(limit),
+//                 pages: Math.ceil(count / limit),
+//             },
+//         });
+//     } catch (error) {
+//         console.error('Get all tenants error:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Failed to fetch tenants',
+//             error: error.message,
+//         });
+//     }
+// };
 exports.getAllTenants = async (req, res) => {
-    try {
-        const { status, search, page = 1, limit = 50 } = req.query;
+  try {
+    const { status, search, page = 1, limit = 50 } = req.query;
+    const pageNum = parseInt(page);
+    const lim = Math.min(parseInt(limit), 100); // safety
+    const offset = (pageNum - 1) * lim;
 
-        const where = {
-            email: { [Op.ne]: 'admin@cadence.com' } // Exclude admin tenant
-        };
-
-        if (status) where.status = status;
-        if (search) {
-            where[Op.or] = [
-                { companyName: { [Op.iLike]: `%${search}%` } },
-                { email: { [Op.iLike]: `%${search}%` } },
-            ];
-        }
-
-        const offset = (page - 1) * limit;
-
-        const { count, rows } = await Tenant.findAndCountAll({
-            where,
-            attributes: [
-                'id', 'companyName', 'email', 'phoneNumber', 'tradeType',
-                'subscriptionPlan', 'status', 'isActive', 'seatLimit',
-                'paymentStatus',
-            ],
-            include: [
-                {
-                    model: User,
-                    foreignKey: 'tenantId',
-                    attributes: ['id', 'fullName', 'email', 'role', 'isActive'],
-                    limit: 5, // Only show first 5 users for performance
-                }
-            ],
-            limit: Number.parseInt(limit),
-            offset,
-            order: [['id', 'DESC']],
-            subQuery: false
-        });
-
-        res.json({
-            success: true,
-            data: rows,
-            pagination: {
-                total: count,
-                page: Number.parseInt(page),
-                limit: Number.parseInt(limit),
-                pages: Math.ceil(count / limit),
-            },
-        });
-    } catch (error) {
-        console.error('Get all tenants error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch tenants',
-            error: error.message,
-        });
+    const where = {
+      email: { [Op.ne]: 'admin@cadence.com' }
+    };
+    if (status) where.status = status;
+    if (search) {
+      where[Op.or] = [
+        { companyName: { [Op.iLike]: `%${search}%` } },
+        { email:     { [Op.iLike]: `%${search}%` } },
+      ];
     }
-};
 
+    // ── COUNT (fast) ────────────────────────────────────────
+    const total = await Tenant.count({ where });
+
+    // ── DATA (without users) ─────────────────────────────────
+    const tenants = await Tenant.findAll({
+      where,
+      attributes: [
+        'id', 'companyName', 'email', 'phoneNumber', 'tradeType',
+        'subscriptionPlan', 'status', 'isActive', 'seatLimit',
+        'paymentStatus',
+      ],
+      limit: lim,
+      offset,
+      order: [['id', 'DESC']],
+      // no include → much faster & correct pagination
+    });
+
+    // Optionally: load user count only
+    const tenantIds = tenants.map(t => t.id);
+    const userCounts = await User.findAll({
+      attributes: [
+        'tenantId',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'userCount']
+      ],
+      where: { tenantId: { [Op.in]: tenantIds } },
+      group: ['tenantId'],
+      raw: true
+    });
+
+    // Merge counts into response if desired
+    const data = tenants.map(t => {
+      const cnt = userCounts.find(c => c.tenantId === t.id);
+      return {
+        ...t.get({ plain: true }),
+        usersCount: cnt ? Number(cnt.userCount) : 0
+      };
+    });
+
+    res.json({
+      success: true,
+      data,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: lim,
+        pages: Math.ceil(total / lim),
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Failed to fetch tenants' });
+  }
+};
 // Get tenant by ID
 exports.getTenantById = async (req, res) => {
     try {

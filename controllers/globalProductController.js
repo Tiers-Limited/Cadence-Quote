@@ -6,6 +6,98 @@ const XLSX = require('xlsx');
 const sequelize = require('../config/database');
 
 // Get all global products (optimized with pagination and search)
+// exports.getAllGlobalProducts = async (req, res) => {
+//     try {
+//         const {
+//             brandId,
+//             category,
+//             tier,
+//             search,
+//             page = 1,
+//             limit = 20,
+//             sortBy = 'createdAt',
+//             sortOrder = 'DESC'
+//         } = req.query;
+
+//         // Optimized search
+//         const where = { isActive: true };
+
+//         // Apply filters
+//         if (brandId && brandId !== 'all') {
+//             if (brandId === 'custom') {
+//                 where.brandId = null;
+//                 where.customBrand = { [Op.ne]: null };
+//             } else {
+//                 where.brandId = brandId;
+//             }
+//         }
+
+//         if (category) where.category = category;
+//         if (tier) where.tier = tier;
+
+//         // Optimized search
+//         if (search && search.trim()) {
+//             where[Op.or] = [
+//                 { name: { [Op.iLike]: `%${search.trim()}%` } },
+//                 { customBrand: { [Op.iLike]: `%${search.trim()}%` } },
+//                 { notes: { [Op.iLike]: `%${search.trim()}%` } },
+//             ];
+//         }
+
+//         const offset = (parseInt(page) - 1) * parseInt(limit);
+
+//         // Separate count and data queries for better performance
+//         // Use Promise.all to run them in parallel
+//         const [count, rows] = await Promise.all([
+//             GlobalProduct.count({ where }), // Fast count without joins
+//             GlobalProduct.findAll({
+//                 where,
+//                 include: [{
+//                     model: Brand,
+//                     as: 'brand',
+//                     attributes: ['id', 'name'], // Only fetch needed fields
+//                     required: false
+//                 }],
+//                 attributes: [
+//                     'id',
+//                     'brandId',
+//                     'customBrand',
+//                     'name',
+//                     'category',
+//                     'tier',
+//                     'sheenOptions',
+//                     'notes',
+//                     'createdAt'
+//                 ],
+//                 limit: parseInt(limit),
+//                 offset,
+//                 order: [[sortBy, sortOrder.toUpperCase()]],
+//                 subQuery: false, // Disable subquery for better performance
+//             })
+//         ]);
+
+//         res.json({
+//             success: true,
+//             data: rows,
+//             pagination: {
+//                 total: count,
+//                 page: parseInt(page),
+//                 limit: parseInt(limit),
+//                 pages: Math.ceil(count / parseInt(limit)),
+//                 hasMore: offset + rows.length < count,
+//             },
+//         });
+
+
+//     } catch (error) {
+//         console.error('Get global products error:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Failed to fetch global products',
+//             error: error.message,
+//         });
+//     }
+// };
 exports.getAllGlobalProducts = async (req, res) => {
     try {
         const {
@@ -13,16 +105,19 @@ exports.getAllGlobalProducts = async (req, res) => {
             category,
             tier,
             search,
-            page = 1,
-            limit = 20,
+            page = '1',
+            limit = '20',
             sortBy = 'createdAt',
             sortOrder = 'DESC'
         } = req.query;
 
-        // Optimized search
+        // Parse early + validate
+        const pageNum  = Math.max(1, parseInt(page, 10));
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10))); // cap limit to prevent abuse
+        const offset   = (pageNum - 1) * limitNum;
+
         const where = { isActive: true };
 
-        // Apply filters
         if (brandId && brandId !== 'all') {
             if (brandId === 'custom') {
                 where.brandId = null;
@@ -33,46 +128,43 @@ exports.getAllGlobalProducts = async (req, res) => {
         }
 
         if (category) where.category = category;
-        if (tier) where.tier = tier;
+        if (tier)     where.tier     = tier;
 
-        // Optimized search
-        if (search && search.trim()) {
+        if (search?.trim()) {
+            const term = `%${search.trim()}%`;
             where[Op.or] = [
-                { name: { [Op.iLike]: `%${search.trim()}%` } },
-                { customBrand: { [Op.iLike]: `%${search.trim()}%` } },
-                { notes: { [Op.iLike]: `%${search.trim()}%` } },
+                { name:        { [Op.iLike]: term } },
+                { customBrand: { [Op.iLike]: term } },
+                { notes:       { [Op.iLike]: term } },
             ];
         }
 
-        const offset = (parseInt(page) - 1) * parseInt(limit);
+        // Whitelist sortBy to prevent injection / bad performance
+        const allowedSort = ['createdAt', 'name', 'tier', 'category'];
+        const safeSortBy  = allowedSort.includes(sortBy) ? sortBy : 'createdAt';
+        const safeOrder   = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-        // Separate count and data queries for better performance
-        // Use Promise.all to run them in parallel
-        const [count, rows] = await Promise.all([
-            GlobalProduct.count({ where }), // Fast count without joins
+        const [total, rows] = await Promise.all([
+            GlobalProduct.count({ where }),   // still fast with indexes
+
             GlobalProduct.findAll({
                 where,
+                attributes: [
+                    'id', 'brandId', 'customBrand', 'name',
+                    'category', 'tier', 'sheenOptions', 'notes', 'createdAt'
+                ],
                 include: [{
                     model: Brand,
                     as: 'brand',
-                    attributes: ['id', 'name'], // Only fetch needed fields
+                    attributes: ['id', 'name'],
                     required: false
                 }],
-                attributes: [
-                    'id',
-                    'brandId',
-                    'customBrand',
-                    'name',
-                    'category',
-                    'tier',
-                    'sheenOptions',
-                    'notes',
-                    'createdAt'
-                ],
-                limit: parseInt(limit),
+                order: [[safeSortBy, safeOrder]],
+                limit: limitNum,
                 offset,
-                order: [[sortBy, sortOrder.toUpperCase()]],
-                subQuery: false, // Disable subquery for better performance
+                raw: true,           // ← faster if you don't need instance methods
+                nest: true,
+                subQuery: false
             })
         ]);
 
@@ -80,25 +172,22 @@ exports.getAllGlobalProducts = async (req, res) => {
             success: true,
             data: rows,
             pagination: {
-                total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(count / parseInt(limit)),
-                hasMore: offset + rows.length < count,
-            },
+                total,
+                page: pageNum,
+                limit: limitNum,
+                pages: Math.ceil(total / limitNum),
+                hasMore: offset + rows.length < total
+            }
         });
-
 
     } catch (error) {
         console.error('Get global products error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch global products',
-            error: error.message,
+            message: 'Failed to fetch global products'
         });
     }
 };
-
 // Get global product by ID
 exports.getGlobalProductById = async (req, res) => {
     try {

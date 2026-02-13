@@ -2779,6 +2779,97 @@ const verifyResetToken = async (req, res) => {
     }
 };
 
+/**
+ * Change password for authenticated user
+ * POST /api/auth/change-password
+ * @access Private
+ */
+const changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const userId = req.user.id;
+
+        // Validation
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current and new passwords are required',
+            });
+        }
+
+        if (newPassword.length < 8) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 8 characters long',
+            });
+        }
+
+        // Find user
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found',
+            });
+        }
+
+        // Check if user has a password set (might be OAuth-only)
+        if (!user.password && (user.googleId || user.appleId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'This account was created via social login. Please use "Set Password" first or continue using social login.',
+            });
+        }
+
+        // Verify current password
+        const isMatch = await user.comparePassword(currentPassword);
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                message: 'Incorrect current password',
+            });
+        }
+
+        // Check if new password is same as current
+        const isSame = await user.comparePassword(newPassword);
+        if (isSame) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password cannot be the same as the current password',
+            });
+        }
+
+        // Update password
+        user.password = newPassword;
+        await user.save();
+
+        // Create audit log
+        await createAuditLog({
+            tenantId: user.tenantId,
+            userId: user.id,
+              category: 'auth',
+            action: 'CHANGE_PASSWORD',
+            entityType: 'USER',
+            entityId: user.id,
+            details: { email: user.email },
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+        });
+
+        res.json({
+            success: true,
+            message: 'Password changed successfully',
+        });
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to change password',
+            error: error.message,
+        });
+    }
+};
+
 module.exports = {
     register,
     login,
@@ -2792,6 +2883,7 @@ module.exports = {
     completeAppleSignup,
     linkAppleAccount,
     setPassword,
+    changePassword,
     sendVerificationEmail,
     verifyEmail,
     resendVerificationEmail,
@@ -2803,3 +2895,4 @@ module.exports = {
     resetPassword,
     verifyResetToken,
 };
+

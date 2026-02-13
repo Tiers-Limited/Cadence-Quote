@@ -275,9 +275,6 @@ exports.updateLaborRate = async (req, res) => {
             await laborRate.update({ rate });
         }
 
-        // Cache invalidation removed for optimization
-        // await cache.invalidateByTags(['labor-rates', `tenant:${tenantId}`]);
-
         await createAuditLog({
             category: 'system',
             action: created ? 'Labor rate created' : 'Labor rate updated',
@@ -342,9 +339,6 @@ exports.bulkUpdateRates = async (req, res) => {
         await LaborRate.bulkCreate(upsertData, {
             updateOnDuplicate: ['rate', 'updatedAt']
         });
-
-        // Cache invalidation removed for optimization
-        // await cache.invalidateByTags(['labor-rates', `tenant:${tenantId}`]);
 
         await createAuditLog({
             category: 'system',

@@ -2,28 +2,27 @@
 const nodemailer = require('nodemailer')
 
 class EmailService {
-  constructor () {
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      }
-    })
-  }
+    constructor() {
+        this.transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST || 'smtp.gmail.com',
+            port: process.env.SMTP_PORT || 587,
+            secure: false, // true for 465, false for other ports
+            auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS
+            }
+        })
+    }
 
-  async sendVerificationEmail (email, verificationToken, userName) {
-    const verificationUrl = `${
-      process.env.FRONTEND_URL || 'http://localhost:5173'
-    }/verify-email?token=${verificationToken}`
+    async sendVerificationEmail(email, verificationToken, userName) {
+        const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'
+            }/verify-email?token=${verificationToken}`
 
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Verify Your Email Address - Cadence',
-      html: `
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'Verify Your Email Address - Cadence',
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -72,7 +71,7 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `
+            text: `
         Hello ${userName}!
 
         Thank you for signing up for Cadence. To complete your registration and start using our platform, please verify your email address by clicking the link below:
@@ -86,24 +85,24 @@ class EmailService {
         Best regards,
         The Cadence Team
       `
+        }
+
+        try {
+            const info = await this.transporter.sendMail(mailOptions)
+            console.log('Verification email sent:', info.messageId)
+            return { success: true, messageId: info.messageId }
+        } catch (error) {
+            console.error('Error sending verification email:', error)
+            throw new Error('Failed to send verification email')
+        }
     }
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions)
-      console.log('Verification email sent:', info.messageId)
-      return { success: true, messageId: info.messageId }
-    } catch (error) {
-      console.error('Error sending verification email:', error)
-      throw new Error('Failed to send verification email')
-    }
-  }
-
-  async sendVerificationCodeEmail (email, code, userName) {
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Your Verification Code - Cadence',
-      html: `
+    async sendVerificationCodeEmail(email, code, userName) {
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'Your Verification Code - Cadence',
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -161,7 +160,7 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `
+            text: `
         Hello ${userName}!
 
         Thank you for signing up for Cadence. Please use the verification code below to complete your registration:
@@ -180,28 +179,27 @@ class EmailService {
 
         This email was sent to ${email}.
       `
+        }
+
+        try {
+            const info = await this.transporter.sendMail(mailOptions)
+            console.log('Verification code email sent:', info.messageId)
+            return { success: true, messageId: info.messageId }
+        } catch (error) {
+            console.error('Error sending verification code email:', error)
+            throw new Error('Failed to send verification code email')
+        }
     }
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions)
-      console.log('Verification code email sent:', info.messageId)
-      return { success: true, messageId: info.messageId }
-    } catch (error) {
-      console.error('Error sending verification code email:', error)
-      throw new Error('Failed to send verification code email')
-    }
-  }
+    async sendVerificationReminder(email, userName) {
+        const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'
+            }/login`
 
-  async sendVerificationReminder (email, userName) {
-    const loginUrl = `${
-      process.env.FRONTEND_URL || 'http://localhost:5173'
-    }/login`
-
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Reminder: Verify Your Email Address - Cadence',
-      html: `
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'Reminder: Verify Your Email Address - Cadence',
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -241,7 +239,7 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `
+            text: `
         Hello ${userName}!
 
         We noticed you haven't verified your email address yet. To access all features of Cadence, please verify your email by logging into your account.
@@ -253,135 +251,135 @@ class EmailService {
         Best regards,
         The Cadence Team
       `
+        }
+
+        try {
+            const info = await this.transporter.sendMail(mailOptions)
+            console.log('Verification reminder email sent:', info.messageId)
+            return { success: true, messageId: info.messageId }
+        } catch (error) {
+            console.error('Error sending verification reminder email:', error)
+            throw new Error('Failed to send verification reminder email')
+        }
     }
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions)
-      console.log('Verification reminder email sent:', info.messageId)
-      return { success: true, messageId: info.messageId }
-    } catch (error) {
-      console.error('Error sending verification reminder email:', error)
-      throw new Error('Failed to send verification reminder email')
-    }
-  }
-
-  async sendTwoFactorCodeEmail (to, code, fullName) {
-    const mailOptions = {
-      from: process.env.EMAIL_FROM,
-      to,
-      subject: 'Your Two-Factor Authentication Code - Contractor Hub',
-      html: `
+    async sendTwoFactorCodeEmail(to, code, fullName) {
+        const mailOptions = {
+            from: process.env.EMAIL_FROM,
+            to,
+            subject: 'Your Two-Factor Authentication Code - Contractor Hub',
+            html: `
       <h2>Hello ${fullName},</h2>
       <p>Your two-factor authentication code is:</p>
       <h3 style="font-size: 24px; font-weight: bold;">${code}</h3>
       <p>This code will expire in 5 minutes.</p>
       <p>If you didn't attempt to log in, please secure your account immediately.</p>
     `
-    }
-    await this.transporter.sendMail(mailOptions)
-  }
-
-  /**
-   * Send confirmation email to lead
-   * @param {Object} params
-   * @param {string} params.to - Lead's email
-   * @param {string} params.leadName - Lead's name
-   * @param {string} params.template - Custom HTML template (optional)
-   * @param {Object} params.data - Additional data for template
-   * @returns {Promise<Object>}
-   */
-  async sendLeadConfirmation({ to, leadName, template, data = {} }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping confirmation email');
-      return { success: false, message: 'Email service not configured' };
+        }
+        await this.transporter.sendMail(mailOptions)
     }
 
-    try {
-      const subject = data.subject || 'Thank You for Your Request!';
-      const companyName = data.companyName || 'Our Team';
-      const ballparkQuote = data.ballparkQuote;
-      const quoteRange = data.quoteRange;
-      
-      // Use custom template or default
-      const htmlContent = template || this.getLeadConfirmationTemplate({
-        leadName,
-        companyName,
-        ballparkQuote,
-        quoteRange,
-        ...data
-      });
+    /**
+     * Send confirmation email to lead
+     * @param {Object} params
+     * @param {string} params.to - Lead's email
+     * @param {string} params.leadName - Lead's name
+     * @param {string} params.template - Custom HTML template (optional)
+     * @param {Object} params.data - Additional data for template
+     * @returns {Promise<Object>}
+     */
+    async sendLeadConfirmation({ to, leadName, template, data = {} }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping confirmation email');
+            return { success: false, message: 'Email service not configured' };
+        }
 
-      const mailOptions = {
-        from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-        to,
-        subject,
-        html: htmlContent
-      };
+        try {
+            const subject = data.subject || 'Thank You for Your Request!';
+            const companyName = data.companyName || 'Our Team';
+            const ballparkQuote = data.ballparkQuote;
+            const quoteRange = data.quoteRange;
 
-      const info = await this.transporter.sendMail(mailOptions);
-      
-      console.log('Confirmation email sent:', info.messageId);
-      return {
-        success: true,
-        messageId: info.messageId
-      };
-    } catch (error) {
-      console.error('Error sending confirmation email:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+            // Use custom template or default
+            const htmlContent = template || this.getLeadConfirmationTemplate({
+                leadName,
+                companyName,
+                ballparkQuote,
+                quoteRange,
+                ...data
+            });
+
+            const mailOptions = {
+                from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+                to,
+                subject,
+                html: htmlContent
+            };
+
+            const info = await this.transporter.sendMail(mailOptions);
+
+            console.log('Confirmation email sent:', info.messageId);
+            return {
+                success: true,
+                messageId: info.messageId
+            };
+        } catch (error) {
+            console.error('Error sending confirmation email:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
-  }
 
-  /**
-   * Send internal notification to team
-   * @param {Object} params
-   * @param {string|string[]} params.to - Team email(s)
-   * @param {Object} params.lead - Lead data
-   * @param {Object} params.form - Lead form data
-   * @returns {Promise<Object>}
-   */
-  async sendInternalNotification({ to, lead, form }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping internal notification');
-      return { success: false, message: 'Email service not configured' };
+    /**
+     * Send internal notification to team
+     * @param {Object} params
+     * @param {string|string[]} params.to - Team email(s)
+     * @param {Object} params.lead - Lead data
+     * @param {Object} params.form - Lead form data
+     * @returns {Promise<Object>}
+     */
+    async sendInternalNotification({ to, lead, form }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping internal notification');
+            return { success: false, message: 'Email service not configured' };
+        }
+
+        try {
+            const recipients = Array.isArray(to) ? to.join(', ') : to;
+            const subject = `New Lead: ${lead.firstName} ${lead.lastName} - ${lead.projectType || 'General Inquiry'}`;
+
+            const htmlContent = this.getInternalNotificationTemplate({ lead, form });
+
+            const mailOptions = {
+                from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+                to: recipients,
+                subject,
+                html: htmlContent
+            };
+
+            const info = await this.transporter.sendMail(mailOptions);
+
+            console.log('Internal notification sent:', info.messageId);
+            return {
+                success: true,
+                messageId: info.messageId
+            };
+        } catch (error) {
+            console.error('Error sending internal notification:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
 
-    try {
-      const recipients = Array.isArray(to) ? to.join(', ') : to;
-      const subject = `New Lead: ${lead.firstName} ${lead.lastName} - ${lead.projectType || 'General Inquiry'}`;
-      
-      const htmlContent = this.getInternalNotificationTemplate({ lead, form });
-
-      const mailOptions = {
-        from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-        to: recipients,
-        subject,
-        html: htmlContent
-      };
-
-      const info = await this.transporter.sendMail(mailOptions);
-      
-      console.log('Internal notification sent:', info.messageId);
-      return {
-        success: true,
-        messageId: info.messageId
-      };
-    } catch (error) {
-      console.error('Error sending internal notification:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Lead confirmation email template
-   */
-  getLeadConfirmationTemplate({ leadName, companyName, ballparkQuote, quoteRange }) {
-    const quoteSection = ballparkQuote && quoteRange ? `
+    /**
+     * Lead confirmation email template
+     */
+    getLeadConfirmationTemplate({ leadName, companyName, ballparkQuote, quoteRange }) {
+        const quoteSection = ballparkQuote && quoteRange ? `
       <div style="background-color: #f0fdf4; border: 2px solid #86efac; border-radius: 8px; padding: 24px; margin: 24px 0;">
         <h2 style="color: #166534; margin-top: 0;">Your Ballpark Estimate</h2>
         <p style="font-size: 32px; font-weight: bold; color: #16a34a; margin: 16px 0;">
@@ -393,7 +391,7 @@ class EmailService {
       </div>
     ` : '';
 
-    return `
+        return `
       <!DOCTYPE html>
       <html>
       <head>
@@ -446,13 +444,13 @@ class EmailService {
       </body>
       </html>
     `;
-  }
+    }
 
-  /**
-   * Internal notification template
-   */
-  getInternalNotificationTemplate({ lead, form }) {
-    const ballparkSection = lead.ballparkQuote ? `
+    /**
+     * Internal notification template
+     */
+    getInternalNotificationTemplate({ lead, form }) {
+        const ballparkSection = lead.ballparkQuote ? `
       <tr>
         <td style="padding: 8px; background-color: #f0fdf4; font-weight: bold;">Ballpark Quote:</td>
         <td style="padding: 8px; background-color: #f0fdf4; color: #16a34a; font-weight: bold;">
@@ -461,7 +459,7 @@ class EmailService {
       </tr>
     ` : '';
 
-    return `
+        return `
       <!DOCTYPE html>
       <html>
       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 700px; margin: 0 auto; padding: 20px;">
@@ -574,26 +572,26 @@ class EmailService {
       </body>
       </html>
     `;
-  }
-
-  /**
-   * Send follow-up reminder to team
-   * @param {Object} params
-   * @param {string|string[]} params.to - Team email(s)
-   * @param {Object} params.lead - Lead data
-   * @returns {Promise<Object>}
-   */
-  async sendFollowUpReminder({ to, lead }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping reminder');
-      return { success: false, message: 'Email service not configured' };
     }
 
-    try {
-      const recipients = Array.isArray(to) ? to.join(', ') : to;
-      const subject = `⚠️ REMINDER: Follow up with ${lead.firstName} ${lead.lastName}`;
-      
-      const htmlContent = `
+    /**
+     * Send follow-up reminder to team
+     * @param {Object} params
+     * @param {string|string[]} params.to - Team email(s)
+     * @param {Object} params.lead - Lead data
+     * @returns {Promise<Object>}
+     */
+    async sendFollowUpReminder({ to, lead }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping reminder');
+            return { success: false, message: 'Email service not configured' };
+        }
+
+        try {
+            const recipients = Array.isArray(to) ? to.join(', ') : to;
+            const subject = `⚠️ REMINDER: Follow up with ${lead.firstName} ${lead.lastName}`;
+
+            const htmlContent = `
         <!DOCTYPE html>
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -632,125 +630,125 @@ class EmailService {
         </html>
       `;
 
-      const mailOptions = {
-        from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-        to: recipients,
-        subject,
-        html: htmlContent
-      };
+            const mailOptions = {
+                from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+                to: recipients,
+                subject,
+                html: htmlContent
+            };
 
-      const info = await this.transporter.sendMail(mailOptions);
-      
-      console.log('Follow-up reminder sent:', info.messageId);
-      return {
-        success: true,
-        messageId: info.messageId
-      };
-    } catch (error) {
-      console.error('Error sending follow-up reminder:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
+            const info = await this.transporter.sendMail(mailOptions);
 
-  /**
-   * Send password reset email
-   * @param {string} email - User's email
-   * @param {string} resetToken - Password reset token
-   * @param {string} userName - User's full name
-   * @returns {Promise<Object>}
-   */
-  /**
-   * Send quote to customer
-   * @param {Object} params
-   * @param {string} params.to - Customer email
-   * @param {string} params.customerName - Customer name
-   * @param {Object} params.quote - Quote data
-   * @param {Object} params.calculation - Calculated totals
-   * @param {Object} params.contractor - Contractor info
-   * @param {string} params.quoteViewUrl - URL to view quote
-   * @returns {Promise<Object>}
-   */
-  async sendQuoteToCustomer({ to, customerName, quote, calculation, contractor, quoteViewUrl, pdfBuffer }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping quote email');
-      return { success: false, message: 'Email service not configured' };
+            console.log('Follow-up reminder sent:', info.messageId);
+            return {
+                success: true,
+                messageId: info.messageId
+            };
+        } catch (error) {
+            console.error('Error sending follow-up reminder:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
 
-    try {
-      const subject = `Your Professional Painting Proposal #${quote.quoteNumber} from ${contractor.companyName}`;
-      const htmlContent = this.getQuoteEmailTemplate({
-        customerName,
-        quote,
-        calculation,
-        contractor,
-        quoteViewUrl
-      });
+    /**
+     * Send password reset email
+     * @param {string} email - User's email
+     * @param {string} resetToken - Password reset token
+     * @param {string} userName - User's full name
+     * @returns {Promise<Object>}
+     */
+    /**
+     * Send quote to customer
+     * @param {Object} params
+     * @param {string} params.to - Customer email
+     * @param {string} params.customerName - Customer name
+     * @param {Object} params.quote - Quote data
+     * @param {Object} params.calculation - Calculated totals
+     * @param {Object} params.contractor - Contractor info
+     * @param {string} params.quoteViewUrl - URL to view quote
+     * @returns {Promise<Object>}
+     */
+    async sendQuoteToCustomer({ to, customerName, quote, calculation, contractor, quoteViewUrl, pdfBuffer }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping quote email');
+            return { success: false, message: 'Email service not configured' };
+        }
 
-      const mailOptions = {
-        from: `"${contractor.companyName}" <${process.env.SMTP_USER}>`,
-        to,
-        replyTo: contractor.email,
-        subject,
-        html: htmlContent,
-        attachments: []
-      };
+        try {
+            const subject = `Your Professional Painting Proposal #${quote.quoteNumber} from ${contractor.companyName}`;
+            const htmlContent = this.getQuoteEmailTemplate({
+                customerName,
+                quote,
+                calculation,
+                contractor,
+                quoteViewUrl
+            });
 
-      // Attach PDF if provided
-      if (pdfBuffer) {
-        mailOptions.attachments.push({
-          filename: `Proposal-${quote.quoteNumber}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf'
-        });
-      }
+            const mailOptions = {
+                from: `"${contractor.companyName}" <${process.env.SMTP_USER}>`,
+                to,
+                replyTo: contractor.email,
+                subject,
+                html: htmlContent,
+                attachments: []
+            };
 
-      const info = await this.transporter.sendMail(mailOptions);
-      
-      console.log('Quote email sent:', info.messageId);
-      return {
-        success: true,
-        messageId: info.messageId
-      };
-    } catch (error) {
-      console.error('Error sending quote email:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+            // Attach PDF if provided
+            if (pdfBuffer) {
+                mailOptions.attachments.push({
+                    filename: `Proposal-${quote.quoteNumber}.pdf`,
+                    content: pdfBuffer,
+                    contentType: 'application/pdf'
+                });
+            }
+
+            const info = await this.transporter.sendMail(mailOptions);
+
+            console.log('Quote email sent:', info.messageId);
+            return {
+                success: true,
+                messageId: info.messageId
+            };
+        } catch (error) {
+            console.error('Error sending quote email:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
-  }
 
-  /**
-   * Send contractor-authored message with standardized signature
-   * Requirements:
-   * - From appears as contractor; reply-to goes to contractor
-   * - Body is authored by contractor and not modified
-   * - Signature is appended by system with logo and contact info
-   * - No pricing or CTAs should be present in body (validation handled upstream)
-   * @param {Object} params
-   * @param {string} params.to - Customer email
-   * @param {string} params.subject - Email subject line
-   * @param {string} params.body - Contractor-authored plain text body
-   * @param {Object} params.contractor - { name, title?, companyName, email, phone?, website?, logoUrl? }
-   * @param {Buffer} [params.pdfBuffer] - Optional proposal PDF attachment
-   * @param {string} [params.attachmentName] - Optional custom filename for PDF attachment (defaults to "Proposal.pdf")
-   */
-  async sendContractorMessageWithSignature({ to, subject, body, contractor, pdfBuffer, attachmentName }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping send');
-      return { success: false, message: 'Email service not configured' };
-    }
+    /**
+     * Send contractor-authored message with standardized signature
+     * Requirements:
+     * - From appears as contractor; reply-to goes to contractor
+     * - Body is authored by contractor and not modified
+     * - Signature is appended by system with logo and contact info
+     * - No pricing or CTAs should be present in body (validation handled upstream)
+     * @param {Object} params
+     * @param {string} params.to - Customer email
+     * @param {string} params.subject - Email subject line
+     * @param {string} params.body - Contractor-authored plain text body
+     * @param {Object} params.contractor - { name, title?, companyName, email, phone?, website?, logoUrl? }
+     * @param {Buffer} [params.pdfBuffer] - Optional proposal PDF attachment
+     * @param {string} [params.attachmentName] - Optional custom filename for PDF attachment (defaults to "Proposal.pdf")
+     */
+    async sendContractorMessageWithSignature({ to, subject, body, contractor, pdfBuffer, attachmentName }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping send');
+            return { success: false, message: 'Email service not configured' };
+        }
 
-    const escapeHtml = (unsafe) =>
-      String(unsafe)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+        const escapeHtml = (unsafe) =>
+            String(unsafe)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
 
-    const signatureHtml = `
+        const signatureHtml = `
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
       <table style="width:100%; max-width:600px; font-family: Arial, sans-serif; color:#374151;">
         <tr>
@@ -771,7 +769,7 @@ class EmailService {
       </table>
     `;
 
-    const htmlContent = `
+        const htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
@@ -790,44 +788,44 @@ class EmailService {
       </html>
     `;
 
-    const mailOptions = {
-      from: `${contractor.name ? '"' + contractor.name + '" ' : ''}<${process.env.SMTP_USER}>`,
-      to,
-      replyTo: contractor.email,
-      subject,
-      html: htmlContent,
-      attachments: []
-    };
+        const mailOptions = {
+            from: `${contractor.name ? '"' + contractor.name + '" ' : ''}<${process.env.SMTP_USER}>`,
+            to,
+            replyTo: contractor.email,
+            subject,
+            html: htmlContent,
+            attachments: []
+        };
 
-    if (pdfBuffer) {
-      mailOptions.attachments.push({
-        filename: attachmentName || `Proposal.pdf`,
-        content: pdfBuffer,
-        contentType: 'application/pdf'
-      });
+        if (pdfBuffer) {
+            mailOptions.attachments.push({
+                filename: attachmentName || `Proposal.pdf`,
+                content: pdfBuffer,
+                contentType: 'application/pdf'
+            });
+        }
+
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Contractor message sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending contractor message:', error);
+            return { success: false, error: error.message };
+        }
     }
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Contractor message sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending contractor message:', error);
-      return { success: false, error: error.message };
-    }
-  }
+    /**
+     * Quote email template
+     */
+    getQuoteEmailTemplate({ customerName, quote, calculation, contractor, quoteViewUrl }) {
+        const areasHtml = (quote.areas || []).map(area => {
+            const items = area.laborItems || [];
+            const selectedItems = items.filter(i => i.selected);
 
-  /**
-   * Quote email template
-   */
-  getQuoteEmailTemplate({ customerName, quote, calculation, contractor, quoteViewUrl }) {
-    const areasHtml = (quote.areas || []).map(area => {
-      const items = area.laborItems || [];
-      const selectedItems = items.filter(i => i.selected);
-      
-      if (selectedItems.length === 0) return '';
-      
-      const itemsHtml = selectedItems.map(item => `
+            if (selectedItems.length === 0) return '';
+
+            const itemsHtml = selectedItems.map(item => `
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${item.categoryName}</td>
           <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.quantity} ${item.measurementUnit}</td>
@@ -835,8 +833,8 @@ class EmailService {
           <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.gallons ? item.gallons + ' gal' : '-'}</td>
         </tr>
       `).join('');
-      
-      return `
+
+            return `
         <div style="margin-bottom: 24px; background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb;">
           <div style="background: #f3f4f6; padding: 12px 16px; border-bottom: 2px solid #3b82f6;">
             <h3 style="margin: 0; color: #1f2937; font-size: 18px;">${area.name}</h3>
@@ -856,9 +854,9 @@ class EmailService {
           </table>
         </div>
       `;
-    }).join('');
+        }).join('');
 
-    return `
+        return `
       <!DOCTYPE html>
       <html>
       <head>
@@ -945,7 +943,7 @@ class EmailService {
             </div>
             <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #16a34a; text-align: center;">
               <p style="margin: 0; color: #166534; font-size: 12px;">
-                <strong>Deposit (${calculation.depositPercent}%):</strong> $${calculation.deposit.toLocaleString()} due at signing<br>
+                <strong>Deposit (${calculation.depositPercentage}%):</strong> $${calculation.deposit.toLocaleString()} due at signing<br>
                 <strong>Balance:</strong> $${calculation.balance.toLocaleString()} due at completion
               </p>
             </div>
@@ -1019,18 +1017,17 @@ class EmailService {
       </body>
       </html>
     `;
-  }
+    }
 
-  async sendPasswordResetEmail(email, resetToken, userName) {
-    const resetUrl = `${
-      process.env.FRONTEND_URL || 'http://localhost:5173'
-    }/reset-password?token=${resetToken}`;
+    async sendPasswordResetEmail(email, resetToken, userName) {
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'
+            }/reset-password?token=${resetToken}`;
 
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Password Reset Request - Cadence',
-      html: `
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'Password Reset Request - Cadence',
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -1085,7 +1082,7 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `
+            text: `
         Hello ${userName}!
 
         You recently requested to reset your password for your Cadence account. Click the link below to reset it:
@@ -1101,60 +1098,60 @@ class EmailService {
 
         This email was sent to ${email}.
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Password reset email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending password reset email:', error);
-      throw new Error('Failed to send password reset email');
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Password reset email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending password reset email:', error);
+            throw new Error('Failed to send password reset email');
+        }
     }
-  }
 
-  /**
-   * Send email notification when deposit is verified
-   */
-  async sendDepositVerifiedEmail(customerEmail, proposalDetails = {}, options = {}) {
-    // options: { tenantId, contractorMessage }
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+    /**
+     * Send email notification when deposit is verified
+     */
+    async sendDepositVerifiedEmail(customerEmail, proposalDetails = {}, options = {}) {
+        // options: { tenantId, contractorMessage }
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
-    const subject = (tenant?.defaultEmailMessage?.subject) || `Deposit Verified - ${proposalDetails.quoteNumber || ''}`;
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+        const subject = (tenant?.defaultEmailMessage?.subject) || `Deposit Verified - ${proposalDetails.quoteNumber || ''}`;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: customerEmail,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage, tenant),
-      text: this._stripHtml(contractorMessage)
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: customerEmail,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage, tenant),
+            text: this._stripHtml(contractorMessage)
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Deposit verified email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending deposit verified email:', error);
-      throw error;
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Deposit verified email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending deposit verified email:', error);
+            throw error;
+        }
     }
-  }
 
-  /**
-   * Send email notification when customer completes selections
-   */
-  async sendSelectionsCompletedEmail(contractorEmail, proposalDetails) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: contractorEmail,
-      subject: `Customer completed selections - ${proposalDetails.quoteNumber}`,
-      html: `
+    /**
+     * Send email notification when customer completes selections
+     */
+    async sendSelectionsCompletedEmail(contractorEmail, proposalDetails) {
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: contractorEmail,
+            subject: `Customer completed selections - ${proposalDetails.quoteNumber}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -1187,29 +1184,29 @@ class EmailService {
         </body>
         </html>
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Selections completed email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending selections completed email:', error);
-      throw error;
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Selections completed email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending selections completed email:', error);
+            throw error;
+        }
     }
-  }
 
-  /**
-   * Send email notification when proposal is accepted
-   */
-  async sendProposalAcceptedEmail(contractorEmail, proposalDetails) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: contractorEmail,
-      subject: `Proposal accepted - ${proposalDetails.quoteNumber}`,
-      html: `
+    /**
+     * Send email notification when proposal is accepted
+     */
+    async sendProposalAcceptedEmail(contractorEmail, proposalDetails) {
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: contractorEmail,
+            subject: `Proposal accepted - ${proposalDetails.quoteNumber}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -1240,61 +1237,61 @@ class EmailService {
         </body>
         </html>
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Proposal accepted email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending proposal accepted email:', error);
-      throw error;
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Proposal accepted email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending proposal accepted email:', error);
+            throw error;
+        }
     }
-  }
 
-  /**
-   * Send email notification when portal is reopened
-   */
-  async sendPortalReopenedEmail(customerEmail, proposalDetails = {}, options = {}) {
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+    /**
+     * Send email notification when portal is reopened
+     */
+    async sendPortalReopenedEmail(customerEmail, proposalDetails = {}, options = {}) {
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
-    const subject = tenant?.defaultEmailMessage?.subject || `Portal Reopened - ${proposalDetails.quoteNumber || ''}`;
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+        const subject = tenant?.defaultEmailMessage?.subject || `Portal Reopened - ${proposalDetails.quoteNumber || ''}`;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: customerEmail,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage, tenant),
-      text: this._stripHtml(contractorMessage)
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: customerEmail,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage, tenant),
+            text: this._stripHtml(contractorMessage)
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Portal reopened email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending portal reopened email:', error);
-      throw error;
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Portal reopened email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending portal reopened email:', error);
+            throw error;
+        }
     }
-  }
 
-  /**
-   * Send client portal invitation email
-   * @param {string} email - Client email address
-   * @param {Object} details - Invitation details
-   */
-  async sendClientInvitationEmail(email, details) {
-    const { clientName, contractorName, invitationLink, expiryHours } = details;
+    /**
+     * Send client portal invitation email
+     * @param {string} email - Client email address
+     * @param {Object} details - Invitation details
+     */
+    async sendClientInvitationEmail(email, details) {
+        const { clientName, contractorName, invitationLink, expiryHours } = details;
 
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'You\'re Invited to Access Your Customer Portal',
-      html: `
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'You\'re Invited to Access Your Customer Portal',
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -1354,7 +1351,7 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `
+            text: `
         Hello ${clientName}!
 
         ${contractorName} has invited you to access your dedicated customer portal.
@@ -1375,31 +1372,31 @@ class EmailService {
         Best regards,
         The Cadence Team
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Client invitation email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending client invitation email:', error);
-      throw new Error('Failed to send invitation email');
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Client invitation email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending client invitation email:', error);
+            throw new Error('Failed to send invitation email');
+        }
     }
-  }
 
-  /**
-   * Send client password reset email
-   * @param {string} email - Client email address
-   * @param {Object} details - Reset details
-   */
-  async sendClientPasswordResetEmail(email, details) {
-    const { clientName, resetLink, expiryHours } = details;
+    /**
+     * Send client password reset email
+     * @param {string} email - Client email address
+     * @param {Object} details - Reset details
+     */
+    async sendClientPasswordResetEmail(email, details) {
+        const { clientName, resetLink, expiryHours } = details;
 
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Reset Your Customer Portal Password',
-      html: `
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'Reset Your Customer Portal Password',
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -1450,7 +1447,7 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `
+            text: `
         Hello ${clientName}!
 
         We received a request to reset your customer portal password.
@@ -1465,40 +1462,40 @@ class EmailService {
         Best regards,
         The Cadence Team
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Client password reset email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending client password reset email:', error);
-      throw new Error('Failed to send password reset email');
-    }
-  }
-
-  /**
-   * Send OTP verification code email
-   * @param {Object} params
-   * @param {string} params.to - Customer email
-   * @param {string} params.code - 6-digit OTP code
-   * @param {string} params.clientName - Customer name
-   * @param {string} params.companyName - Contractor company name
-   * @param {number} params.expiryMinutes - How long code is valid
-   */
-  async sendOTPEmail({ to, code, clientName, companyName, expiryMinutes = 10 }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping OTP email');
-      return { success: false, message: 'Email service not configured' };
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Client password reset email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending client password reset email:', error);
+            throw new Error('Failed to send password reset email');
+        }
     }
 
-    const firstName = clientName.split(' ')[0];
+    /**
+     * Send OTP verification code email
+     * @param {Object} params
+     * @param {string} params.to - Customer email
+     * @param {string} params.code - 6-digit OTP code
+     * @param {string} params.clientName - Customer name
+     * @param {string} params.companyName - Contractor company name
+     * @param {number} params.expiryMinutes - How long code is valid
+     */
+    async sendOTPEmail({ to, code, clientName, companyName, expiryMinutes = 10 }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping OTP email');
+            return { success: false, message: 'Email service not configured' };
+        }
 
-    const mailOptions = {
-      from: `"${companyName}" <${process.env.SMTP_USER}>`,
-      to,
-      subject: `Your Verification Code - ${companyName}`,
-      html: `
+        const firstName = clientName.split(' ')[0];
+
+        const mailOptions = {
+            from: `"${companyName}" <${process.env.SMTP_USER}>`,
+            to,
+            subject: `Your Verification Code - ${companyName}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -1582,7 +1579,7 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `
+            text: `
 Hi ${firstName},
 
 You requested access to all your projects with ${companyName}. Here's your verification code:
@@ -1597,88 +1594,88 @@ If you didn't request this code, you can safely ignore this email or contact us 
 
 - ${companyName}
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('OTP email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending OTP email:', error);
-      throw new Error('Failed to send verification code');
-    }
-  }
-
-  /**
-   * Send magic link for customer portal access
-   * @param {Object} params
-   * @param {string} params.to - Customer email
-   * @param {string} params.customerName - Customer name
-   * @param {string} params.magicLink - Magic link URL
-   * @param {string} params.companyName - Contractor company name
-   * @param {string} params.companyLogo - Optional contractor logo URL
-   * @param {string} params.purpose - Link purpose (quote_view, payment, etc.)
-   * @param {Object} params.quoteInfo - Optional quote information
-   * @param {number} params.expiryHours - Hours until link expires
-   */
-  async sendMagicLink({ 
-    to, 
-    customerName, 
-    magicLink, 
-    companyName, 
-    companyLogo = null,
-    purpose = 'portal_access',
-    quoteInfo = null,
-    expiryHours = 24 
-  }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping magic link email');
-      return { success: false, message: 'Email service not configured' };
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('OTP email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending OTP email:', error);
+            throw new Error('Failed to send verification code');
+        }
     }
 
-    const firstName = customerName.split(' ')[0];
-    
-    // Purpose-specific messaging
-    const purposeMessages = {
-      quote_view: {
-        subject: 'Your Painting Proposal is Ready',
-        heading: 'Your Proposal is Ready to View',
-        intro: `Great news! Your painting proposal${quoteInfo ? ` #${quoteInfo.quoteNumber}` : ''} is ready for review.`,
-        cta: 'View Your Proposal',
-      },
-      quote_approval: {
-        subject: 'Action Required: Approve Your Proposal',
-        heading: 'Your Approval is Needed',
-        intro: 'Your proposal is ready for final approval. Please review and approve to get started.',
-        cta: 'Review & Approve',
-      },
-      payment: {
-        subject: 'Complete Your Payment',
-        heading: 'Ready to Process Payment',
-        intro: 'Your project is approved! Complete your payment to schedule the work.',
-        cta: 'Make Payment',
-      },
-      portal_access: {
-        subject: 'Access Your Project Portal',
-        heading: 'Access Your Customer Portal',
-        intro: 'Click below to securely access your project information.',
-        cta: 'Access Portal',
-      },
-      job_status: {
-        subject: 'Project Update Available',
-        heading: 'New Project Update',
-        intro: 'There\'s a new update on your project. View the latest status and photos.',
-        cta: 'View Update',
-      },
-    };
+    /**
+     * Send magic link for customer portal access
+     * @param {Object} params
+     * @param {string} params.to - Customer email
+     * @param {string} params.customerName - Customer name
+     * @param {string} params.magicLink - Magic link URL
+     * @param {string} params.companyName - Contractor company name
+     * @param {string} params.companyLogo - Optional contractor logo URL
+     * @param {string} params.purpose - Link purpose (quote_view, payment, etc.)
+     * @param {Object} params.quoteInfo - Optional quote information
+     * @param {number} params.expiryHours - Hours until link expires
+     */
+    async sendMagicLink({
+        to,
+        customerName,
+        magicLink,
+        companyName,
+        companyLogo = null,
+        purpose = 'portal_access',
+        quoteInfo = null,
+        expiryHours = 24
+    }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping magic link email');
+            return { success: false, message: 'Email service not configured' };
+        }
 
-    const msg = purposeMessages[purpose] || purposeMessages.portal_access;
+        const firstName = customerName.split(' ')[0];
 
-    const mailOptions = {
-      from: `"${companyName}" <${process.env.SMTP_USER}>`,
-      to,
-      subject: `${msg.subject} - ${companyName}`,
-      html: `
+        // Purpose-specific messaging
+        const purposeMessages = {
+            quote_view: {
+                subject: 'Your Painting Proposal is Ready',
+                heading: 'Your Proposal is Ready to View',
+                intro: `Great news! Your painting proposal${quoteInfo ? ` #${quoteInfo.quoteNumber}` : ''} is ready for review.`,
+                cta: 'View Your Proposal',
+            },
+            quote_approval: {
+                subject: 'Action Required: Approve Your Proposal',
+                heading: 'Your Approval is Needed',
+                intro: 'Your proposal is ready for final approval. Please review and approve to get started.',
+                cta: 'Review & Approve',
+            },
+            payment: {
+                subject: 'Complete Your Payment',
+                heading: 'Ready to Process Payment',
+                intro: 'Your project is approved! Complete your payment to schedule the work.',
+                cta: 'Make Payment',
+            },
+            portal_access: {
+                subject: 'Access Your Project Portal',
+                heading: 'Access Your Customer Portal',
+                intro: 'Click below to securely access your project information.',
+                cta: 'Access Portal',
+            },
+            job_status: {
+                subject: 'Project Update Available',
+                heading: 'New Project Update',
+                intro: 'There\'s a new update on your project. View the latest status and photos.',
+                cta: 'View Update',
+            },
+        };
+
+        const msg = purposeMessages[purpose] || purposeMessages.portal_access;
+
+        const mailOptions = {
+            from: `"${companyName}" <${process.env.SMTP_USER}>`,
+            to,
+            subject: `${msg.subject} - ${companyName}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -1775,9 +1772,9 @@ If you didn't request this code, you can safely ignore this email or contact us 
                 <div class="info-box">
                   <strong>Proposal #${quoteInfo.quoteNumber}</strong><br/>
                   ${quoteInfo.total ? `Total Investment: $${parseFloat(quoteInfo.total).toFixed(2)}<br/>` : ''}
-                  ${quoteInfo.validUntil ? `Valid Until: ${new Date(quoteInfo.validUntil).toLocaleDateString("en-US",{
-        month: 'short', day: 'numeric', year: 'numeric'
-      })}` : ''}
+                  ${quoteInfo.validUntil ? `Valid Until: ${new Date(quoteInfo.validUntil).toLocaleDateString("en-US", {
+                month: 'short', day: 'numeric', year: 'numeric'
+            })}` : ''}
                 </div>
               ` : ''}
               
@@ -1808,7 +1805,7 @@ If you didn't request this code, you can safely ignore this email or contact us 
         </body>
         </html>
       `,
-      text: `
+            text: `
 Hi ${firstName},
 
 ${msg.intro}
@@ -1825,55 +1822,55 @@ Questions? Reply to this email or give us a call. We're here to help!
 
 - ${companyName}
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Magic link email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending magic link email:', error);
-      throw new Error('Failed to send access link');
-    }
-  }
-
-  /**
-   * Send portal expiry notification email
-   * @param {Object} params
-   * @param {string} params.to - Customer email
-   * @param {string} params.customerName - Customer name
-   * @param {number} params.daysRemaining - Days until expiry
-   * @param {Date} params.expiryDate - Expiry date
-   * @param {Object} params.tenantBranding - Contractor branding
-   * @param {string} params.portalUrl - Portal base URL
-   */
-  async sendPortalExpiryNotification({
-    to,
-    customerName,
-    daysRemaining,
-    expiryDate,
-    tenantBranding = {},
-    portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://portal.cadence.local'
-  }) {
-    if (!this.transporter) {
-      console.warn('Email service not configured, skipping expiry notification');
-      return { success: false, message: 'Email service not configured' };
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Magic link email sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending magic link email:', error);
+            throw new Error('Failed to send access link');
+        }
     }
 
-    const firstName = customerName.split(' ')[0];
-    const companyName = tenantBranding?.companyName || 'Your Contractor';
-    const expiryDateStr = expiryDate.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      month: 'long', 
-      day: 'numeric',
-      year: 'numeric'
-    });
+    /**
+     * Send portal expiry notification email
+     * @param {Object} params
+     * @param {string} params.to - Customer email
+     * @param {string} params.customerName - Customer name
+     * @param {number} params.daysRemaining - Days until expiry
+     * @param {Date} params.expiryDate - Expiry date
+     * @param {Object} params.tenantBranding - Contractor branding
+     * @param {string} params.portalUrl - Portal base URL
+     */
+    async sendPortalExpiryNotification({
+        to,
+        customerName,
+        daysRemaining,
+        expiryDate,
+        tenantBranding = {},
+        portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://portal.cadence.local'
+    }) {
+        if (!this.transporter) {
+            console.warn('Email service not configured, skipping expiry notification');
+            return { success: false, message: 'Email service not configured' };
+        }
 
-    const mailOptions = {
-      from: `"${companyName}" <${process.env.SMTP_USER}>`,
-      to,
-      subject: `⏰ Your Portal Access Expires in ${daysRemaining} Day${daysRemaining > 1 ? 's' : ''}`,
-      html: `
+        const firstName = customerName.split(' ')[0];
+        const companyName = tenantBranding?.companyName || 'Your Contractor';
+        const expiryDateStr = expiryDate.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+        });
+
+        const mailOptions = {
+            from: `"${companyName}" <${process.env.SMTP_USER}>`,
+            to,
+            subject: `⏰ Your Portal Access Expires in ${daysRemaining} Day${daysRemaining > 1 ? 's' : ''}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -2014,7 +2011,7 @@ Questions? Reply to this email or give us a call. We're here to help!
         </body>
         </html>
       `,
-      text: `
+            text: `
 Hi ${firstName},
 
 This is a reminder that your access to the customer portal will expire soon.
@@ -2039,31 +2036,31 @@ ${companyName}
 This is an automated notification from Cadence Quote
 © ${new Date().getFullYear()} ${companyName}. All rights reserved.
       `
-    };
+        };
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Portal expiry notification sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Error sending expiry notification:', error);
-      return { success: false, error: error.message };
+        try {
+            const info = await this.transporter.sendMail(mailOptions);
+            console.log('Portal expiry notification sent:', info.messageId);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error('Error sending expiry notification:', error);
+            return { success: false, error: error.message };
+        }
     }
-  }
 
-  // ============================================================================
-  // NEW WORKFLOW EMAIL TEMPLATES
-  // ============================================================================
+    // ============================================================================
+    // NEW WORKFLOW EMAIL TEMPLATES
+    // ============================================================================
 
-  /**
-   * Send proposal accepted notification to contractor
-   */
-  async sendProposalAcceptedEmail(to, { quoteNumber, customerName, customerEmail, selectedTier, total, depositAmount }) {
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      subject: `✅ Proposal Accepted - ${quoteNumber}`,
-      html: `
+    /**
+     * Send proposal accepted notification to contractor
+     */
+    async sendProposalAcceptedEmail(to, { quoteNumber, customerName, customerEmail, selectedTier, total, depositAmount }) {
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            subject: `✅ Proposal Accepted - ${quoteNumber}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -2089,26 +2086,26 @@ This is an automated notification from Cadence Quote
         </body>
         </html>
       `,
-      text: `Proposal Accepted - ${quoteNumber}\n\nCustomer: ${customerName} (${customerEmail})\nSelected Tier: ${selectedTier || 'N/A'}\nTotal: $${total}\nDeposit: $${depositAmount}\n\nNext steps: Customer will complete payment and make product selections.`,
-    };
+            text: `Proposal Accepted - ${quoteNumber}\n\nCustomer: ${customerName} (${customerEmail})\nSelected Tier: ${selectedTier || 'N/A'}\nTotal: $${total}\nDeposit: $${depositAmount}\n\nNext steps: Customer will complete payment and make product selections.`,
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Proposal accepted email sent');
-    } catch (error) {
-      console.error('Error sending proposal accepted email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Proposal accepted email sent');
+        } catch (error) {
+            console.error('Error sending proposal accepted email:', error);
+        }
     }
-  }
 
-  /**
-   * Send proposal rejected notification to contractor
-   */
-  async sendProposalRejectedEmail(to, { quoteNumber, customerName, customerEmail, total, reason, comments }) {
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      subject: `❌ Proposal Rejected - ${quoteNumber}`,
-      html: `
+    /**
+     * Send proposal rejected notification to contractor
+     */
+    async sendProposalRejectedEmail(to, { quoteNumber, customerName, customerEmail, total, reason, comments }) {
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            subject: `❌ Proposal Rejected - ${quoteNumber}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -2128,41 +2125,41 @@ This is an automated notification from Cadence Quote
         </body>
         </html>
       `,
-      text: `Proposal Rejected - ${quoteNumber}\n\nCustomer: ${customerName}\nReason: ${reason}\nComments: ${comments || 'None'}`,
-    };
+            text: `Proposal Rejected - ${quoteNumber}\n\nCustomer: ${customerName}\nReason: ${reason}\nComments: ${comments || 'None'}`,
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Proposal rejected email sent');
-    } catch (error) {
-      console.error('Error sending proposal rejected email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Proposal rejected email sent');
+        } catch (error) {
+            console.error('Error sending proposal rejected email:', error);
+        }
     }
-  }
 
-  /**
-   * Send selection portal open notification to customer
-   */
-  async sendSelectionPortalOpenEmail(to, { customerName, quoteNumber, portalExpiryDate, portalDurationDays }, options = {}) {
-    const expiryDateStr = new Date(portalExpiryDate).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    /**
+     * Send selection portal open notification to customer
+     */
+    async sendSelectionPortalOpenEmail(to, { customerName, quoteNumber, portalExpiryDate, portalDurationDays }, options = {}) {
+        const expiryDateStr = new Date(portalExpiryDate).toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        });
 
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || null;
-    const subject = (tenant?.defaultEmailMessage?.subject) || `🎨 Make Your Product Selections - ${quoteNumber}`;
+        const contractorMessage = options?.contractorMessage || null;
+        const subject = (tenant?.defaultEmailMessage?.subject) || `🎨 Make Your Product Selections - ${quoteNumber}`;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage || `
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage || `
         <!DOCTYPE html>
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -2187,29 +2184,29 @@ This is an automated notification from Cadence Quote
         </body>
         </html>
       `, tenant),
-      text: contractorMessage ? this._stripHtml(contractorMessage) : `Selection Portal Open\n\nHi ${customerName},\n\nYour selection portal is now open! You have ${portalDurationDays} days to make your product, color, and sheen selections.\n\nPortal closes: ${expiryDateStr}\n\nLog in to your customer portal to get started.`,
-    };
+            text: contractorMessage ? this._stripHtml(contractorMessage) : `Selection Portal Open\n\nHi ${customerName},\n\nYour selection portal is now open! You have ${portalDurationDays} days to make your product, color, and sheen selections.\n\nPortal closes: ${expiryDateStr}\n\nLog in to your customer portal to get started.`,
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Selection portal open email sent');
-    } catch (error) {
-      console.error('Error sending portal open email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Selection portal open email sent');
+        } catch (error) {
+            console.error('Error sending portal open email:', error);
+        }
     }
-  }
 
-  /**
-   * Send selections complete notification to contractor
-   */
-  async sendSelectionsCompleteEmail(to, { jobNumber, quoteNumber, customerName, customerEmail }, options = {}) {
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+    /**
+     * Send selections complete notification to contractor
+     */
+    async sendSelectionsCompleteEmail(to, { jobNumber, quoteNumber, customerName, customerEmail }, options = {}) {
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || null;
-    const subject = (tenant?.defaultEmailMessage?.subject) || `✅ Customer Selections Complete - ${jobNumber}`;
+        const contractorMessage = options?.contractorMessage || null;
+        const subject = (tenant?.defaultEmailMessage?.subject) || `✅ Customer Selections Complete - ${jobNumber}`;
 
-    const htmlContent = `
+        const htmlContent = `
         <!DOCTYPE html>
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -2235,35 +2232,35 @@ This is an automated notification from Cadence Quote
         </html>
       `;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage || htmlContent, tenant),
-      text: contractorMessage ? this._stripHtml(contractorMessage) : `Selections Complete - ${jobNumber}\n\nCustomer: ${customerName}\nJob is ready to schedule!`,
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage || htmlContent, tenant),
+            text: contractorMessage ? this._stripHtml(contractorMessage) : `Selections Complete - ${jobNumber}\n\nCustomer: ${customerName}\nJob is ready to schedule!`,
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Selections complete email sent');
-    } catch (error) {
-      console.error('Error sending selections complete email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Selections complete email sent');
+        } catch (error) {
+            console.error('Error sending selections complete email:', error);
+        }
     }
-  }
 
-  /**
-   * Send selections confirmation to customer
-   */
-  async sendSelectionsConfirmationEmail(to, { customerName, jobNumber, quoteNumber }, options = {}) {
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+    /**
+     * Send selections confirmation to customer
+     */
+    async sendSelectionsConfirmationEmail(to, { customerName, jobNumber, quoteNumber }, options = {}) {
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options?.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || null;
-    const subject = (tenant?.defaultEmailMessage?.subject) || `✅ Your Selections Have Been Submitted - ${jobNumber}`;
+        const contractorMessage = options?.contractorMessage || null;
+        const subject = (tenant?.defaultEmailMessage?.subject) || `✅ Your Selections Have Been Submitted - ${jobNumber}`;
 
-    const htmlContent = `
+        const htmlContent = `
         <!DOCTYPE html>
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -2288,53 +2285,53 @@ This is an automated notification from Cadence Quote
         </html>
       `;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage || htmlContent, tenant),
-      text: contractorMessage ? this._stripHtml(contractorMessage) : `Selections Submitted - ${jobNumber}\n\nHi ${customerName},\n\nYour product selections have been submitted and locked. Your contractor will schedule the job and notify you soon.`,
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage || htmlContent, tenant),
+            text: contractorMessage ? this._stripHtml(contractorMessage) : `Selections Submitted - ${jobNumber}\n\nHi ${customerName},\n\nYour product selections have been submitted and locked. Your contractor will schedule the job and notify you soon.`,
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Selections confirmation email sent');
-    } catch (error) {
-      console.error('Error sending selections confirmation email:', error);
-    }
-  }
-
-  /**
-   * Send job scheduled notification to customer
-   */
-  async sendJobScheduledEmail(to, { customerName, jobNumber, scheduledStartDate, scheduledEndDate, estimatedDuration } = {}, options = {}) {
-    // options: { tenantId, contractorMessage }
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options && options.tenantId) {
-      tenant = await Tenant.findByPk(options.tenantId);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Selections confirmation email sent');
+        } catch (error) {
+            console.error('Error sending selections confirmation email:', error);
+        }
     }
 
-    // Build body: prefer contractorMessage (exact contractor-written body), else fallback to tenant default email
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+    /**
+     * Send job scheduled notification to customer
+     */
+    async sendJobScheduledEmail(to, { customerName, jobNumber, scheduledStartDate, scheduledEndDate, estimatedDuration } = {}, options = {}) {
+        // options: { tenantId, contractorMessage }
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options && options.tenantId) {
+            tenant = await Tenant.findByPk(options.tenantId);
+        }
 
-    const startDateStr = scheduledStartDate ? new Date(scheduledStartDate).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }): null
+        // Build body: prefer contractorMessage (exact contractor-written body), else fallback to tenant default email
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
 
-    const endDateStr = scheduledEndDate ? new Date(scheduledEndDate).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }) : null;
+        const startDateStr = scheduledStartDate ? new Date(scheduledStartDate).toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        }) : null
 
-    // Build the HTML: use contractorMessage (assumed to be full HTML) and append system-controlled signature
-    const htmlBody = `${contractorMessage || `
+        const endDateStr = scheduledEndDate ? new Date(scheduledEndDate).toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        }) : null;
+
+        // Build the HTML: use contractorMessage (assumed to be full HTML) and append system-controlled signature
+        const htmlBody = `${contractorMessage || `
       <div>
         <h2>Your Project is Scheduled!</h2>
         <p>Hi ${customerName || ''},</p>
@@ -2342,63 +2339,63 @@ This is an automated notification from Cadence Quote
       </div>
     `}`;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject: (tenant?.defaultEmailMessage?.subject) ? tenant.defaultEmailMessage.subject : `Your Project Has Been Scheduled - ${jobNumber}`,
-      html: await this._appendSignatureHtml(htmlBody, tenant),
-      text: contractorMessage ? this._stripHtml(contractorMessage) : `Job Scheduled - ${jobNumber}\nStart Date: ${startDateStr}`
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject: (tenant?.defaultEmailMessage?.subject) ? tenant.defaultEmailMessage.subject : `Your Project Has Been Scheduled - ${jobNumber}`,
+            html: await this._appendSignatureHtml(htmlBody, tenant),
+            text: contractorMessage ? this._stripHtml(contractorMessage) : `Job Scheduled - ${jobNumber}\nStart Date: ${startDateStr}`
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Job scheduled email sent');
-    } catch (error) {
-      console.error('Error sending job scheduled email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Job scheduled email sent');
+        } catch (error) {
+            console.error('Error sending job scheduled email:', error);
+        }
     }
-  }
 
-  /**
-   * Notify customer that contractor approved their selections
-   */
-  async sendSelectionsApprovedEmail(to, { customerName, jobNumber, quoteNumber, jobId }) {
-    // Legacy signature: allow caller to pass tenantId or contractorMessage via options
-    // New usage: sendSelectionsApprovedEmail(to, payload, { tenantId, contractorMessage })
-    // But maintain backwards compatibility
-    const options = arguments[2] || {};
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+    /**
+     * Notify customer that contractor approved their selections
+     */
+    async sendSelectionsApprovedEmail(to, { customerName, jobNumber, quoteNumber, jobId }) {
+        // Legacy signature: allow caller to pass tenantId or contractorMessage via options
+        // New usage: sendSelectionsApprovedEmail(to, payload, { tenantId, contractorMessage })
+        // But maintain backwards compatibility
+        const options = arguments[2] || {};
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || `<div><p>Hi ${customerName || ''},</p><p>Your selections for job ${jobNumber || ''} have been approved by your contractor.</p></div>`;
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || `<div><p>Hi ${customerName || ''},</p><p>Your selections for job ${jobNumber || ''} have been approved by your contractor.</p></div>`;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject: (tenant?.defaultEmailMessage?.subject) ? tenant.defaultEmailMessage.subject : `Selections approved - ${jobNumber}`,
-      html: await this._appendSignatureHtml(contractorMessage, tenant),
-      text: this._stripHtml(contractorMessage)
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject: (tenant?.defaultEmailMessage?.subject) ? tenant.defaultEmailMessage.subject : `Selections approved - ${jobNumber}`,
+            html: await this._appendSignatureHtml(contractorMessage, tenant),
+            text: this._stripHtml(contractorMessage)
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Selections approved email sent');
-    } catch (error) {
-      console.error('Error sending selections approved email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Selections approved email sent');
+        } catch (error) {
+            console.error('Error sending selections approved email:', error);
+        }
     }
-  }
 
-  // Helper: append standardized, system-controlled signature HTML to a contractor-provided body
-  async _appendSignatureHtml(bodyHtml, tenant) {
-    const companyLogo = tenant?.companyLogoUrl || '';
-    const companyName = tenant?.companyName || '';
-    const phone = tenant?.phoneNumber || '';
-    const email = tenant?.email || '';
-    const website = tenant?.website || '';
+    // Helper: append standardized, system-controlled signature HTML to a contractor-provided body
+    async _appendSignatureHtml(bodyHtml, tenant) {
+        const companyLogo = tenant?.companyLogoUrl || '';
+        const companyName = tenant?.companyName || '';
+        const phone = tenant?.phoneNumber || '';
+        const email = tenant?.email || '';
+        const website = tenant?.website || '';
 
-    const signatureHtml = `
+        const signatureHtml = `
       <div style="margin-top:20px;border-top:1px solid #e8e8e8;padding-top:12px;display:flex;gap:12px;align-items:center;font-family:Arial, sans-serif;color:#333;">
         ${companyLogo ? `<div style="width:80px;height:80px;flex:0 0 80px;"><img src="${companyLogo}" alt="${companyName}" style="max-width:80px;max-height:80px;object-fit:contain;"/></div>` : ''}
         <div style="font-size:14px;line-height:1.3;">
@@ -2410,140 +2407,140 @@ This is an automated notification from Cadence Quote
       </div>
     `;
 
-    return `<!DOCTYPE html><html><body style="font-family: Arial, sans-serif; color:#333;">${bodyHtml}${signatureHtml}</body></html>`;
-  }
-
-  // Helper: very simple HTML stripper for plain-text fallback
-  _stripHtml(html) {
-    if (!html) return '';
-    return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-  }
-
-  /**
-   * Send job rescheduled notification to customer
-   */
-  async sendJobRescheduledEmail(to, { customerName, jobNumber, oldStartDate, newStartDate, newEndDate, reason }) {
-    const options = arguments[2] || {};
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
-
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
-    const subject = tenant?.defaultEmailMessage?.subject || `Schedule Change - ${jobNumber}`;
-
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage, tenant),
-      text: this._stripHtml(contractorMessage)
-    };
-
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Job rescheduled email sent');
-    } catch (error) {
-      console.error('Error sending job rescheduled email:', error);
+        return `<!DOCTYPE html><html><body style="font-family: Arial, sans-serif; color:#333;">${bodyHtml}${signatureHtml}</body></html>`;
     }
-  }
 
-  /**
-   * Send job status update notification to customer
-   */
-  async sendJobStatusUpdateEmail(to, { customerName, jobNumber, oldStatus, newStatus, notes }) {
-    const options = arguments[2] || {};
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
-
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
-    const subject = tenant?.defaultEmailMessage?.subject || `Job Status Update - ${jobNumber}`;
-
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage, tenant),
-      text: this._stripHtml(contractorMessage)
-    };
-
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Job status update email sent');
-    } catch (error) {
-      console.error('Error sending status update email:', error);
+    // Helper: very simple HTML stripper for plain-text fallback
+    _stripHtml(html) {
+        if (!html) return '';
+        return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
     }
-  }
 
-  /**
-   * Send final payment request to customer
-   */
-  async sendFinalPaymentRequestEmail(to, { customerName, jobNumber, total, depositPaid, remainingBalance }) {
-    const options = arguments[2] || {};
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+    /**
+     * Send job rescheduled notification to customer
+     */
+    async sendJobRescheduledEmail(to, { customerName, jobNumber, oldStartDate, newStartDate, newEndDate, reason }) {
+        const options = arguments[2] || {};
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
-    const subject = tenant?.defaultEmailMessage?.subject || `Final Payment Required - ${jobNumber}`;
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+        const subject = tenant?.defaultEmailMessage?.subject || `Schedule Change - ${jobNumber}`;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage, tenant),
-      text: this._stripHtml(contractorMessage)
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage, tenant),
+            text: this._stripHtml(contractorMessage)
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Final payment request email sent');
-    } catch (error) {
-      console.error('Error sending final payment request email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Job rescheduled email sent');
+        } catch (error) {
+            console.error('Error sending job rescheduled email:', error);
+        }
     }
-  }
 
-  /**
-   * Send payment receipt to customer
-   */
-  async sendPaymentReceiptEmail(to, { customerName, jobNumber, amount, paymentDate, transactionId }) {
-    const options = arguments[2] || {};
-    const Tenant = require('../models/Tenant');
-    let tenant = null;
-    if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+    /**
+     * Send job status update notification to customer
+     */
+    async sendJobStatusUpdateEmail(to, { customerName, jobNumber, oldStatus, newStatus, notes }) {
+        const options = arguments[2] || {};
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
 
-    const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
-    const subject = tenant?.defaultEmailMessage?.subject || `Payment Receipt - ${jobNumber}`;
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+        const subject = tenant?.defaultEmailMessage?.subject || `Job Status Update - ${jobNumber}`;
 
-    const mailOptions = {
-      from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      replyTo: tenant?.email || process.env.SMTP_USER,
-      subject,
-      html: await this._appendSignatureHtml(contractorMessage, tenant),
-      text: this._stripHtml(contractorMessage)
-    };
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage, tenant),
+            text: this._stripHtml(contractorMessage)
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Payment receipt email sent');
-    } catch (error) {
-      console.error('Error sending payment receipt email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Job status update email sent');
+        } catch (error) {
+            console.error('Error sending status update email:', error);
+        }
     }
-  }
 
-  /**
-   * Send final payment received notification to contractor
-   */
-  async sendFinalPaymentReceivedEmail(to, { jobNumber, customerName, amount }) {
-    const mailOptions = {
-      from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
-      to,
-      subject: `✅ Final Payment Received - ${jobNumber}`,
-      html: `
+    /**
+     * Send final payment request to customer
+     */
+    async sendFinalPaymentRequestEmail(to, { customerName, jobNumber, total, depositPaid, remainingBalance }) {
+        const options = arguments[2] || {};
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+        const subject = tenant?.defaultEmailMessage?.subject || `Final Payment Required - ${jobNumber}`;
+
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage, tenant),
+            text: this._stripHtml(contractorMessage)
+        };
+
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Final payment request email sent');
+        } catch (error) {
+            console.error('Error sending final payment request email:', error);
+        }
+    }
+
+    /**
+     * Send payment receipt to customer
+     */
+    async sendPaymentReceiptEmail(to, { customerName, jobNumber, amount, paymentDate, transactionId }) {
+        const options = arguments[2] || {};
+        const Tenant = require('../models/Tenant');
+        let tenant = null;
+        if (options.tenantId) tenant = await Tenant.findByPk(options.tenantId);
+
+        const contractorMessage = options?.contractorMessage || tenant?.defaultEmailMessage?.body || '';
+        const subject = tenant?.defaultEmailMessage?.subject || `Payment Receipt - ${jobNumber}`;
+
+        const mailOptions = {
+            from: tenant && tenant.companyName ? `"${tenant.companyName}" <${tenant.email || process.env.SMTP_USER}>` : `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            replyTo: tenant?.email || process.env.SMTP_USER,
+            subject,
+            html: await this._appendSignatureHtml(contractorMessage, tenant),
+            text: this._stripHtml(contractorMessage)
+        };
+
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Payment receipt email sent');
+        } catch (error) {
+            console.error('Error sending payment receipt email:', error);
+        }
+    }
+
+    /**
+     * Send final payment received notification to contractor
+     */
+    async sendFinalPaymentReceivedEmail(to, { jobNumber, customerName, amount }) {
+        const mailOptions = {
+            from: `"${process.env.APP_NAME || 'Cadence'}" <${process.env.SMTP_USER}>`,
+            to,
+            subject: `✅ Final Payment Received - ${jobNumber}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -2561,16 +2558,16 @@ This is an automated notification from Cadence Quote
         </body>
         </html>
       `,
-      text: `Final Payment Received - ${jobNumber}\n\nCustomer: ${customerName}\nAmount: $${amount}\n\nJob is now complete and paid in full.`,
-    };
+            text: `Final Payment Received - ${jobNumber}\n\nCustomer: ${customerName}\nAmount: $${amount}\n\nJob is now complete and paid in full.`,
+        };
 
-    try {
-      await this.transporter.sendMail(mailOptions);
-      console.log('✅ Final payment received email sent');
-    } catch (error) {
-      console.error('Error sending final payment received email:', error);
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('✅ Final payment received email sent');
+        } catch (error) {
+            console.error('Error sending final payment received email:', error);
+        }
     }
-  }
 }
 
 // Export a singleton instance so callers can use methods directly

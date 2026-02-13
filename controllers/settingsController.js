@@ -547,7 +547,7 @@ async function triggerQuoteRecalculation(tenantId) {
                     overheadPercent: parseFloat(settings.overheadPercent) || 0,
                     profitMarginPercent: parseFloat(settings.netProfitPercent) || 0,
                     taxRatePercentage: parseFloat(settings.taxRatePercentage) || 0,
-                    depositPercent: parseFloat(settings.depositPercent) || 0,
+                    depositPercent: parseFloat(settings.depositPercentage) || 0,
                 });
 
                 // Update quote with recalculated pricing

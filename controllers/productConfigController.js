@@ -287,9 +287,6 @@ const createProductConfig = async (req, res) => {
         const config = await ProductConfig.create(configPayload);
         console.log('✅ Created product config:', config);
 
-        // Invalidate product configs cache for this tenant
-        await cache.invalidateByTags(['product-configs', `tenant:${tenantId}`]);
-
         // Fetch created config with includes (after commit to avoid transaction issues)
         const createdConfig = await ProductConfig.findByPk(config.id, {
             attributes: ['id', 'tenantId', 'userId', 'globalProductId', 'isCustom', 'customProduct', 'sheens', 'isActive', 'createdAt', 'updatedAt'],
@@ -417,9 +414,6 @@ const updateProductConfig = async (req, res) => {
         await config.update(updates, { transaction });
 
         await transaction.commit();
-
-        // Invalidate product configs cache for this tenant
-        await cache.invalidateByTags(['product-configs', `tenant:${tenantId}`]);
 
         // Fetch updated config with includes (after commit)
         const updatedConfig = await ProductConfig.findByPk(config.id, {
@@ -759,9 +753,6 @@ const updateDefaults = async (req, res) => {
         }
 
         await settings.update(updates);
-
-        // Invalidate product config defaults cache for this tenant
-        await cache.invalidateByTags(['product-config-defaults', `tenant:${tenantId}`]);
 
         res.status(200).json({
             success: true,
