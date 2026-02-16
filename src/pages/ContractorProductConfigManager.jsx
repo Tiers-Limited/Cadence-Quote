@@ -559,7 +559,30 @@ const ContractorProductConfigManager = () => {
         } else {
             // Handle global products
             setCustomMode(false);
-            setSelectedGlobalProduct(record.globalProduct);
+            
+            // Parse sheens into form-friendly format FIRST
+            const sheensFormData = {};
+            if (record.sheens && Array.isArray(record.sheens)) {
+                for (const sheen of record.sheens) {
+                    sheensFormData[sheen.sheen] = {
+                        price: sheen.price,
+                        coverage: sheen.coverage,
+                    };
+                }
+            }
+            console.log("Sheens",sheensFormData)
+
+            // IMPORTANT: Add sheenOptions to globalProduct if missing
+            // The API doesn't return sheenOptions in the product config response
+            const productWithSheens = {
+                ...record.globalProduct,
+                sheenOptions: record.sheens && Array.isArray(record.sheens) 
+                    ? record.sheens.map(s => s.sheen).join(', ')
+                    : ''
+            };
+            console.log("Product with sheens", productWithSheens)
+            
+            setSelectedGlobalProduct(productWithSheens);
 
             // Load products for the product's brand and category
             const brandId = record.globalProduct?.brandId;
@@ -575,17 +598,6 @@ const ContractorProductConfigManager = () => {
                 });
             } else {
                 setLoadingEditData(false);
-            }
-
-            // Parse sheens into form-friendly format
-            const sheensFormData = {};
-            if (record.sheens && Array.isArray(record.sheens)) {
-                for (const sheen of record.sheens) {
-                    sheensFormData[sheen.sheen] = {
-                        price: sheen.price,
-                        coverage: sheen.coverage,
-                    };
-                }
             }
 
             // Pre-populate form with product and sheens
@@ -1057,7 +1069,26 @@ const ContractorProductConfigManager = () => {
 
     // Render sheen fields dynamically based on selected product
     const renderSheenFields = () => {
-        if ((customMode && !customSheenOptions) || (!customMode && (!selectedGlobalProduct || !selectedGlobalProduct.sheenOptions))) {
+        // When editing, we can derive sheen options from the form values
+        const formValues = form.getFieldsValue();
+        const existingSheens = formValues.sheens ? Object.keys(formValues.sheens) : [];
+        
+        // Determine sheen options from multiple sources
+        let sheenOptions = [];
+        
+        if (customMode && customSheenOptions) {
+            sheenOptions = customSheenOptions.split(',').map(s => s.trim()).filter(Boolean);
+        } else if (customMode && formValues.customSheenOptions) {
+            sheenOptions = formValues.customSheenOptions.split(',').map(s => s.trim()).filter(Boolean);
+        } else if (!customMode && selectedGlobalProduct && selectedGlobalProduct.sheenOptions) {
+            sheenOptions = selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
+        } else if (!customMode && editingConfig && existingSheens.length > 0) {
+            // When editing, use existing sheens from form
+            sheenOptions = existingSheens;
+        }
+        
+        // If no sheen options found, show info message
+        if (sheenOptions.length === 0) {
             return (
                 <Alert
                     message="Please select a product first"
@@ -1067,10 +1098,6 @@ const ContractorProductConfigManager = () => {
                 />
             );
         }
-
-        const sheenOptions = customMode
-            ? customSheenOptions.split(',').map(s => s.trim()).filter(Boolean)
-            : selectedGlobalProduct.sheenOptions.split(',').map(s => s.trim());
 
         return (
             <>
@@ -1824,7 +1851,10 @@ const ContractorProductConfigManager = () => {
                                 <h4 className="font-semibold mb-2 text-sm sm:text-base">Product Details:</h4>
                                 <p className="text-xs sm:text-sm"><strong>Brand:</strong> {selectedGlobalProduct.brand?.name || selectedGlobalProduct.customBrand}</p>
                                 <p className="text-xs sm:text-sm"><strong>Category:</strong> {selectedGlobalProduct.category}</p>
-                                <p className="text-xs sm:text-sm"><strong>Available Sheens:</strong> {selectedGlobalProduct.sheenOptions}</p>
+                                <p className="text-xs sm:text-sm"><strong>Available Sheens:</strong> {
+                                    selectedGlobalProduct.sheenOptions || 
+                                    (editingConfig && form.getFieldsValue().sheens ? Object.keys(form.getFieldsValue().sheens).join(', ') : 'N/A')
+                                }</p>
                                 {selectedGlobalProduct.description && (
                                     <p className="text-xs sm:text-sm"><strong>Description:</strong> {selectedGlobalProduct.description}</p>
                                 )}
